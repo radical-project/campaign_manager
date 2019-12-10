@@ -28,5 +28,8 @@ class Planner(object):
         self._logger = ru.Logger(name='radical.cm', level='DEBUG')
 
     def plan(self):
+        '''
+        The planning method
+        '''
         
         raise NotImplementedError('Plan method is not implemented')

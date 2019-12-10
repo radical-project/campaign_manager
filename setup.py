@@ -167,7 +167,7 @@ setup_args = {
     'author'             : 'Ioannis Paraskevakos',
     'author_email'       : 'g.paraskev@rutgers.edu',
     'url'                : 'https://www.github.com/iparask/campaign_manager/',
-    'license'            : '',
+    'license'            : 'MIT',
     'classifiers'        : [
         'Development Status :: 1 - Planning',
         'Intended Audience :: Developers',
@@ -189,7 +189,7 @@ setup_args = {
 
     'package_data'      :  {'': ['VERSION', 'SDIST', sdist_name]},
 
-    'install_requires'  :  [],
+    'install_requires'  :  ['radical.utils'],
 
     'zip_safe'          : False,
     'scripts'           : []
