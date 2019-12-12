@@ -15,9 +15,8 @@ class HeftPlanner(Planner):
     For reference:
     H. Topcuoglu, S. Hariri, and Min-You Wu. Performance-effective and 
     low-complexity task scheduling for heterogeneous computing. 
-    IEEE Transactions on Parallel and Distributed Systems, 
-    13(3):260–274, March 2002.
-
+    IEEE Transactions on Parallel and Distributed Systems, March 2002.
+    
     Constractor parameters:
     campaign: A list of workflows
     resources: A list of resources, whose performance is given in operations per second
@@ -77,7 +76,7 @@ class HeftPlanner(Planner):
         self._est_tx = self._calc_est_tx(cmp_oper=self._num_oper,
                                          resources=self._resources)
         # Reset the plan in case of a recall
-        self._plan = list() if self._plan
+        self._plan = list()
 
         # Calculate the average execution time for all worflows
         
