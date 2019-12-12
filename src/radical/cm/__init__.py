@@ -4,3 +4,5 @@ License: MIT
 Copyright: 2018-2019
 """
 __import__('pkg_resources').declare_namespace(__name__)
+
+from planner.base import Planner
