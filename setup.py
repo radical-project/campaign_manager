@@ -16,7 +16,7 @@ import shutil
 import subprocess as sp
 
 name     = 'radical.cm'
-mod_root = 'src/'
+mod_root = 'src/radical/cm'
 
 try:
     from setuptools import setup, Command, find_packages
@@ -173,8 +173,8 @@ setup_args = {
         'Intended Audience :: Developers',
         'Environment :: Console',
         'Programming Language :: Python',
-        'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 2',
+        'Programming Language :: Python :: 2.7',
         'Topic :: Utilities',
         'Topic :: System :: Distributed Computing',
         'Topic :: Scientific/Engineering',
@@ -182,7 +182,7 @@ setup_args = {
         'Operating System :: POSIX',
         'Operating System :: Unix'
     ],
-    'namespace_packages': ['radical.cm'],
+    'namespace_packages': ['radical'],
     'packages'          : find_packages('src/'),
 
     'package_dir'       : {'': 'src/'},
@@ -193,17 +193,6 @@ setup_args = {
 
     'zip_safe'          : False,
     'scripts'           : [],
-    'build_sphinx'      : {'source-dir'     : 'docs/',
-                            'build-dir'      : 'docs/build',
-                            'all_files'      : 1,
-                          },
-    'upload_sphinx'      : {'upload-dir'     : 'docs/build/html',
-                           },
-    # This copies the contents of the examples/ dir under
-    # sys.prefix/share/$name
-    # It needs the MANIFEST.in entries to work.
-  # 'data_files'         : makeDataFiles('share/%s/examples/' % name, 'examples'),
-  #  'data_files'         : df,
 }
 
 # ------------------------------------------------------------------------------

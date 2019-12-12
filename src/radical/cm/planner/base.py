@@ -20,10 +20,10 @@ class Planner(object):
     to do.
     '''
 
-    def __init__(self, campaign, resources, tx_est):
+    def __init__(self, campaign, resources, num_oper):
         self._campaign = campaign
         self._resources = resources
-        self._tx_est = tx_est
+        self._num_oper = num_oper
         self._plan = list()
         self._logger = ru.Logger(name='radical.cm', level='DEBUG')
 
