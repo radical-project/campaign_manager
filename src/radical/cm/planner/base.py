@@ -27,6 +27,22 @@ class Planner(object):
         self._plan = list()
         self._logger = ru.Logger(name='radical.cm', level='DEBUG')
 
+
+    def _calc_est_tx(self, cmp_oper, resources):
+        '''
+        Calculate the execution time of each workflow on all resources.
+        '''
+
+        est_tx = list()
+        for wf_oper in self.cmp_oper:
+            tmp_est_tx = list()
+            for resource in self._resources:
+                tmp_est_tx.append(float(wf_oper / resource))
+
+            est_tx.append(tmp_est_tx)
+        
+        return est_tx
+
     def plan(self):
         '''
         The planning method
