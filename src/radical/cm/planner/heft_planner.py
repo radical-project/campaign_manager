@@ -3,9 +3,10 @@ Author: Ioannis Paraskevakos
 License: MIT
 Copyright: 2018-2019
 """
+from __future__ import division
 
-import radical.utils as ru
 from .base import Planner
+
 
 class HeftPlanner(Planner):
     '''
@@ -16,7 +17,7 @@ class HeftPlanner(Planner):
     H. Topcuoglu, S. Hariri, and Min-You Wu. Performance-effective and 
     low-complexity task scheduling for heterogeneous computing. 
     IEEE Transactions on Parallel and Distributed Systems, March 2002.
-    
+
     Constractor parameters:
     campaign: A list of workflows
     resources: A list of resources, whose performance is given in operations per second
@@ -38,8 +39,8 @@ class HeftPlanner(Planner):
         # est_tx holds this table. The index of the table is
         # <workflow_idx, resource_idx>, and each entry is the estimated
         # execution time of a workflow on a resource.
-        # todo: not all workflows can run in a resource
-        
+        # TODO: not all workflows can run in a resource
+
         self._est_tx = self._calc_est_tx(cmp_oper=self._num_oper,
                                          resources=self._resources)
 
@@ -55,22 +56,25 @@ class HeftPlanner(Planner):
             list(tuples)
         '''
 
-        tmp_cmp = campaign if campaign else self._campaign
-        tmp_res = resources if resources else self._resources
-        tmp_nop = num_oper if num_oper else self._num_oper
+        # TODO: extend for dynamic campaigns and resources
+        # tmp_cmp = campaign if campaign else self._campaign
+        # tmp_res = resources if resources else self._resources
+        # tmp_nop = num_oper if num_oper else self._num_oper
         self._est_tx = self._calc_est_tx(cmp_oper=self._num_oper,
                                          resources=self._resources)
         # Reset the plan in case of a recall
         self._plan = list()
 
-        # Calculate the average execution time for all worflows
-        
+        # Calculate the average execution time for all worflows        
         av_est_tx = list()
         for est_tx in self._est_tx:
             av_est_tx.append(sum(est_tx) / len(est_tx))
-        
+
         # Get the indices of the sorted list.
-        av_est_idx_sorted = [i[0] for i in sorted(enumerate(av_est_tx), key=lambda x:x[1])]
+        av_est_idx_sorted = [i[0] for i in sorted(enumerate(av_est_tx),
+                                                  key=lambda x:x[1],
+                                                  reverse=True)]
+
 
         # This list tracks when a resource whould be available.
         resource_free = [0] * len(self._resources)
@@ -83,7 +87,12 @@ class HeftPlanner(Planner):
                 if tmp_end_time < min_end_time:
                     min_end_time = tmp_end_time
                     tmp_min_idx = i
-            self._plan.append((self._campaign[tmp_min_idx], self._resources[tmp_min_idx], tmp_str_time, tmp_end_time))
-            resource_free[tmp_min_idx] = tmp_end_time
-        
+            self._plan.append((self._campaign[sorted_idx],
+                               self._resources[tmp_min_idx],
+                               resource_free[tmp_min_idx], 
+                               resource_free[tmp_min_idx] +
+                                   wf_est_tx[tmp_min_idx]))
+            resource_free[tmp_min_idx] = resource_free[tmp_min_idx] + \
+                                         wf_est_tx[tmp_min_idx]
+
         return self._plan

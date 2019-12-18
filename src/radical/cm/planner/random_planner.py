@@ -4,9 +4,11 @@ License: MIT
 Copyright: 2018-2019
 """
 
-import radical.utils as ru
+from __future__ import division
+
 from random import randint
 from .base import Planner
+
 
 class RandomPlanner(Planner):
     '''
@@ -32,7 +34,7 @@ class RandomPlanner(Planner):
 
         self._est_tx = self._calc_est_tx(cmp_oper=self._num_oper,
                                          resources=self._resources)               
-        
+
     def plan(self, campaign=None, resources=None, num_oper=None):
         '''
         This method implements a random algorithm. It returns a list of tuples
@@ -45,22 +47,14 @@ class RandomPlanner(Planner):
             list(tuples)
         '''
 
-        tmp_cmp = campaign if campaign else self._campaign
-        tmp_res = resources if resources else self._resources
-        tmp_nop = num_oper if num_oper else self._num_oper
+        # TODO: extend for dynamic campaigns and resources
+        # tmp_cmp = campaign if campaign else self._campaign
+        # tmp_res = resources if resources else self._resources
+        # tmp_nop = num_oper if num_oper else self._num_oper
         self._est_tx = self._calc_est_tx(cmp_oper=self._num_oper,
                                          resources=self._resources)
         # Reset the plan in case of a recall
         self._plan = list()
-
-        # Calculate the average execution time for all worflows
-        
-        av_est_tx = list()
-        for est_tx in self._est_tx:
-            av_est_tx.append(sum(est_tx) / len(est_tx))
-        
-        # Get the indices of the sorted list.
-        av_est_idx_sorted = [i[0] for i in sorted(enumerate(av_est_tx), key=lambda x:x[1])]
 
         # This list tracks when a resource whould be available.
         resource_free = [0] * len(self._resources)
@@ -69,7 +63,8 @@ class RandomPlanner(Planner):
             resource = randint(0,len(self._resources))
             tmp_str_time = resource_free[resource]
             tmp_end_time = tmp_str_time + wf_est_tx[idx]
-            self._plan.append((self._campaign[idx], self._resources[tmp_min_idx], tmp_str_time, tmp_end_time))
+            self._plan.append((self._campaign[idx], self._resources[idx],
+                               tmp_str_time, tmp_end_time))
             resource_free[resource] = tmp_end_time
-        
+
         return self._plan

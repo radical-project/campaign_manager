@@ -3,8 +3,9 @@ Author: Ioannis Paraskevakos
 License: MIT
 Copyright: 2018-2019
 """
-
+from __future__ import division
 import radical.utils as ru
+
 
 class Planner(object):
     '''
@@ -34,18 +35,18 @@ class Planner(object):
         '''
 
         est_tx = list()
-        for wf_oper in self.cmp_oper:
+        for wf_oper in cmp_oper:
             tmp_est_tx = list()
-            for resource in self._resources:
+            for resource in resources:
                 tmp_est_tx.append(float(wf_oper / resource))
 
             est_tx.append(tmp_est_tx)
-        
+
         return est_tx
 
-    def plan(self):
+    def plan(self, campaign=None, resources=None, num_oper=None):
         '''
         The planning method
         '''
-        
+
         raise NotImplementedError('Plan method is not implemented')
