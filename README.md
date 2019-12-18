@@ -1,5 +1,7 @@
 # RADICAL Campaign Manager
 
+[![Build Status](https://travis-ci.org/radical-project/campaign_manager.svg?branch=devel)](https://travis-ci.org/radical-project/campaign_manager)
+
 The `master` branch generally reflects the Campaign Manger release on Pypi, and is
 considered stable: it should work 'out of the box'. Please refer to the documentation.
 
