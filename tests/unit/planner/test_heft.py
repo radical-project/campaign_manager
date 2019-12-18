@@ -1,6 +1,9 @@
-'''
+"""
+Author: Ioannis Paraskevakos
+License: MIT
+Copyright: 2018-2019
 Unit test for heft_planner scheduler
-'''
+"""
 # pylint: disable=protected-access, unused-argument
 
 from radical.cm.planner import HeftPlanner
