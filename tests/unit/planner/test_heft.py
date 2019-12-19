@@ -108,8 +108,7 @@ def test_plan4(mocked_init, mocked_raise_on):
 
     actual_plan = [('W1', 523, 0, 102.5793499043977)]
     planner = HeftPlanner(None, None, None)
-    planner._campaign = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8', 'W9',
-                         'W10']
+    planner._campaign = ['W1']
     planner._resources = [523, 487, 96]
     planner._num_oper = [53649]
 
