@@ -189,7 +189,7 @@ setup_args = {
 
     'package_data'      :  {'': ['VERSION', 'SDIST', sdist_name]},
 
-    'install_requires'  :  ['radical.utils'],
+    'install_requires'  :  ['radical.utils==0.72.0'],
 
     'zip_safe'          : False,
     'scripts'           : [],
