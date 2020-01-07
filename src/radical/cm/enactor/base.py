@@ -13,7 +13,7 @@ class Enactor(object):
     workflows on their selected resources. 
 
     The Enactor offers a set of methods to execute and monitor workflows.
-    
+
     *Parameters:*
 
     *workflows*: A list with the workflow IDs that are executing.
@@ -29,7 +29,7 @@ class Enactor(object):
         self._worflows = list()  # A list of workflows IDs
         self._execution_status = dict()  # This will create a hash table of workflows
         self._logger = ru.Logger(name='radical.cm.enactor', level='DEBUG')
-    
+
     def _execute(self, workflow, resource):
         '''
         Method executes receives a workflow and a resource. It is responsible to
@@ -66,7 +66,7 @@ class Enactor(object):
                 status.append((workflow, self._execution_status[workflow]['state']))
         else:
             status = self._execution_status[workflow]['state']
-        
+
         return status
 
     def update_status_cb(self, workflow, new_state):
@@ -79,7 +79,7 @@ class Enactor(object):
                                  workflow, self._get_workflow_state(workflow))
         else:
             self._execution_status[workflow]['state'] = new_state
-          
+
     def _get_workflow_state(self, workflow):
         '''
         Get a workflow's update

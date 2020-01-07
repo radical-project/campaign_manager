@@ -21,7 +21,7 @@ class Planner(object):
     to do.
     '''
 
-    def __init__(self, campaign, resources, num_oper, logger):
+    def __init__(self, campaign, resources, num_oper):
         self._campaign = campaign
         self._resources = resources
         self._num_oper = num_oper

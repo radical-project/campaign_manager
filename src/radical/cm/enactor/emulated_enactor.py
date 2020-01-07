@@ -8,6 +8,7 @@ import radical.utils as ru
 from calculator import Resource
 from .base import Enactor
 
+
 class EmulatedEnactor(Enactor):
     '''
     The Emulated enactor is responsible to execute workflows on emulated 
@@ -47,17 +48,17 @@ class EmulatedEnactor(Enactor):
             self._resources[idx] = resource
 
         self._uid = ru.generate_id('rcm.enactor', mode=ru.ID_PRIVATE)
-    
+
     def query_resources(self):
         '''
         Provides performance information on resources
         '''
-        
+
         query = dict()
         for idx, resource in self._resources.items():
             tmp = resource.to_dict()
             query[idx] = tmp['perf']
-        
+
         return query
 
     def _execute(self, workflow, resource):
