@@ -27,7 +27,6 @@ def test_plan1(mocked_init, mocked_raise_on):
                          40000, 16000]
 
     est_plan = planner.plan()
-    print est_plan
     for elem in est_plan:
         assert elem[0] in campaign
         campaign.remove(elem[0])

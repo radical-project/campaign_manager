@@ -127,8 +127,8 @@ def get_version(mod_root):
 
 # ------------------------------------------------------------------------------
 # check python version. we need >= 3.5
-if  sys.hexversion < 0x2070000:
-    raise RuntimeError("%s requires Python x.x (2.7 or higher)" % name)
+if  sys.hexversion < 0x3050000:
+    raise RuntimeError("%s requires Python x.x (3.5 or higher)" % name)
 
 
 # ------------------------------------------------------------------------------
@@ -189,7 +189,7 @@ setup_args = {
 
     'package_data'      :  {'': ['VERSION', 'SDIST', sdist_name]},
 
-    'install_requires'  :  ['radical.utils==0.72.0'],
+    'install_requires'  :  ['radical.utils==1.0.0'],
 
     'zip_safe'          : False,
     'scripts'           : [],

@@ -1,12 +1,12 @@
-.. _api:
+.. _enactor:
 
 ***********************
-API Reference for Users
+Enactor API
 ***********************
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 2
    :caption: Contents:
-
-   ./api/planner
-   ./api/enactor
+   
+   base_enactor
+   emulated

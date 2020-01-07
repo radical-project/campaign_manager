@@ -4,8 +4,10 @@
 Planner API
 ***********************
 
-.. autoclass:: radical.cm.planner.Planner
-.. autoclass:: radical.cm.planner.HeftPlanner
-.. autoclass:: radical.cm.planner.RandomPlanner
-    :members:
-    :noindex:
+.. toctree::
+   :maxdepth: 2
+   :caption: Contents:
+   
+   base_planner
+   heft
+   random

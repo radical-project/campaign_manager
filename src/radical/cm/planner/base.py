@@ -3,7 +3,7 @@ Author: Ioannis Paraskevakos
 License: MIT
 Copyright: 2018-2019
 """
-from __future__ import division
+
 import radical.utils as ru
 
 
@@ -21,12 +21,12 @@ class Planner(object):
     to do.
     '''
 
-    def __init__(self, campaign, resources, num_oper):
+    def __init__(self, campaign, resources, num_oper, logger):
         self._campaign = campaign
         self._resources = resources
         self._num_oper = num_oper
         self._plan = list()
-        self._logger = ru.Logger(name='radical.cm', level='DEBUG')
+        self._logger = ru.Logger(name='radical.cm.planner', level='DEBUG')
 
 
     def _calc_est_tx(self, cmp_oper, resources):

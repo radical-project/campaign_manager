@@ -3,8 +3,6 @@ Author: Ioannis Paraskevakos
 License: MIT
 Copyright: 2018-2019
 """
-from __future__ import division
-
 from .base import Planner
 
 

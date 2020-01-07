@@ -16,7 +16,7 @@ The Manager is released under the
 
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
    :numbered:
    :caption: Contents:
 
