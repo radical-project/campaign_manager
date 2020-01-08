@@ -4,7 +4,6 @@ License: MIT
 Copyright: 2018-2019
 """
 
-from __future__ import division
 
 from random import randint
 from .base import Planner

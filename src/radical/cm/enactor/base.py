@@ -29,6 +29,8 @@ class Enactor(object):
         self._worflows = list()  # A list of workflows IDs
         self._execution_status = dict()  # This will create a hash table of workflows
         self._logger = ru.Logger(name='radical.cm.enactor', level='DEBUG')
+        self._uid = ru.generate_id('rcm.enactor', mode=ru.ID_PRIVATE)
+    
 
     def _execute(self, workflow, resource):
         '''
