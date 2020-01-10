@@ -53,6 +53,13 @@ class Enactor(object):
                 self._execution_status[workflow] = self._execute(workflow,
                                                                  resource)
 
+    def _monitor(self):
+        '''
+        This method monitors the execution of workflows
+        '''
+
+        raise NotImplementedError('_monitor is not implemented')
+
     def get_status(self, workflows=None):
         '''
         Get the state of a workflow or workflows
