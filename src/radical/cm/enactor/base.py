@@ -27,31 +27,29 @@ class Enactor(object):
     def __init__(self):
 
         self._worflows = list()  # A list of workflows IDs
+        # This will a hash table of workflows. The table will include the
+        # following:
+        # 'workflowsID': {'state': The state of the workflow based on the WFM,
+        #                 'endpoint': Process ID or object to WMF for the specific
+        #                             workflow,
+        #                 'start_time': Epoch of when the workflow is submitted
+        #                               to the WMF,
+        #                 'end_time': Epoch of when the workflow finished.}
         self._execution_status = dict()  # This will create a hash table of workflows
         self._logger = ru.Logger(name='radical.cm.enactor', level='DEBUG')
         self._uid = ru.generate_id('rcm.enactor', mode=ru.ID_PRIVATE)
     
 
-    def _execute(self, workflow, resource):
-        '''
-        Method executes receives a workflow and a resource. It is responsible to
-        start the execution of the workflow and return a endopint to the WMF that
-        executes the workflow
-        '''
-
-        raise NotImplementedError('_execute is not implemented')
-
     def enact(self, plan):
         '''
-        Enact on a set of workflows
+        Method enact receives a set workflows and resources. It is responsible to
+        start the execution of the workflow and set a endpoint to the WMF that
+        executes the workflow
+
+        *workflows:* A workflows that will execute on a resource
+        *resources:* The resource that will be used.
         '''
-        for workflow, resource in plan:
-            if workflow in self._execution_status:
-                self._logger.warning('Workflow %s is in state %s', workflow, 
-                                     self._get_workflow_state(workflow))
-            else:
-                self._execution_status[workflow] = self._execute(workflow,
-                                                                 resource)
+        raise NotImplementedError('enact is not implemented')
 
     def _monitor(self):
         '''

@@ -6,6 +6,7 @@ Copyright: 2018-2019
 
 from .base import Enactor
 from calculator.entities.task import Task
+from time import time
 
 import ..utils.states as st
 
@@ -21,36 +22,32 @@ class EmulatedEnactor(Enactor):
         super(EmulatedEnactor, self).__init__()
         self._to_monitor = list()
 
-    def _execute(self, workflow, resource):
+   
+    def enact(self, workflows, resources):
         '''
-        Method executes receives a workflow and a resource. It is responsible to
-        start the execution of the workflow and return a endpoint to the WMF that
+        Method enact receives a set workflows and resources. It is responsible to
+        start the execution of the workflow and set a endpoint to the WMF that
         executes the workflow
 
-        *workflow:* A workflows that will execute on a resource
-        *resource:* The resource that will be used.
-        '''
-
-        try:
-            exec_workflow = Task(workflows['operations'], no_uid=True)
-            resource.execute(exec_workflow)
-            self._to_monitor.append(exec_workflow)
-            return st.EXECUTING
-        except:
-            self._logger.error('Workflow %s could not be executed on resource %s',
-                               (workflow, resource))
-    
-    def enact(self, plan):
-        '''
-        Enact on a set of workflows
+        *workflows:* A workflows that will execute on a resource
+        *resources:* The resource that will be used.
         '''
         for workflow, resource in plan:
             if workflow in self._execution_status:
                 self._logger.warning('Workflow %s is in state %s', workflow, 
                                      self._get_workflow_state(workflow))
             else:
-                self._execution_status[workflow] = self._execute(workflow,
-                                                                 resource)
+                try:
+                    exec_workflow = Task(workflow['operations'], no_uid=True)
+                    resource.execute(exec_workflow)
+                    self._to_monitor.append(exec_workflow)
+                    self._execution_status[workflow['ID']] = {'state': st.EXECUTING,
+                                                        'endpoint': resource,
+                                                        'start_time': time(),
+                                                        'end_time': None}
+                except:
+                self._logger.error('Workflow %s could not be executed on resource %s',
+                               (workflow, resource))
 
     def _monitor(self):
         '''
@@ -60,7 +57,7 @@ class EmulatedEnactor(Enactor):
         while self._to_monitor:
             workflow = self._to_monitor.pop(0)
             if workflow.exec_core:
-                self._execution_status[workflow] = st.DONE
+                self._execution_status[workflow]['state'] = st.DONE
           
         
     def get_status_cb(self, workflows=None):

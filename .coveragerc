@@ -1,4 +1,4 @@
 [run]
 include =
- $LOC/lib/python2.7/site-packages/radical/cm/*
+ $LOC/lib/python3.6/site-packages/radical/cm/*
 
