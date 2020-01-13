@@ -3,6 +3,7 @@ Author: Ioannis Paraskevakos
 License: MIT
 Copyright: 2018-2019
 """
+import os
 import radical.utils as ru
 
 
@@ -36,8 +37,13 @@ class Enactor(object):
         #                               to the WMF,
         #                 'end_time': Epoch of when the workflow finished.}
         self._execution_status = dict()  # This will create a hash table of workflows
-        self._logger = ru.Logger(name='radical.cm.enactor', level='DEBUG')
+        
         self._uid = ru.generate_id('rcm.enactor', mode=ru.ID_PRIVATE)
+        path = os.getcwd() + '/'
+        name = self._uid
+
+        self._logger = ru.Logger(name=name, path=path)
+        self._prof   = ru.Profiler(name=name, path=path)
     
 
     def enact(self, plan):
@@ -93,3 +99,16 @@ class Enactor(object):
         '''
 
         return self._execution_status[workflow]['state']
+
+    def terminate(self):
+        '''
+        Public method to terminate the Enactor
+        '''
+        raise NotImplementedError('terminate is not implemented')
+        
+    def run(self):
+        '''
+        Public method that starts the enactor.
+        '''
+        raise NotImplementedError('run is not implemented')
+        
