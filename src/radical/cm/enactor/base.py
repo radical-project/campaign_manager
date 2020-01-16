@@ -43,10 +43,10 @@ class Enactor(object):
         name = self._uid
 
         self._logger = ru.Logger(name=name, path=path)
-        self._prof   = ru.Profiler(name=name, path=path)
+        #self._prof   = ru.Profiler(name=name, path=path)
     
 
-    def enact(self, plan):
+    def enact(self, workflows, resources):
         '''
         Method enact receives a set workflows and resources. It is responsible to
         start the execution of the workflow and set a endpoint to the WMF that
@@ -68,9 +68,9 @@ class Enactor(object):
         '''
         Get the state of a workflow or workflows
         '''
-
+        
+        status = list()
         if workflows is None:
-            status = list()
             for workflow, status in self._execution_status.items():
                 status.append((workflow, self._execution_status[workflow]['state']))
         elif isinstance(workflows, list):
@@ -78,7 +78,7 @@ class Enactor(object):
             for workflow in workflows:
                 status.append((workflow, self._execution_status[workflow]['state']))
         else:
-            status = self._execution_status[workflow]['state']
+            status = (workflow, self._execution_status[workflow]['state'])
 
         return status
 

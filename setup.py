@@ -173,8 +173,8 @@ setup_args = {
         'Intended Audience :: Developers',
         'Environment :: Console',
         'Programming Language :: Python',
-        'Programming Language :: Python :: 2',
-        'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.7',
         'Topic :: Utilities',
         'Topic :: System :: Distributed Computing',
         'Topic :: Scientific/Engineering',
@@ -189,7 +189,8 @@ setup_args = {
 
     'package_data'      :  {'': ['VERSION', 'SDIST', sdist_name]},
 
-    'install_requires'  :  ['radical.utils==1.0.0'],
+    'install_requires'  :  ['radical.entk==1.0.0',
+                            'numpy'],
 
     'zip_safe'          : False,
     'scripts'           : [],
