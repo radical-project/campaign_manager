@@ -43,7 +43,7 @@ class Enactor(object):
         name = self._uid
 
         self._logger = ru.Logger(name=name, path=path)
-        #self._prof   = ru.Profiler(name=name, path=path)
+        self._prof   = ru.Profiler(name=name, path=path)
     
 
     def enact(self, workflows, resources):

@@ -5,22 +5,21 @@ Copyright: 2018-2019
 """
 
 # Imports from general packages
-import time
+from time import time, sleep
 import threading as mt
 
 # Imports from dependent packages
 import radical.utils as ru
+import radical.entk as re
 
 # Imports from this package
 from .base import Enactor
 from ..utils import states as st
-from ..utils.calculator.entities.task import Task
 
-
-class EmulatedEnactor(Enactor):
+class RadicalEnTkEnactor(Enactor):
     '''
-    The Emulated enactor is responsible to execute workflows on emulated 
-    resources. The Enactor takes as input a list of tuples <workflow,resource> 
+    The RADICAL-EnTK enactor is responsible to execute workflows on resources via
+    RADICAL-EnTK. The Enactor takes as input a list of tuples <workflow,resource> 
     and executes the workflows on their selected resources. 
     '''
 
@@ -52,17 +51,15 @@ class EmulatedEnactor(Enactor):
         for workflow, resource in zip(workflows, resources):
             # If the enactor has already received a workflow issue a warning and
             # proceed.
-            if workflow['id'] in self._execution_status:
+            if workflow in self._execution_status:
                 self._logger.warning('Workflow %s is in state %s', workflow, 
-                                     self._get_workflow_state(workflow['id']))
+                                     self._get_workflow_state(workflow))
             else:
                 try:
                     # Create a calculator task. This is equivalent because with
                     # the emulated resources, a workflow is a number of operations
                     # that need to be executed.
-                    exec_workflow = Task(workflow['num_oper'], no_uid=True)
-                    self._logger.warning('Enacting on workflow %s',
-                                          workflow['id'])
+                    exec_workflow = Task(workflow['operations'], no_uid=True)
 
                     # Lock the monitoring list and update it, as well as update
                     # the state of the workflow.
@@ -70,12 +67,11 @@ class EmulatedEnactor(Enactor):
                         self._to_monitor.append(workflow['id'])
                         self._execution_status[workflow['id']] = {'state': st.EXECUTING,
                                                         'endpoint': exec_workflow,
-                                                        'start_time': time.time(),
+                                                        'start_time': time(),
                                                         'end_time': None}
 
                     # Execute the task.
-                    resource.execute(exec_workflow,
-                                     str_time=self._execution_status[workflow['id']]['start_time'])
+                    resource.execute(exec_workflow)
                     
                     # If there is no monitoring tasks, start one.
                     if self._monitoring_thread is None:
@@ -99,11 +95,11 @@ class EmulatedEnactor(Enactor):
                 with self._monitoring_lock:
                     workflow_id = self._to_monitor.pop(0)
                     if workflow_id in self._execution_status:
-                        if self._execution_status[workflow_id]['endpoint'].exec_core:
-                            self._execution_status[workflow_id]['state'] = st.DONE
-                            self._execution_status[workflow_id]['end_time'] = self._execution_status[workflow_id]['endpoint'].end_time
+                        if self._execution_status[workflow]['endpoint'].exec_core:
+                            self._execution_status[workflow]['state'] = st.DONE
+                            self._execution_status[workflow]['end_time'] = self._execution_status[workflow]['endpoint'].end_time
             else:
-                time.sleep(1)
+                sleep(1)
           
         
     def get_status(self, workflows=None):
@@ -151,3 +147,10 @@ class EmulatedEnactor(Enactor):
             self._terminate_monitor.set()
             self._monitoring_thread.join()
             self._prof.prof('monitor_terminated', uid=self._uid)
+        
+    def run(self):
+        '''
+        Public method that starts the enactor.
+        '''
+
+        #TODO.
