@@ -34,6 +34,8 @@ class EmulatedEnactor(Enactor):
 
         # Lock to provide atomicity in the monitoring data structure
         self._monitoring_lock  = ru.RLock('cm.monitor_lock')
+        self._cb_lock          = ru.RLock('enactor.cb_lock')
+        self._callbacks        = dict()
 
         # Creating a thread to execute the monitoring method.
         self._monitoring_thread = None  # Private attribute that will hold the thread
@@ -72,6 +74,9 @@ class EmulatedEnactor(Enactor):
                                                         'endpoint': exec_workflow,
                                                         'start_time': time.time(),
                                                         'end_time': None}
+                        for cb in self._callbacks:
+                            self._callbacks[cb](workflows_id=workflow['id'],
+                                                new_state=st.EXECUTING)
 
                     # Execute the task.
                     resource.execute(exec_workflow,
@@ -102,6 +107,9 @@ class EmulatedEnactor(Enactor):
                         if self._execution_status[workflow_id]['endpoint'].exec_core:
                             self._execution_status[workflow_id]['state'] = st.DONE
                             self._execution_status[workflow_id]['end_time'] = self._execution_status[workflow_id]['endpoint'].end_time
+                            for cb in self._callbacks:
+                                self._callbacks[cb](workflows_id=workflow_id,
+                                                    new_state=st.EXECUTING)
             else:
                 time.sleep(1)
           
@@ -151,3 +159,12 @@ class EmulatedEnactor(Enactor):
             self._terminate_monitor.set()
             self._monitoring_thread.join()
             self._prof.prof('monitor_terminated', uid=self._uid)
+
+    def register_state_cb(self, cb):
+        '''
+        Registers a new state update callback function with the Enactor.
+        '''
+
+        with self._cb_lock:
+            cb_name = cb.__name__
+            self._callbacks[cb_name] = {'cb': cb}

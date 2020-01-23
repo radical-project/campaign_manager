@@ -1,1 +1,0 @@
-from .api.resource import Resource

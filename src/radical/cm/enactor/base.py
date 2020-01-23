@@ -106,9 +106,3 @@ class Enactor(object):
         '''
         raise NotImplementedError('terminate is not implemented')
         
-    def run(self):
-        '''
-        Public method that starts the enactor.
-        '''
-        raise NotImplementedError('run is not implemented')
-        
