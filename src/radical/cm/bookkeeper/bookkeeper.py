@@ -153,8 +153,9 @@ class Bookkeeper(object):
                         workflows.append(workflow)
                         resources.append(resource)
                 self._enactor.enact(workflows=workflows, resources=resources)
-                self._workflows_to_monitor += workflows
-                self._unavail_resources += resources
+                with self._monitor_lock:
+                    self._workflows_to_monitor += workflows
+                    self._unavail_resources += resources
 
             else:
                 self._logger.error("Objective cannot be satisfied. Ending execution")
@@ -189,6 +190,22 @@ class Bookkeeper(object):
 
         return self._checkpoints[-1]
 
+    def _terminate():
+        self._logger.info('Start terminating procedure')
+        self._prof.prof('str_bookkeper_terminating', uid=self._uid)
+        
+        if self._work_thread:
+            self._prof.prof('work_bookkeper_terminate', uid=self._uid)
+            self._terminate_work.set()  # Thread event to terminate.
+            self._work_thread.join()  # Private attribute that will hold the thread
+            self._prof.prof('work_bookkeper_terminated', uid=self._uid)
+        
+        if self._monitoring_thread:
+            self._prof.prof('monitor_bookkeper_terminate', uid=self._uid)
+            self._terminate_monitor.set()
+            self._monitoring_thread.join()
+            self._prof.prof('monitor_bookkeper_terminated', uid=self._uid)
+
     def run(self):
         '''
         This method starts two threads for executing the campaign. The first
@@ -208,3 +225,8 @@ class Bookkeeper(object):
         self._monitoring_thread = mt.Thread(target=self.monitor,
                                           name='monitor-thread')
         self._monitoring_thread.start()
+
+        while self._time < self._checkpoints[-1]:
+            time.sleep(1)
+
+        self._terminate()

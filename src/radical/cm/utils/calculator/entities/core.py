@@ -1,5 +1,6 @@
 import radical.utils as ru
 import numpy as np
+import time
 
 
 class Core(object):
@@ -78,7 +79,7 @@ class Core(object):
                 task.start_time = 0
             else:
                 task.start_time = self._util[-1][1]
-
+        time.sleep(10)
         task.end_time = task.start_time + dur
         self._util.append([task.start_time, task.end_time])
         self._task_history.append(task.uid)
