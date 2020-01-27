@@ -80,10 +80,10 @@ class Bookkeeper(object):
         self._checkpoints = [0]
 
         for work in self._plan:
+            if work[2] not in self._checkpoints:
+                self._checkpoints.append(work[2])
             if work[3] not in self._checkpoints:
                 self._checkpoints.append(work[3])
-            if work[4] not in self._checkpoints:
-                self._checkpoints.append(work[4])
         
         self._checkpoints.sort()
 
@@ -245,7 +245,7 @@ class Bookkeeper(object):
     def get_workflows_state(self):
 
         states = dict()
-        for workflow in self._campaign:
+        for workflow in self._campaign['campaign']:
             states[workflow['id']] = self._execution_state[workflow['id']]
 
         return states
