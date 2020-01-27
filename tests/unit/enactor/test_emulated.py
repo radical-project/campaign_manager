@@ -42,4 +42,3 @@ def test_enact(mocked_init, mocked_raise_on, mocked_time):
     assert isinstance(enactor._execution_status[1]['endpoint'], Task)
     assert enactor._execution_status[1]['start_time'] == 0
     assert enactor._execution_status[1]['end_time'] is None
-   

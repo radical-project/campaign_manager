@@ -9,7 +9,6 @@ Unit test for heft_planner scheduler
 
 from radical.cm.bookkeeper import Bookkeeper
 from radical.cm.utils import states as st
-import radical.utils as ru
 
 try:
     import mock
@@ -21,18 +20,18 @@ except ImportError:
 @mock.patch.object(Bookkeeper, '__init__', return_value=None)
 def test_update_checkpoints(mocked_init):
 
-    bookkeeper = Bookkeeper()
+    bookkeeper = Bookkeeper(campaign=None, resources=None)
     bookkeeper._checkpoints = None
-    bookkeeper._plan = [('W1', { 'id': 1, 'performance': 523}, 0, 102.5793499043977),
-                        ('W9', { 'id': 2, 'performance': 487}, 0, 82.13552361396304),
-                        ('W3', { 'id': 2, 'performance': 487}, 82.13552361396304, 147.22792607802876),
-                        ('W5', { 'id': 1, 'performance': 523}, 102.5793499043977, 140.82026768642447),
-                        ('W10', { 'id': 3, 'performance': 96}, 0, 166.66666666666666),
-                        ('W4', { 'id': 1, 'performance': 523}, 140.82026768642447, 166.0),
-                        ('W2', { 'id': 2, 'performance': 487}, 147.22792607802876, 170.22792607802876),
-                        ('W7', { 'id': 1, 'performance': 523}, 166.0, 185.11854684512429),
-                        ('W8', { 'id': 2, 'performance': 487}, 170.22792607802876, 180.54620123203287),
-                        ('W6', { 'id': 3, 'performance': 96}, 166.66666666666666, 179.16666666666666)]
+    bookkeeper._plan = [('W1', {'id': 1, 'performance': 523}, 0, 102.5793499043977),
+                        ('W9', {'id': 2, 'performance': 487}, 0, 82.13552361396304),
+                        ('W3', {'id': 2, 'performance': 487}, 82.13552361396304, 147.22792607802876),
+                        ('W5', {'id': 1, 'performance': 523}, 102.5793499043977, 140.82026768642447),
+                        ('W10', {'id': 3, 'performance': 96}, 0, 166.66666666666666),
+                        ('W4', {'id': 1, 'performance': 523}, 140.82026768642447, 166.0),
+                        ('W2', {'id': 2, 'performance': 487}, 147.22792607802876, 170.22792607802876),
+                        ('W7', {'id': 1, 'performance': 523}, 166.0, 185.11854684512429),
+                        ('W8', {'id': 2, 'performance': 487}, 170.22792607802876, 180.54620123203287),
+                        ('W6', {'id': 3, 'performance': 96}, 166.66666666666666, 179.16666666666666)]
 
     checkpoints = [0,
                    82.13552361396304,
@@ -45,7 +44,7 @@ def test_update_checkpoints(mocked_init):
                    179.16666666666666,
                    180.54620123203287,
                    185.11854684512429]
-    
+
     bookkeeper._update_checkpoints()
 
     assert checkpoints == bookkeeper._checkpoints
@@ -56,7 +55,7 @@ def test_update_checkpoints(mocked_init):
 @mock.patch.object(Bookkeeper, '_update_checkpoints', return_value=None)
 def test_verify_objective(mocked_init, mocked_update_checkpoints):
 
-    bookkeeper = Bookkeeper()
+    bookkeeper = Bookkeeper(campaign=None, resources=None)
     bookkeeper._checkpoints = [0,
                                82.13552361396304,
                                102.5793499043977,
@@ -81,7 +80,7 @@ def test_verify_objective(mocked_init, mocked_update_checkpoints):
 @mock.patch.object(Bookkeeper, '_update_checkpoints', return_value=None)
 def test_get_makespan(mocked_init, mocked_update_checkpoints):
 
-    bookkeeper = Bookkeeper()
+    bookkeeper = Bookkeeper(campaign=None, resources=None)
     bookkeeper._checkpoints = [0,
                                82.13552361396304,
                                102.5793499043977,
@@ -93,7 +92,7 @@ def test_get_makespan(mocked_init, mocked_update_checkpoints):
                                179.16666666666666,
                                180.54620123203287,
                                185.11854684512429]
-    
+
     makespan = 185.11854684512429
     assert bookkeeper.get_makespan() == makespan
 
@@ -102,7 +101,7 @@ def test_get_makespan(mocked_init, mocked_update_checkpoints):
 @mock.patch.object(Bookkeeper, '__init__', return_value=None)
 def test_get_campaign_state(mocked_init):
 
-    bookkeeper = Bookkeeper()
+    bookkeeper = Bookkeeper(campaign=None, resources=None)
     bookkeeper._campaign = {'campaign': None,
                             'state': st.NEW}
 
@@ -113,10 +112,10 @@ def test_get_campaign_state(mocked_init):
 @mock.patch.object(Bookkeeper, '__init__', return_value=None)
 def test_get_workflows_state(mocked_init):
 
-    bookkeeper = Bookkeeper()
+    bookkeeper = Bookkeeper(campaign=None, resources=None)
     bookkeeper._execution_state = {1: st.NEW,
                                    2: st.EXECUTING}
-    
+
     bookkeeper._campaign = {'campaign': [{'id': 1},
                                          {'id': 2}]}
     assert bookkeeper.get_workflows_state() == {1: st.NEW, 2: st.EXECUTING}
