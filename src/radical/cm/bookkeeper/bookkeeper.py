@@ -4,6 +4,7 @@ License: MIT
 Copyright: 2018-2019
 """
 import os
+import time
 import threading as mt
 import radical.utils as ru
 from ..planner import HeftPlanner, RandomPlanner
@@ -28,6 +29,7 @@ class Bookkeeper(object):
         self._campaign = {'campaign': campaign,
                           'state': st.NEW
                          }
+        self._uid = ru.generate_id('rcm.bookkeeper', mode=ru.ID_PRIVATE)
         self._resources = resources
         self._checkpoints = None
         self._plan = None
@@ -52,20 +54,21 @@ class Bookkeeper(object):
         self._prof   = ru.Profiler(name='radical.cm.bookkeeper',
                                    path=os.getcwd() + '/')
         
+        num_oper = [workflow['num_oper'] for workflow in self._campaign['campaign']]
         if planner.lower() == 'random':
             self._planner = RandomPlanner(campaign=self._campaign,
                                           resources=self._resources,
-                                          num_oper=[])  # TODO: fix num_oper
+                                          num_oper=num_oper)
         elif planner.lower() == 'heft':
             self._planner = HeftPlanner(campaign=self._campaign,
                                           resources=self._resources,
-                                          num_oper=[])  # TODO: fix num_oper
+                                          num_oper=num_oper)
         else:
             self._logger.warning('Planner %s is not implemented. Rolling to a \
                                   random planner')
             self._planner = RandomPlanner(campaign=self._campaign,
                                           resources=self._resources,
-                                          num_oper=[])  # TODO: fix num_oper
+                                          num_oper=num_oper)
         
     def _update_checkpoints(self):
         '''
@@ -129,12 +132,7 @@ class Bookkeeper(object):
         if self._plan is None:
             with self._exec_state_lock:
                 self._campaign['state'] = st.PLANNING
-            
-            num_oper = [workflow['num_oper'] for workflow in self._campaign['campaign']]
-
-            self._plan = self._planner.plan(campaign=self._campaign['campaign'],
-                                            resources=self._resources,
-                                            num_oper=num_oper)
+            self._plan = self._planner.plan()
 
         self._update_checkpoints()
         
@@ -151,7 +149,7 @@ class Bookkeeper(object):
                     # already.
                     if start_time == self._time and est_end_time > self._time:
                         workflows.append(workflow)
-                        resources.append(resource)
+                        resources.append(resource['id'])
                 self._enactor.enact(workflows=workflows, resources=resources)
                 with self._monitor_lock:
                     self._workflows_to_monitor += workflows
@@ -190,7 +188,8 @@ class Bookkeeper(object):
 
         return self._checkpoints[-1]
 
-    def _terminate():
+    def _terminate(self):
+
         self._logger.info('Start terminating procedure')
         self._prof.prof('str_bookkeper_terminating', uid=self._uid)
         
@@ -229,4 +228,24 @@ class Bookkeeper(object):
         while self._time < self._checkpoints[-1]:
             time.sleep(1)
 
+        for workflow in self._campaign['campaign']:
+            if self._execution_state[workflow['id']] is st.FAILED:
+                self._campaign['state'] = st.FAILED
+                break
+        
+        if self._campaign['state'] not in st.CFINAL:
+            self._campaign['state'] = st.DONE
+
         self._terminate()
+
+    def get_campaign_state(self):
+
+        return self._campaign['state']
+
+    def get_workflows_state(self):
+
+        states = dict()
+        for workflow in self._campaign:
+            states[workflow['id']] = self._execution_state[workflow['id']]
+
+        return states
