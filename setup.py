@@ -190,6 +190,7 @@ setup_args = {
     'package_data'      :  {'': ['VERSION', 'SDIST', sdist_name]},
 
     'install_requires'  :  ['radical.entk==1.0.0',
+                            'radical.calculator',
                             'numpy'],
 
     'zip_safe'          : False,

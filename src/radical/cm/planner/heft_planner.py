@@ -101,4 +101,5 @@ class HeftPlanner(Planner):
             resource_free[tmp_min_idx] = resource_free[tmp_min_idx] + \
                                          wf_est_tx[tmp_min_idx]
 
+        self._logger.info('Derived plan %s', self._plan)
         return self._plan

@@ -14,7 +14,7 @@ import radical.utils as ru
 # Imports from this package
 from .base import Enactor
 from ..utils import states as st
-from ..utils.calculator.entities.task import Task
+from radical.calculator.entities.task import Task
 
 
 class EmulatedEnactor(Enactor):
@@ -55,16 +55,16 @@ class EmulatedEnactor(Enactor):
             # If the enactor has already received a workflow issue a warning and
             # proceed.
             if workflow['id'] in self._execution_status:
-                self._logger.warning('Workflow %s is in state %s', workflow, 
-                                     self._get_workflow_state(workflow['id']))
+                self._logger.info('Workflow %s is in state %s', workflow, 
+                                  st._state_dict[self._get_workflow_state(workflow['id'])])
             else:
                 try:
                     # Create a calculator task. This is equivalent because with
                     # the emulated resources, a workflow is a number of operations
                     # that need to be executed.
                     exec_workflow = Task(workflow['num_oper'], no_uid=True)
-                    self._logger.warning('Enacting on workflow %s',
-                                          workflow['id'])
+                    self._logger.info('Enacting workflow %s on resource %s',
+                                          workflow['id'], resource)
 
                     # Lock the monitoring list and update it, as well as update
                     # the state of the workflow.
@@ -75,13 +75,15 @@ class EmulatedEnactor(Enactor):
                                                         'start_time': time.time(),
                                                         'end_time': None}
                         for cb in self._callbacks:
-                            self._callbacks[cb](workflows_id=workflow['id'],
+                            self._callbacks[cb](workflow_id=workflow['id'],
                                                 new_state=st.EXECUTING)
 
                     # Execute the task.
-                    resource.execute(exec_workflow,
+                    resource['label'].execute(exec_workflow,
                                      str_time=self._execution_status[workflow['id']]['start_time'])
-                    
+                    self._logger.info('Enacted workflow %s on resource %s',
+                                          workflow['id'], resource)
+
                     # If there is no monitoring tasks, start one.
                     if self._monitoring_thread is None:
                         self._logger.info('Starting monitor thread')
@@ -102,16 +104,21 @@ class EmulatedEnactor(Enactor):
         while not self._terminate_monitor.is_set():
             if self._to_monitor:
                 with self._monitoring_lock:
+                    # It does not iterate correctly.
                     workflow_id = self._to_monitor.pop(0)
+                    self._logger.info('Monitoring workflow %s' % workflow_id)
                     if workflow_id in self._execution_status:
                         if self._execution_status[workflow_id]['endpoint'].exec_core:
+                            self._logger.debug('Workflow %s has finished execution' % workflow_id)
                             self._execution_status[workflow_id]['state'] = st.DONE
                             self._execution_status[workflow_id]['end_time'] = self._execution_status[workflow_id]['endpoint'].end_time
                             for cb in self._callbacks:
-                                self._callbacks[cb](workflows_id=workflow_id,
-                                                    new_state=st.EXECUTING)
-            else:
-                time.sleep(1)
+                                self._callbacks[cb](workflow_id=workflow_id,
+                                                    new_state=st.DONE)
+                        else:
+                            self._to_monitor.append(workflow_id)
+            
+            time.sleep(1)
           
         
     def get_status(self, workflows=None):
@@ -153,12 +160,12 @@ class EmulatedEnactor(Enactor):
         Public method to terminate the Enactor
         '''
         self._logger.info('Start terminating procedure')
-        self._prof.prof('str_terminating', uid=self._uid)
+        #self._prof.prof('str_terminating', uid=self._uid)
         if self._monitoring_thread:
-            self._prof.prof('monitor_terminate', uid=self._uid)
+            #self._prof.prof('monitor_terminate', uid=self._uid)
             self._terminate_monitor.set()
             self._monitoring_thread.join()
-            self._prof.prof('monitor_terminated', uid=self._uid)
+            #self._prof.prof('monitor_terminated', uid=self._uid)
 
     def register_state_cb(self, cb):
         '''
@@ -167,4 +174,4 @@ class EmulatedEnactor(Enactor):
 
         with self._cb_lock:
             cb_name = cb.__name__
-            self._callbacks[cb_name] = {'cb': cb}
+            self._callbacks[cb_name] = cb
