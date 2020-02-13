@@ -40,10 +40,9 @@ if __name__ == "__main__":
                  {'id': 3, 'performance': 1},
                  {'id': 4, 'performance': 1}]
     campaign_sizes = [4, 8, 16, 32, 64, 128, 256, 512, 1024]
-    results = pd.DataFrame(columns=['size','planner','plan','makespan'])
     for cm_size in campaign_sizes:
         print('Current campaign size: %d' % cm_size)
-        campaign, num_oper = campaign_creator(num_workflows=cm_size)
+        campaign, num_oper = campaign_creator(num_workflows=cm_size, heterogeneity=True)
         heft_planner = HeftPlanner(campaign=campaign, resources=resources, num_oper=num_oper)
         random_planner = RandomPlanner(campaign=campaign, resources=resources, num_oper=num_oper)
         for _ in range(10000):
@@ -56,4 +55,4 @@ if __name__ == "__main__":
             makespan = get_makespan(plan)
             results.loc[len(results)]= [cm_size, 'RANDOM', plan, makespan]
 
-    results.to_csv('StHomoCampaigns_4StHomoResources.csv', index=False)
+    results.to_csv('StHeteroCampaigns_4StHomoResources.csv', index=False)
