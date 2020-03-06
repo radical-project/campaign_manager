@@ -60,7 +60,7 @@ class Core(object):
     def var(self, var):
         self._var = var
 
-    def execute(self, task, str_time=None):
+    def execute(self, env, task):
 
         if self._var:
             if self._dist == 'uniform':
@@ -72,14 +72,8 @@ class Core(object):
             tmp_perf = self._perf
         dur = task.ops / tmp_perf
 
-        if str_time:
-            task.start_time = str_time
-        else:
-            if not self._util:
-                task.start_time = 0
-            else:
-                task.start_time = self._util[-1][1]
-        time.sleep(10)
+        task.start_time = env.now
+        yield env.timeout(dur)
         task.end_time = task.start_time + dur
         self._util.append([task.start_time, task.end_time])
         self._task_history.append(task.uid)

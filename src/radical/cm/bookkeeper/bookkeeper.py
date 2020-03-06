@@ -3,13 +3,17 @@ Author: Ioannis Paraskevakos
 License: MIT
 Copyright: 2018-2019
 """
-import os
+
 import time
 import threading as mt
 import radical.utils as ru
+
+from simpy import Environment
+from simpy import Interrupt as simInterrupt
+
 from ..planner import HeftPlanner, RandomPlanner
 from ..utils import states as st
-from ..enactor import EmulatedEnactor
+from ..enactor import SimulatedEnactor
 
 class Bookkeeper(object):
 
@@ -41,7 +45,8 @@ class Bookkeeper(object):
         self._monitor_lock = ru.RLock('monitor_list_lock')
         self._time = 0 # The time in the campaign's world.
         self._workflows_to_monitor = list()
-        self._enactor = EmulatedEnactor()
+        self._env = Environment()
+        self._enactor = SimulatedEnactor(env=self._env)
         self._enactor.register_state_cb(self.state_update_cb)
 
 
@@ -91,46 +96,34 @@ class Bookkeeper(object):
 
     def _verify_objective(self):
         '''
-        This private method verifies the objective. It takes as input a plan,
-        and an objective, calculates when the campaign will actually finish and
-        returns True or False.
-
-        *Parameters*
-        plan: a plan e.g.: plan = [('W1', 523, 0, 102.5793499043977),
-                                   ('W9', 487, 0, 82.13552361396304),
-                                   ('W3', 487, 82.13552361396304, 147.22792607802876),
-                                   ('W5', 523, 102.5793499043977, 140.82026768642447),
-                                   ('W10', 96, 0, 166.66666666666666),
-                                   ('W4', 523, 140.82026768642447, 166.0),
-                                   ('W2', 487, 147.22792607802876, 170.22792607802876),
-                                   ('W7', 523, 166.0, 185.11854684512429),
-                                   ('W8', 487, 170.22792607802876, 180.54620123203287),
-                                   ('W6', 96, 166.66666666666666, 179.16666666666666)]
-        objective: when the campaign should finish in terms of time.
+        This private method verifies the objective. It check the estimated makespan of the campaign and compares it with the objective. If no objective is defined or the campaign is estimated tp satisfy the objective
+        it returns `True`, else ot returns `False`.
 
         TODO: Currently the objective is given as a number in some unit of time.
               The objective can be in a more general representation.
         '''
 
-        # Update the checkpoints based on the current state of the execution and
-        # the plan
+        if not self._objective:
+            return True
 
         if self._checkpoints[-1] > self._objective:
             return False
         else:
             return True
 
-    def state_update_cb(self, workflow_id, new_state):
+    def state_update_cb(self, env, workflow_id, new_state):
         '''
         This is a state update callback. This callback is passed to the enactor.
         '''
 
         with self._exec_state_lock:
             self._workflows_state[workflow_id] = new_state
+            if new_state == st.CFINAL:
+                env.process.interrupt()
 
     def work(self):
         '''
-        This method 
+        This method is responsible to execute the campaign.
         '''
         
         # There is no need to check since I know there is no plan.
@@ -138,6 +131,7 @@ class Bookkeeper(object):
             with self._exec_state_lock:
                 self._campaign['state'] = st.PLANNING
             self._plan = self._planner.plan()
+            self._logger.debug('Calculated plan: %s', self._plan)
     
         self._update_checkpoints()
         
@@ -152,22 +146,22 @@ class Bookkeeper(object):
                 for (workflow, resource, start_time, est_end_time) in self._plan:
                     # Do not enact to workflows that sould have been executed
                     # already.
-                    if start_t ime == self._time and est_end_time > self._time:
+                    if start_time == self._env.now and est_end_time > self._env.now:
                         workflows.append(workflow)
                         resources.append(resource)
-                        self._logger.debug('Enacting %s workflow on %s resource',
-                                           workflow, resource)
+                        self._logger.debug('Time: %s: Enacting %s workflow on %s resource',
+                                           self._env.now, workflow, resource)
                 self._enactor.enact(workflows=workflows, resources=resources)
                 with self._monitor_lock:
                     self._workflows_to_monitor += workflows
                     self._unavail_resources += resources
+                self._env.run()
 
             else:
                 self._logger.error("Objective cannot be satisfied. Ending execution")
                 with self._exec_state_lock:
                     self._campaign['state'] = st.FAILED
-                # call self._terminate and terminate the main loop
-                self._terminate()
+                    self._terminate_event.set()
                 
 
     
@@ -180,11 +174,15 @@ class Bookkeeper(object):
         while not self._terminate_event.is_set():
             with self._monitor_lock:
                 while self._workflows_to_monitor:
-                    workflow = self._workflows_to_monitor.pop(0)
-                    resource = self._unavail_resources.pop(0)
-                    if self._workflows_state[workflow['id']] not in st.CFINAL:
-                        self._workflows_to_monitor.append(workflow)
-                        self._unavail_resources.append(resource)
+                    try:
+                        workflow = self._workflows_to_monitor.pop(0)
+                        resource = self._unavail_resources.pop(0)
+                        if self._workflows_state[workflow['id']] not in st.CFINAL:
+                            self._workflows_to_monitor.append(workflow)
+                            self._unavail_resources.append(resource)
+                    except simInterrupt:
+                        continue
+
 
     def get_makespan(self):
         '''
@@ -242,14 +240,18 @@ class Bookkeeper(object):
         # This waits regardless if workflows are failing or not. This loop can
         # do meaningful work such as checking the state of the campaign. It can
         # be a while true, until something happens.
+        self._logger.debug('Time now: %s, checkpoints: %s', self._time, self._checkpoints)
+        while self._checkpoints is None:
+            continue
 
-        while self._time < self._checkpoints[-1]:
-            time.sleep(1)
+        while self._time < self._checkpoints[-1] and \
+              self._campaign['state'] not in st.CFINAL:
+            self._time = self._env.now
 
-        for workflow in self._campaign['campaign']:
-            if self._workflows_state[workflow['id']] is st.FAILED:
-                self._campaign['state'] = st.FAILED
-                break
+            for workflow in self._campaign['campaign']:
+                if self._workflows_state[workflow['id']] is st.FAILED:
+                    self._campaign['state'] = st.FAILED
+                    break
         
         if self._campaign['state'] not in st.CFINAL:
             self._campaign['state'] = st.DONE

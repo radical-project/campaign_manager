@@ -5,4 +5,4 @@ Copyright: 2018-2019
 """
 
 from .base import Enactor  # noqa: F401
-from .emulated_enactor import EmulatedEnactor  # noqa: F401
+from .simulated_enactor import SimulatedEnactor  # noqa: F401

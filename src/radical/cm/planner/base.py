@@ -26,7 +26,7 @@ class Planner(object):
         self._resources = resources
         self._num_oper = num_oper
         self._plan = list()
-        self._logger = ru.Logger(name='radical.cm.planner', level='DEBUG')
+        self._logger = ru.Logger(name='rcm.planner', level='DEBUG')
 
 
     def _calc_est_tx(self, cmp_oper, resources):

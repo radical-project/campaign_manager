@@ -14,19 +14,19 @@ import radical.utils as ru
 # Imports from this package
 from .base import Enactor
 from ..utils import states as st
-from radical.calculator.entities.task import Task
+from ..utils.calculator.entities.task import Task
 
 
-class EmulatedEnactor(Enactor):
+class SimulatedEnactor(Enactor):
     '''
     The Emulated enactor is responsible to execute workflows on emulated 
     resources. The Enactor takes as input a list of tuples <workflow,resource> 
     and executes the workflows on their selected resources. 
     '''
 
-    def __init__(self):
+    def __init__(self, env=None):
 
-        super(EmulatedEnactor, self).__init__()
+        super(SimulatedEnactor, self).__init__()
 
         # List with all the workflows that are executing and require to be
         # monitored. This list is atomic and requires a lock
@@ -40,6 +40,8 @@ class EmulatedEnactor(Enactor):
         # Creating a thread to execute the monitoring method.
         self._monitoring_thread = None  # Private attribute that will hold the thread
         self._terminate_monitor = mt.Event()  # Thread event to terminate.
+
+        self._sim_env = env
 
    
     def enact(self, workflows, resources):
@@ -70,19 +72,23 @@ class EmulatedEnactor(Enactor):
                     # the state of the workflow.
                     with self._monitoring_lock:
                         self._to_monitor.append(workflow['id'])
+                        # Execute the task.
+                        enacting_th = mt.Thread(target=self._sim_env.process,
+                                                args=(resource['label'].execute(self._sim_env, exec_workflow),))
+                        #self._sim_env.process(resource.execute(self._sim_env, exec_workflow))
+                        enacting_th.start()
                         self._execution_status[workflow['id']] = {'state': st.EXECUTING,
                                                         'endpoint': exec_workflow,
-                                                        'start_time': time.time(),
+                                                        'exec_thread': enacting_th,
+                                                        'start_time': self._sim_env.now,
                                                         'end_time': None}
                         for cb in self._callbacks:
-                            self._callbacks[cb](workflow_id=workflow['id'],
+                            self._callbacks[cb](self._sim_env, workflow_id=workflow['id'],
                                                 new_state=st.EXECUTING)
 
-                    # Execute the task.
-                    resource['label'].execute(exec_workflow,
-                                     str_time=self._execution_status[workflow['id']]['start_time'])
-                    self._logger.info('Enacted workflow %s on resource %s',
-                                          workflow['id'], resource)
+                        
+                        self._logger.info('Enacted workflow %s on resource %s',
+                                              workflow['id'], resource)
 
                     # If there is no monitoring tasks, start one.
                     if self._monitoring_thread is None:
@@ -112,13 +118,15 @@ class EmulatedEnactor(Enactor):
                             self._logger.debug('Workflow %s has finished execution' % workflow_id)
                             self._execution_status[workflow_id]['state'] = st.DONE
                             self._execution_status[workflow_id]['end_time'] = self._execution_status[workflow_id]['endpoint'].end_time
+                            self._execution_status[workflow_id]['exec_thread'].join()
                             for cb in self._callbacks:
-                                self._callbacks[cb](workflow_id=workflow_id,
+                                self._callbacks[cb](env=self._sim_env,
+                                                    workflow_id=workflow_id,
                                                     new_state=st.DONE)
                         else:
                             self._to_monitor.append(workflow_id)
             
-            time.sleep(1)
+            #time.sleep(1)
           
         
     def get_status(self, workflows=None):
