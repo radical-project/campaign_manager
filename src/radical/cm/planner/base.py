@@ -44,7 +44,7 @@ class Planner(object):
 
         return est_tx
 
-    def plan(self, campaign=None, resources=None, num_oper=None):
+    def plan(self, campaign=None, resources=None, num_oper=None, start_time=0):
         '''
         The planning method
         '''

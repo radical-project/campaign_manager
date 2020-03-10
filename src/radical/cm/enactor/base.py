@@ -37,14 +37,14 @@ class Enactor(object):
         #                               to the WMF,
         #                 'end_time': Epoch of when the workflow finished.}
         self._execution_status = dict()  # This will create a hash table of workflows
-        
+
         self._uid = ru.generate_id('rcm.enactor', mode=ru.ID_PRIVATE)
         path = os.getcwd() + '/'
         name = self._uid
 
         self._logger = ru.Logger(name=name, path=path, level='DEBUG')
-        #self._prof   = ru.Profiler(name=name, path=path)
-    
+        # self._prof   = ru.Profiler(name=name, path=path)
+
 
     def enact(self, workflows, resources):
         '''
@@ -68,7 +68,7 @@ class Enactor(object):
         '''
         Get the state of a workflow or workflows
         '''
-        
+
         status = list()
         if workflows is None:
             for workflow, status in self._execution_status.items():
@@ -105,4 +105,3 @@ class Enactor(object):
         Public method to terminate the Enactor
         '''
         raise NotImplementedError('terminate is not implemented')
-        

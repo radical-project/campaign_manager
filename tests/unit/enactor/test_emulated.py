@@ -8,7 +8,7 @@ Unit test for heft_planner scheduler
 
 from radical.cm.utils.calculator.api.resource import Resource
 from radical.cm.utils.calculator.entities.task import Task
-from radical.cm.enactor import EmulatedEnactor
+from radical.cm.enactor import SimulatedEnactor
 import radical.utils as ru
 
 try:
@@ -18,12 +18,11 @@ except ImportError:
 
 # ------------------------------------------------------------------------------
 #
-@mock.patch.object(EmulatedEnactor, '__init__', return_value=None)
 @mock.patch('radical.utils.raise_on')
 @mock.patch('time.time', return_value=0)
 def test_enact(mocked_init, mocked_raise_on, mocked_time):
 
-    enactor = EmulatedEnactor()
+    enactor = SimulatedEnactor()
     enactor._execution_status = dict()
     enactor._logger = ru.Logger('dummy')
     enactor._monitoring_lock = ru.RLock('cm.monitor_lock')

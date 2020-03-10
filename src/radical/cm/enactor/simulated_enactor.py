@@ -5,7 +5,6 @@ Copyright: 2018-2019
 """
 
 # Imports from general packages
-import time
 import threading as mt
 
 # Imports from dependent packages
@@ -43,7 +42,7 @@ class SimulatedEnactor(Enactor):
 
         self._sim_env = env
 
-   
+
     def enact(self, workflows, resources):
         '''
         Method enact receives a set workflows and resources. It is responsible to
@@ -75,7 +74,7 @@ class SimulatedEnactor(Enactor):
                         # Execute the task.
                         enacting_th = mt.Thread(target=self._sim_env.process,
                                                 args=(resource['label'].execute(self._sim_env, exec_workflow),))
-                        #self._sim_env.process(resource.execute(self._sim_env, exec_workflow))
+                        # self._sim_env.process(resource.execute(self._sim_env, exec_workflow))
                         enacting_th.start()
                         self._execution_status[workflow['id']] = {'state': st.EXECUTING,
                                                         'endpoint': exec_workflow,
@@ -86,7 +85,6 @@ class SimulatedEnactor(Enactor):
                             self._callbacks[cb](self._sim_env, workflow_id=workflow['id'],
                                                 new_state=st.EXECUTING)
 
-                        
                         self._logger.info('Enacted workflow %s on resource %s',
                                               workflow['id'], resource)
 
@@ -125,10 +123,8 @@ class SimulatedEnactor(Enactor):
                                                     new_state=st.DONE)
                         else:
                             self._to_monitor.append(workflow_id)
-            
-            #time.sleep(1)
-          
-        
+
+
     def get_status(self, workflows=None):
         '''
         Get the state of a workflow or workflows.
@@ -168,12 +164,12 @@ class SimulatedEnactor(Enactor):
         Public method to terminate the Enactor
         '''
         self._logger.info('Start terminating procedure')
-        #self._prof.prof('str_terminating', uid=self._uid)
+        # self._prof.prof('str_terminating', uid=self._uid)
         if self._monitoring_thread:
-            #self._prof.prof('monitor_terminate', uid=self._uid)
+            # self._prof.prof('monitor_terminate', uid=self._uid)
             self._terminate_monitor.set()
             self._monitoring_thread.join()
-            #self._prof.prof('monitor_terminated', uid=self._uid)
+            # self._prof.prof('monitor_terminated', uid=self._uid)
 
     def register_state_cb(self, cb):
         '''

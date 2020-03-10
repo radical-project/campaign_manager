@@ -7,6 +7,7 @@ Unit test for heft_planner scheduler
 # pylint: disable=protected-access, unused-argument
 
 from radical.cm.planner import RandomPlanner
+import radical.utils as ru
 
 try:
     import mock
@@ -27,6 +28,7 @@ def test_plan1(mocked_init, mocked_raise_on):
                           {'id': 3, 'performance': 96}]
     planner._num_oper = [53649, 11201, 31700, 13169, 20000, 1200, 9999, 5025,
                          40000, 16000]
+    planner._logger = ru.Logger('dummy')
 
     est_plan = planner.plan()
     for elem in est_plan:
@@ -48,6 +50,7 @@ def test_plan2(mocked_init, mocked_raise_on):
     planner._resources = [{'id': 1, 'performance': 523}]
     planner._num_oper = [53649, 11201, 31700, 13169, 20000, 1200, 9999, 5025,
                          40000, 16000]
+    planner._logger = ru.Logger('dummy')
 
     est_plan = planner.plan()
     for elem in est_plan:
@@ -72,6 +75,7 @@ def test_plan3(mocked_init, mocked_raise_on):
                           {'id': 2, 'performance': 487},
                           {'id': 3, 'performance': 96}]
     planner._num_oper = [53649]
+    planner._logger = ru.Logger('dummy')
 
     est_plan = planner.plan()
     assert est_plan[0] in actual_plan

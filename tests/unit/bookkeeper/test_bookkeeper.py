@@ -113,7 +113,7 @@ def test_get_campaign_state(mocked_init):
 def test_get_workflows_state(mocked_init):
 
     bookkeeper = Bookkeeper(campaign=None, resources=None)
-    bookkeeper._execution_state = {1: st.NEW,
+    bookkeeper._workflows_state = {1: st.NEW,
                                    2: st.EXECUTING}
 
     bookkeeper._campaign = {'campaign': [{'id': 1},

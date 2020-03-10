@@ -37,7 +37,7 @@ class RandomPlanner(Planner):
         self._est_tx = self._calc_est_tx(cmp_oper=self._num_oper,
                                          resources=res_perf)               
 
-    def plan(self, campaign=None, resources=None, num_oper=None):
+    def plan(self, campaign=None, resources=None, num_oper=None, start_time=0):
         '''
         This method implements a random algorithm. It returns a list of tuples
         Each tuple contains: Workflow ID, Resource ID, Start Time, End Time.
@@ -62,7 +62,7 @@ class RandomPlanner(Planner):
         self._plan = list()
 
         # This list tracks when a resource whould be available.
-        resource_free = [0] * len(self._resources)
+        resource_free = [start_time] * len(self._resources)
         for idx in range(len(self._campaign)):
             wf_est_tx = self._est_tx[idx]
             resource = randint(0,len(self._resources) - 1)

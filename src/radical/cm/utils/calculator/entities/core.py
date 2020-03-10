@@ -1,6 +1,5 @@
 import radical.utils as ru
 import numpy as np
-import time
 
 
 class Core(object):
@@ -64,10 +63,10 @@ class Core(object):
 
         if self._var:
             if self._dist == 'uniform':
-                tmp_perf = list(np.random.uniform(low=self._perf - self._var,
-                                        high=self._perf + self._var,))
+                tmp_perf = np.random.uniform(low=self._perf - self._var,
+                                        high=self._perf + self._var,)
             elif self._dist == 'normal':
-                tmp_perf = list(np.random.normal(self._perf, self._var))
+                tmp_perf = np.random.normal(self._perf, self._var)
         else:
             tmp_perf = self._perf
         dur = task.ops / tmp_perf

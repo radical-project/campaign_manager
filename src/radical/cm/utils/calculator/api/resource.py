@@ -87,7 +87,6 @@ class Resource(object):
         elif self._perf_dist == 'normal':
             samples = list(np.random.normal(self._dist_mean, self._spat_var,
                                             self._num_cores))
-    
 
         # Create N execution units with the selected samples
         # some sample in the non uniform distribution might be negative. Those

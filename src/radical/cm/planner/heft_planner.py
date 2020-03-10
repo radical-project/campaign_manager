@@ -45,7 +45,7 @@ class HeftPlanner(Planner):
         self._est_tx = self._calc_est_tx(cmp_oper=self._num_oper,
                                          resources=res_perf)
 
-    def plan(self, campaign=None, resources=None, num_oper=None):
+    def plan(self, campaign=None, resources=None, num_oper=None, start_time=0):
         '''
         This method implements the basic HEFT algorithm. It returns a list of tuples
         Each tuple contains: Workflow ID, Resource ID, Start Time, End Time.
@@ -83,7 +83,7 @@ class HeftPlanner(Planner):
 
 
         # This list tracks when a resource whould be available.
-        resource_free = [0] * len(self._resources)
+        resource_free = [start_time] * len(self._resources)
         for sorted_idx in av_est_idx_sorted:
             wf_est_tx = self._est_tx[sorted_idx]
             min_end_time = float('inf')

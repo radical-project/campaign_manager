@@ -7,6 +7,7 @@ Unit test for heft_planner scheduler
 # pylint: disable=protected-access, unused-argument
 
 from radical.cm.planner import HeftPlanner
+import radical.utils as ru
 
 try:
     import mock
@@ -45,7 +46,7 @@ def test_plan(mocked_init, mocked_calc_est_tx, mocked_raise_on):
                           {'id': 2, 'performance': 2},
                           {'id': 3, 'performance': 3}]
     planner._num_oper = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-
+    planner._logger = ru.Logger('dummy')
     est_plan = planner.plan()
 
     assert est_plan == actual_plan
@@ -74,7 +75,7 @@ def test_plan2(mocked_init, mocked_raise_on):
                           {'id': 3, 'performance': 96}]
     planner._num_oper = [53649, 11201, 31700, 13169, 20000, 1200, 9999, 5025,
                          40000, 16000]
-
+    planner._logger = ru.Logger('dummy')
     est_plan = planner.plan()
     assert est_plan == actual_plan
 
@@ -101,7 +102,7 @@ def test_plan3(mocked_init, mocked_raise_on):
 
     planner._num_oper = [53649, 11201, 31700, 13169, 20000, 1200, 9999, 5025,
                          40000, 16000]
-
+    planner._logger = ru.Logger('dummy')
     est_plan = planner.plan()
     assert est_plan == actual_plan
 
@@ -118,6 +119,31 @@ def test_plan4(mocked_init, mocked_raise_on):
                           {'id': 2, 'performance': 487},
                           {'id': 3, 'performance': 96}]
     planner._num_oper = [53649]
-
+    planner._logger = ru.Logger('dummy')
     est_plan = planner.plan()
+    assert est_plan == actual_plan
+
+@mock.patch.object(HeftPlanner, '__init__', return_value=None)
+@mock.patch('radical.utils.raise_on')
+def test_plan_start_time(mocked_init, mocked_raise_on):
+
+    actual_plan = [('W1', {'id': 1, 'performance': 523}, 5, 107.5793499043977),
+                   ('W9', {'id': 1, 'performance': 523}, 107.5793499043977, 184.06118546845124),
+                   ('W3', {'id': 1, 'performance': 523}, 184.06118546845124, 244.67304015296367),
+                   ('W5', {'id': 1, 'performance': 523}, 244.67304015296367, 282.91395793499044),
+                   ('W10', {'id': 1, 'performance': 523}, 282.91395793499044, 313.50669216061186),
+                   ('W4', {'id': 1, 'performance': 523}, 313.50669216061186, 338.6864244741874),
+                   ('W2', {'id': 1, 'performance': 523}, 338.6864244741874, 360.1032504780115),
+                   ('W7', {'id': 1, 'performance': 523}, 360.1032504780115, 379.2217973231358),
+                   ('W8', {'id': 1, 'performance': 523}, 379.2217973231358, 388.82982791587),
+                   ('W6', {'id': 1, 'performance': 523}, 388.82982791587, 391.1242829827916)]
+    planner = HeftPlanner(None, None, None)
+    planner._campaign = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8', 'W9',
+                         'W10']
+    planner._resources = [{'id': 1, 'performance': 523}]
+
+    planner._num_oper = [53649, 11201, 31700, 13169, 20000, 1200, 9999, 5025,
+                         40000, 16000]
+    planner._logger = ru.Logger('dummy')    
+    est_plan = planner.plan(start_time=5)
     assert est_plan == actual_plan
