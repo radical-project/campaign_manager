@@ -123,6 +123,8 @@ def test_plan4(mocked_init, mocked_raise_on):
     est_plan = planner.plan()
     assert est_plan == actual_plan
 
+# ------------------------------------------------------------------------------
+#
 @mock.patch.object(HeftPlanner, '__init__', return_value=None)
 @mock.patch('radical.utils.raise_on')
 def test_plan_start_time(mocked_init, mocked_raise_on):
