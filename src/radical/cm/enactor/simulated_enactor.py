@@ -9,6 +9,8 @@ import threading as mt
 
 # Imports from dependent packages
 import radical.utils as ru
+from simpy.core import EmptySchedule
+from simpy.events import Process
 
 # Imports from this package
 from .base import Enactor
@@ -41,6 +43,7 @@ class SimulatedEnactor(Enactor):
         self._terminate_monitor = mt.Event()  # Thread event to terminate.
 
         self._sim_env = env
+        self._run = False
 
 
     def enact(self, workflows, resources):
@@ -71,33 +74,33 @@ class SimulatedEnactor(Enactor):
                     # the state of the workflow.
                     with self._monitoring_lock:
                         self._to_monitor.append(workflow['id'])
-                        # Execute the task.
-                        enacting_th = mt.Thread(target=self._sim_env.process,
-                                                args=(resource['label'].execute(self._sim_env, exec_workflow),))
-                        # self._sim_env.process(resource.execute(self._sim_env, exec_workflow))
-                        enacting_th.start()
                         self._execution_status[workflow['id']] = {'state': st.EXECUTING,
                                                         'endpoint': exec_workflow,
-                                                        'exec_thread': enacting_th,
+                                                        'exec_thread': None,
                                                         'start_time': self._sim_env.now,
                                                         'end_time': None}
                         for cb in self._callbacks:
-                            self._callbacks[cb](self._sim_env, workflow_id=workflow['id'],
+                            self._callbacks[cb](workflow_id=workflow['id'],
                                                 new_state=st.EXECUTING)
+                        # Execute the task.
+                        #enacting_th = mt.Thread(target=self._sim_env.process,
+                        #                        args=(resource['label'].execute(self._sim_env, exec_workflow),))
+                        self._sim_env.process(resource['label'].execute(self._sim_env, exec_workflow))
+                        #enacting_th.start()
 
                         self._logger.info('Enacted workflow %s on resource %s',
                                               workflow['id'], resource)
-
-                    # If there is no monitoring tasks, start one.
-                    if self._monitoring_thread is None:
-                        self._logger.info('Starting monitor thread')
-                        self._monitoring_thread = mt.Thread(target=self._monitor,
-                                          name='monitor-thread')
-                        self._monitoring_thread.start()
-
                 except:
                     self._logger.error('Workflow %s could not be executed on resource %s',
                                (workflow, resource))
+        self._logger.debug('Setting run at %f', self._sim_env.now)
+        self._run = True
+        # If there is no monitoring tasks, start one.
+        if self._monitoring_thread is None:
+            self._logger.info('Starting monitor thread')
+            self._monitoring_thread = mt.Thread(target=self._monitor,
+                                name='monitor-thread')
+            self._monitoring_thread.start()
 
     def _monitor(self):
         '''
@@ -113,16 +116,26 @@ class SimulatedEnactor(Enactor):
                     self._logger.info('Monitoring workflow %s' % workflow_id)
                     if workflow_id in self._execution_status:
                         if self._execution_status[workflow_id]['endpoint'].exec_core:
-                            self._logger.debug('Workflow %s has finished execution' % workflow_id)
                             self._execution_status[workflow_id]['state'] = st.DONE
                             self._execution_status[workflow_id]['end_time'] = self._execution_status[workflow_id]['endpoint'].end_time
-                            self._execution_status[workflow_id]['exec_thread'].join()
+                            #self._execution_status[workflow_id]['exec_thread'].join()
+                            self._logger.debug('Workflow %s finished: %s', workflow_id, self._execution_status[workflow_id]['end_time'])
                             for cb in self._callbacks:
-                                self._callbacks[cb](env=self._sim_env,
-                                                    workflow_id=workflow_id,
+                                self._callbacks[cb](workflow_id=workflow_id,
                                                     new_state=st.DONE)
                         else:
                             self._to_monitor.append(workflow_id)
+            try:
+                self._logger.debug('Queue: %s, will run: %s',
+                                    self._sim_env._queue, self._run)
+                if self._run:
+                    while self._sim_env._queue and not isinstance(self._sim_env._queue[0][3], Process):
+                        self._sim_env.step()
+                    while self._sim_env._queue and isinstance(self._sim_env._queue[0][3], Process):
+                        self._sim_env.step()
+                    self._run = False
+            except EmptySchedule:
+                continue
 
 
     def get_status(self, workflows=None):
@@ -179,3 +192,9 @@ class SimulatedEnactor(Enactor):
         with self._cb_lock:
             cb_name = cb.__name__
             self._callbacks[cb_name] = cb
+
+    def cont(self):
+        '''
+        Resume execution
+        '''
+        self._run = True

@@ -45,7 +45,7 @@ class HeftPlanner(Planner):
         self._est_tx = self._calc_est_tx(cmp_oper=self._num_oper,
                                          resources=res_perf)
 
-    def plan(self, campaign=None, resources=None, num_oper=None, start_time=0):
+    def plan(self, campaign=None, resources=None, num_oper=None, start_time=None):
         '''
         This method implements the basic HEFT algorithm. It returns a list of tuples
         Each tuple contains: Workflow ID, Resource ID, Start Time, End Time.
@@ -57,15 +57,14 @@ class HeftPlanner(Planner):
             list(tuples)
         '''
 
-        # TODO: extend for dynamic campaigns and resources
-        # tmp_cmp = campaign if campaign else self._campaign
-        # tmp_res = resources if resources else self._resources
-        # tmp_nop = num_oper if num_oper else self._num_oper
+        tmp_cmp = campaign if campaign else self._campaign
+        tmp_res = resources if resources else self._resources
+        tmp_nop = num_oper if num_oper else self._num_oper
         res_perf = list()
-        for resource in self._resources:
+        for resource in tmp_res:
             res_perf.append(resource['performance'])
 
-        self._est_tx = self._calc_est_tx(cmp_oper=self._num_oper,
+        self._est_tx = self._calc_est_tx(cmp_oper=tmp_nop,
                                          resources=res_perf)
 
         # Reset the plan in case of a recall
@@ -80,21 +79,26 @@ class HeftPlanner(Planner):
         av_est_idx_sorted = [i[0] for i in sorted(enumerate(av_est_tx),
                                                   key=lambda x:x[1],
                                                   reverse=True)]
-
-
+        
         # This list tracks when a resource whould be available.
-        resource_free = [start_time] * len(self._resources)
+        if isinstance(start_time, list):
+            resource_free = start_time
+        elif isinstance(start_time, float) or isinstance(start_time, int):
+            resource_free = [start_time] * len(tmp_res)
+        else:
+            resource_free = [0] * len(tmp_res)
+
         for sorted_idx in av_est_idx_sorted:
             wf_est_tx = self._est_tx[sorted_idx]
             min_end_time = float('inf')
-            for i in range(len(self._resources)):
+            for i in range(len(tmp_res)):
                 tmp_str_time = resource_free[i]
                 tmp_end_time = tmp_str_time + wf_est_tx[i]
                 if tmp_end_time < min_end_time:
                     min_end_time = tmp_end_time
                     tmp_min_idx = i
-            self._plan.append((self._campaign[sorted_idx],
-                               self._resources[tmp_min_idx],
+            self._plan.append((tmp_cmp[sorted_idx],
+                               tmp_res[tmp_min_idx],
                                resource_free[tmp_min_idx], 
                                resource_free[tmp_min_idx] +
                                    wf_est_tx[tmp_min_idx]))
@@ -102,4 +106,17 @@ class HeftPlanner(Planner):
                                          wf_est_tx[tmp_min_idx]
 
         self._logger.info('Derived plan %s', self._plan)
+        return self._plan
+
+    def replan(self, campaign=None, resources=None, num_oper=None, start_time=0):
+        '''
+        The planning method
+        '''
+        if campaign and resources and num_oper:
+            self._logger.debug('Replanning')
+            self._plan = self.plan(campaign=campaign, resources=resources,
+                                   num_oper=num_oper, start_time=start_time)
+        else:
+            self._logger.debug('Nothing to plan for')
+
         return self._plan

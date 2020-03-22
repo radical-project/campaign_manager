@@ -50,3 +50,16 @@ class Planner(object):
         '''
 
         raise NotImplementedError('Plan method is not implemented')
+
+    def replan(self, campaign=None, resources=None, num_oper=None, start_time=0):
+        '''
+        The planning method
+        '''
+        if campaign and resources and num_oper:
+            self._logger.debug('Replanning')
+            self._plan = self.plan(campaign=campaign, resources=resources,
+                                   num_oper=num_oper, start_time=start_time)
+        else:
+            self._logger.debug('Nothing to plan for')
+
+        return self._plan

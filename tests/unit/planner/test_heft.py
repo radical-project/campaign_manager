@@ -149,3 +149,31 @@ def test_plan_start_time(mocked_init, mocked_raise_on):
     planner._logger = ru.Logger('dummy')    
     est_plan = planner.plan(start_time=5)
     assert est_plan == actual_plan
+
+# ------------------------------------------------------------------------------
+#
+@mock.patch.object(HeftPlanner, '__init__', return_value=None)
+@mock.patch('radical.utils.raise_on')
+def test_plan_start_list(mocked_init, mocked_raise_on):
+
+    actual_plan = [('W1', {'id': 1, 'performance': 523}, 5, 107.5793499043977),
+                   ('W9', {'id': 2, 'performance': 487}, 3, 85.13552361396304),
+                   ('W3', {'id': 2, 'performance': 487}, 85.13552361396304, 150.22792607802876),
+                   ('W5', {'id': 1, 'performance': 523}, 107.5793499043977, 145.82026768642447),
+                   ('W10', {'id': 3, 'performance': 96}, 4, 170.66666666666666),
+                   ('W4', {'id': 1, 'performance': 523}, 145.82026768642447, 171.0),
+                   ('W2', {'id': 2, 'performance': 487}, 150.22792607802876, 173.22792607802876),
+                   ('W7', {'id': 1, 'performance': 523}, 171.0, 190.11854684512429),
+                   ('W8', {'id': 2, 'performance': 487}, 173.22792607802876, 183.54620123203287),
+                   ('W6', {'id': 3, 'performance': 96}, 170.66666666666666, 183.16666666666666)]
+    planner = HeftPlanner(None, None, None)
+    planner._campaign = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8', 'W9',
+                         'W10']
+    planner._resources = [{'id': 1, 'performance': 523},
+                          {'id': 2, 'performance': 487},
+                          {'id': 3, 'performance': 96}]
+    planner._num_oper = [53649, 11201, 31700, 13169, 20000, 1200, 9999, 5025,
+                         40000, 16000]
+    planner._logger = ru.Logger('dummy') 
+    est_plan = planner.plan(start_time=[5,3,4])
+    assert est_plan == actual_plan

@@ -72,10 +72,10 @@ class Core(object):
         dur = task.ops / tmp_perf
 
         task.start_time = env.now
-        yield env.timeout(dur)
         task.end_time = task.start_time + dur
         self._util.append([task.start_time, task.end_time])
         self._task_history.append(task.uid)
+        yield env.timeout(dur)
         task.exec_core = self._uid
 
     def to_dict(self):
