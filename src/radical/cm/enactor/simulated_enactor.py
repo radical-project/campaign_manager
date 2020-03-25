@@ -45,6 +45,10 @@ class SimulatedEnactor(Enactor):
         self._sim_env = env
         self._run = False
 
+        self._simulation_thread = mt.Thread(target=self._sim_run,
+                                            name='monitor-thread')
+        self._terminate_simulation = mt.Event()  # Thread event to terminate.
+
 
     def enact(self, workflows, resources):
         '''
@@ -61,40 +65,37 @@ class SimulatedEnactor(Enactor):
             if workflow['id'] in self._execution_status:
                 self._logger.info('Workflow %s is in state %s', workflow, 
                                   st._state_dict[self._get_workflow_state(workflow['id'])])
-            else:
-                try:
-                    # Create a calculator task. This is equivalent because with
-                    # the emulated resources, a workflow is a number of operations
-                    # that need to be executed.
-                    exec_workflow = Task(workflow['num_oper'], no_uid=True)
-                    self._logger.info('Enacting workflow %s on resource %s',
-                                          workflow['id'], resource)
+                continue
 
-                    # Lock the monitoring list and update it, as well as update
-                    # the state of the workflow.
-                    with self._monitoring_lock:
-                        self._to_monitor.append(workflow['id'])
-                        self._execution_status[workflow['id']] = {'state': st.EXECUTING,
-                                                        'endpoint': exec_workflow,
-                                                        'exec_thread': None,
-                                                        'start_time': self._sim_env.now,
-                                                        'end_time': None}
-                        for cb in self._callbacks:
-                            self._callbacks[cb](workflow_id=workflow['id'],
-                                                new_state=st.EXECUTING)
-                        # Execute the task.
-                        #enacting_th = mt.Thread(target=self._sim_env.process,
-                        #                        args=(resource['label'].execute(self._sim_env, exec_workflow),))
-                        self._sim_env.process(resource['label'].execute(self._sim_env, exec_workflow))
-                        #enacting_th.start()
+            try:
+                # Create a calculator task. This is equivalent because with
+                # the emulated resources, a workflow is a number of operations
+                # that need to be executed.
+                exec_workflow = Task(workflow['num_oper'], no_uid=True)
+                self._logger.info('Enacting workflow %s on resource %s',
+                                        workflow['id'], resource)
 
-                        self._logger.info('Enacted workflow %s on resource %s',
-                                              workflow['id'], resource)
-                except:
-                    self._logger.error('Workflow %s could not be executed on resource %s',
-                               (workflow, resource))
-        self._logger.debug('Setting run at %f', self._sim_env.now)
-        self._run = True
+                # Lock the monitoring list and update it, as well as update
+                # the state of the workflow.
+                with self._monitoring_lock:
+                    self._to_monitor.append(workflow['id'])
+                    self._execution_status[workflow['id']] = {'state': st.EXECUTING,
+                                                    'endpoint': exec_workflow,
+                                                    'exec_thread': None,
+                                                    'start_time': self._sim_env.now,
+                                                    'end_time': None}
+                for cb in self._callbacks:
+                    self._callbacks[cb](workflow_id=workflow['id'],
+                                        new_state=st.EXECUTING)
+                # Execute the task.
+                self._sim_env.process(resource['label'].execute(self._sim_env, exec_workflow))
+
+                self._logger.info('Enacted workflow %s on resource %s',
+                                   workflow['id'], resource)
+            except:
+                self._logger.error('Workflow %s could not be executed on resource %s',
+                            (workflow, resource))
+
         # If there is no monitoring tasks, start one.
         if self._monitoring_thread is None:
             self._logger.info('Starting monitor thread')
@@ -113,25 +114,34 @@ class SimulatedEnactor(Enactor):
                 with self._monitoring_lock:
                     # It does not iterate correctly.
                     workflow_id = self._to_monitor.pop(0)
-                    self._logger.info('Monitoring workflow %s' % workflow_id)
-                    if workflow_id in self._execution_status:
-                        if self._execution_status[workflow_id]['endpoint'].exec_core:
+                self._logger.info('Monitoring workflow %s' % workflow_id)
+                if workflow_id in self._execution_status:
+                    if self._execution_status[workflow_id]['endpoint'].exec_core:
+                        with self._monitoring_lock:
                             self._execution_status[workflow_id]['state'] = st.DONE
                             self._execution_status[workflow_id]['end_time'] = self._execution_status[workflow_id]['endpoint'].end_time
-                            #self._execution_status[workflow_id]['exec_thread'].join()
-                            self._logger.debug('Workflow %s finished: %s', workflow_id, self._execution_status[workflow_id]['end_time'])
-                            for cb in self._callbacks:
-                                self._callbacks[cb](workflow_id=workflow_id,
-                                                    new_state=st.DONE)
-                        else:
+                        self._logger.debug('Workflow %s finished: %s', workflow_id, self._execution_status[workflow_id]['end_time'])
+                        for cb in self._callbacks:
+                            self._callbacks[cb](workflow_id=workflow_id,
+                                                new_state=st.DONE)
+                    else:
+                        with self._monitoring_lock:
                             self._to_monitor.append(workflow_id)
+
+    def _sim_run(self):
+
+        while not self._terminate_simulation.is_set():
             try:
-                self._logger.debug('Queue: %s, will run: %s',
-                                    self._sim_env._queue, self._run)
                 if self._run:
-                    while self._sim_env._queue and not isinstance(self._sim_env._queue[0][3], Process):
+                    self._logger.debug('Simulation queue: %s',
+                                        self._sim_env._queue)
+
+                    while self._sim_env._queue and \
+                          not isinstance(self._sim_env._queue[0][3], Process):
                         self._sim_env.step()
-                    while self._sim_env._queue and isinstance(self._sim_env._queue[0][3], Process):
+
+                    while self._sim_env._queue and \
+                          isinstance(self._sim_env._queue[0][3], Process):
                         self._sim_env.step()
                     self._run = False
             except EmptySchedule:
@@ -177,6 +187,8 @@ class SimulatedEnactor(Enactor):
         Public method to terminate the Enactor
         '''
         self._logger.info('Start terminating procedure')
+        self._terminate_simulation.set()
+        self._simulation_thread.join()
         # self._prof.prof('str_terminating', uid=self._uid)
         if self._monitoring_thread:
             # self._prof.prof('monitor_terminate', uid=self._uid)
@@ -197,4 +209,6 @@ class SimulatedEnactor(Enactor):
         '''
         Resume execution
         '''
+
+        self._logger.debug('Setting run at %f', self._sim_env.now)
         self._run = True
