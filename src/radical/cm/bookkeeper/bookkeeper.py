@@ -162,7 +162,7 @@ class Bookkeeper(object):
                                            self._env.now, wf, rc, est_end_time)
                 
                 # There is no need to call the enactor when no new things
-                # should happen. AM: Lock for a minimal case.
+                # should happen.
                 self._logger.debug('Adding items: %s, %s', workflows, resources)
                 if workflows and resources:
                     self._enactor.enact(workflows=workflows, resources=resources)
@@ -173,19 +173,19 @@ class Bookkeeper(object):
                                         self._workflows_to_monitor,
                                         self._unavail_resources,
                                         self._est_end_times)
-                    self._cont = False
                     
                 # Inform the enactor to continue until everything ends.
-                # remain = True
-                # for workflow in self._campaign['campaign']:
-                #     if self._workflows_state[workflow['id']] == st.NEW:
-                #         remain = False
-                # 
-                # if remain:
-                #     self._logger.debug("Let's keep")
-                #     self._enactor.cont()
-                # else:
-                #     self._logger.debug('Still running on its own')
+                remain = True
+                for workflow in self._campaign['campaign']:
+                    if self._workflows_state[workflow['id']] == st.NEW:
+                        remain = False
+                
+                if remain and self._cont:
+                    self._logger.debug("Let's keep")
+                    self._enactor.cont()
+                    self._cont = False
+                else:
+                    self._logger.debug('Still running on its own')
 
 
     def monitor(self):
