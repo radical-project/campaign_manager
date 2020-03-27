@@ -22,13 +22,14 @@ class GAPlanner(Planner):
     campaign: A list of workflows
     resources: A list of resources, whose performance is given in operations per second
     num_oper: The number of operations each workflow will execute
+    population_size: The size of the population
 
     The class implements a plan method that return a plan, a list of tuples. 
 
     Each tuple will have the workflow, selected resource, starting time and
     estimated finish time.
     '''
-    def __init__(self, campaign, resources, num_oper):
+    def __init__(self, campaign, resources, num_oper, population_size=20):
 
         super(GAPlanner, self).__init__(campaign=campaign,
                                         resources=resources,
@@ -45,30 +46,80 @@ class GAPlanner(Planner):
             res_perf.append(resource['performance'])
 
         self._population = None
+        self._population_size = population_size
          
+    def _encode_schedule(self, schedule):
+        '''
+        This method encodes a schedule to the algorithm's enconding. A schedule
+        is a list of lists, such as
+        
+        [[1, 3, 5, 6],
+         [2, 7],
+         [4, 8, 9]
+        ]
+        Each list represents the workflow IDs each resources has assigned to
+        execute.
 
-    def _initialize_population(self, workflows, resources):
+        Encoding looks like:
+        
+        [1,3,5,6,-1,2,7,-1,4,8,9],
+
+        where number are workflow IDs, and -1 are delimiters between resources.
+        '''
+
+        encoding = []
+        for sched in schedule:
+            for work_id in sched:
+                encoding.append(work_id)
+            enconding.append(-1)
+        
+        return enconding
+
+    def _decode_schedule(self, enconding):
+        '''
+        This method decodes to a schedule.
+        '''
+
+        schedule = []
+        proc_sched = []
+        for work_id in enconding:
+            if work_id == -1:
+                schedule.append(proc_sched)
+                proc_sched = []
+            else:
+                proc_sched.append(work_id)
+            
+        schedule.append(proc_sched)
+        return schedule
+
+    def _initialize_population(self, workflows, resources, population_size=None):
         '''
         This method creates the initial population. The population is 
         ''' 
+        chromosome = []
 
     def _selection(self):
         '''
-        This method uses the weighted roulette wheel method for 
-        selection.
+        This method uses the roulette wheel method for selection. The selection
+        process will return half of the population.
         '''
+        
 
         slots = [0]
         fitness_sum = sum(self._fitness)
         for ind_fitness in self._fitness:
             slots.append(ind_fitness / fitness_sum + slots[-1])
         
-        selection = random()
-        i = 0
-        while selection > slot[i]:
-            i += 1
+        sel_idx = []
+        for i in range(self._population_size / 2):
+            selection = random()
+            i = 0
+            while selection > slot[i]:
+                i += 1
+            sel_idx.append(i)
 
-        return self._population[i-1]
+        selected = [self._population[i] for i in sel_idx]
+        return selected
 
     def _crossover(self, parent1, parent2):
         '''
@@ -126,7 +177,7 @@ class GAPlanner(Planner):
         '''
         pass
 
-    def _fitness(self, batch, start_times):
+    def _fitness(self, batch):
         '''
         This methods calculates the fitness of the individuals in  the population.
         '''
@@ -145,7 +196,7 @@ class GAPlanner(Planner):
 
         est_txs = self._calc_est_tx(tmp_oper, res_perf)
 
-        abs_term = total_operations / total_rate + sum(start_times)
+        abs_term = total_operations / total_rate
 
         fitness = []
 
@@ -185,23 +236,32 @@ class GAPlanner(Planner):
         tmp_res = resources if resources else self._resources
         tmp_nop = num_oper if num_oper else self._num_oper
 
-        initial_pop = self._initialize_population(tmp_cmp, tmp_res)
+        self._population = self._initialize_population(tmp_cmp, tmp_res)
+        curr_fitness = self._fitness(self._population)
+        sorted_fitness = sorted(enumerate(curr_fitness), key=lambda x: x[1])
 
         while True:
-            self._crossover()
-            self._mutate()
-            self._select()
-
-            tmp_makespan = self._get_makespan(plan)
+            self._population = self._sort_population()
+            parents = self._select()
+            children = self._crossover(parents)
+            children = self._mutate(chldren)
+            # Replace half of the individuals with the worst fitness
+            for i in range(self._population_size / 2):
+                self._population[sorted_fitness[i][0]] = children[i]
+            # Get the one with the best fitness and check it
+            curr_fitness = self._fitness(self._population)
+            sorted_fitness = sorted(enumerate(curr_fitness), key=lambda x: x[1])
+            best_individual = self._population[sorted_fitness[-1][0]]
+            tmp_makespan = self._get_makespan(best_individual)
 
             if deadline is not None and tmp_makespan < deadline:
                 break
             elif iter == max_iter or tmp_makespan > curr_makespan:
                 break
-            self._plan = tmp_plan
+            self._plan = self._get_plan(best_individual)
             curr_makespan = tmp_makespan
 
-        self._plan = plan
+        self._plan = self._get_plan(best_individual)
         self._logger.info('Derived plan %s', self._plan)
         return self._plan
 
