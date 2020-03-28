@@ -92,18 +92,24 @@ class GAPlanner(Planner):
         schedule.append(proc_sched)
         return schedule
 
-    def _initialize_population(self, workflows, resources, population_size=None):
+    def _initialize_population(self, workflows, resources):
         '''
         This method creates the initial population. The population is 
         ''' 
-        chromosome = []
+        
+        for i in range(self._population_size):
+            chromosome = [[] for i in range(len(resources))]
+            for idx in range(len(workflows)):
+                resource = randint(0,len(self._resources) - 1)
+                chromosome[resource].append(workflows[idx]['id'])
+            self._population.append(self._encode_schedule(chromosome))
+
 
     def _selection(self):
         '''
         This method uses the roulette wheel method for selection. The selection
         process will return half of the population.
         '''
-        
 
         slots = [0]
         fitness_sum = sum(self._fitness)
@@ -241,7 +247,6 @@ class GAPlanner(Planner):
         sorted_fitness = sorted(enumerate(curr_fitness), key=lambda x: x[1])
 
         while True:
-            self._population = self._sort_population()
             parents = self._select()
             children = self._crossover(parents)
             children = self._mutate(chldren)
