@@ -1,5 +1,6 @@
 language: python
-sudo: disabled
+dist: xenial
+
 
 python:
   - "3.6"
@@ -25,7 +26,7 @@ env:
     - CMD_PYLINT_TESTS="pylint tests/"
     - COVERAGE=false
     - CODECOV_TOKEN="3f117804-3059-4177-a412-1708d9680c92"
-  matrix:
+  jobs:
     - MAIN_CMD=$CMD_PYTEST COVERAGE=true
     - MAIN_CMD=$CMD_FLAKE8
     - MAIN_CMD=$CMD_PYLINT

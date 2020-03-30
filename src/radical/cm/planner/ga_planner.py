@@ -49,12 +49,26 @@ class GAPlanner(Planner):
         self._population_size = population_size
         self._fitness = []
 
+        total_operations = 0
+        tmp_oper = []
+        for workflow in self._campaign:
+            tmp_oper.append(workflow['num_oper'])
+            total_operations += workflow['num_oper']
+
+        total_rate = 0
+        res_perf = []
+        for resource in self._resources:
+            res_perf.append(resource['performance'])
+            total_rate += resource['performance']
+
+        self._abs_fitness_term = total_operations / total_rate
+        self._est_txs = self._calc_est_tx(tmp_oper, res_perf)
 
     def _encode_schedule(self, schedule):
         '''
         This method encodes a schedule to the algorithm's enconding. A schedule
         is a list of lists, such as
-        
+
         [[1, 3, 5, 6],
          [2, 7],
          [4, 8, 9]
@@ -63,7 +77,7 @@ class GAPlanner(Planner):
         execute.
 
         Encoding looks like:
-        
+
         [1,3,5,6,-1,2,7,-1,4,8,9],
 
         where number are workflow IDs, and -1 are delimiters between resources.
@@ -74,7 +88,7 @@ class GAPlanner(Planner):
             for work_id in sched:
                 encoding.append(work_id)
             encoding.append(-1)
-        
+
         return encoding[:-1]
 
 
@@ -91,7 +105,7 @@ class GAPlanner(Planner):
                 proc_sched = []
             else:
                 proc_sched.append(work_id)
-            
+
         schedule.append(proc_sched)
         return schedule
 
@@ -100,7 +114,7 @@ class GAPlanner(Planner):
         '''
         This method creates the initial population. The population is 
         '''
-        
+
         for _ in range(self._population_size):
             chromosome = [[] for j in range(len(resources))]
             for idx in range(len(workflows)):
@@ -121,12 +135,12 @@ class GAPlanner(Planner):
             slots.append(ind_fitness / fitness_sum + slots[-1])
 
         sel_idx = []
-        for i in range(self._population_size / 2):
+        for i in range(int(self._population_size / 2)):
             selection = random()
             i = 0
             while selection > slots[i]:
                 i += 1
-            sel_idx.append(i)
+            sel_idx.append(i - 1)
 
         selected = [self._population[i] for i in sel_idx]
         return selected
@@ -138,32 +152,65 @@ class GAPlanner(Planner):
         '''
         children = []
         for p_id in range(0, len(parents), 2):
-            seen = [0] * len(parents[p_id])
+
+            delimiters = [[], []]
+            tmp_parent1 = []
+            tmp_parent2 = []
+            # Remove delimiters from parents and keep their position
+            for j in range(len(parents[p_id])):
+                if parents[p_id][j] == -1:
+                    delimiters[0].append(j)
+                else:
+                    tmp_parent1.append(parents[p_id][j])
+
+            for j in range(len(parents[p_id + 1])):
+                if parents[p_id + 1][j] == -1:
+                    delimiters[1].append(j)
+                else:
+                    tmp_parent2.append(parents[p_id + 1][j])
+
+            # Do cyclic crossover without the delimiters to produce 2 children
+            seen = [0] * len(tmp_parent1)
             cycles = []
-            child1 = [-1] * len(parents[p_id])
-            child2 = [-1] * len(parents[p_id])
-            i=0
-            for i in range(len(parents[p_id])):
+            tmp_child1 = [-1] * len(tmp_parent1)
+            tmp_child2 = [-1] * len(tmp_parent1)
+            i = 0
+            for i in range(len(tmp_parent1)):
                 if seen[i] == 0:
                     ptr = i
-                    tmp_cycle = [parents[p_id][ptr]]
-                    ptr = parents[p_id + 1][parents[p_id][ptr] - 1] - 1
-                    while parents[p_id][ptr] not in tmp_cycle:
+                    tmp_cycle = [tmp_parent1[ptr]]
+                    ptr = tmp_parent2[tmp_parent1[ptr] - 1] - 1
+                    while tmp_parent1[ptr] not in tmp_cycle:
                         seen[ptr] = 1
-                        tmp_cycle.append(parents[p_id][ptr])
-                        ptr = parents[p_id + 1][parents[p_id][ptr] - 1] - 1
+                        tmp_cycle.append(tmp_parent1[ptr])
+                        ptr = tmp_parent2[tmp_parent1[ptr] - 1] - 1
                     cycles.append(tmp_cycle)
 
             for i in range(len(cycles)):
                 for elem in cycles[i]:
                     if i % 2 == 0:
-                        idx = parents[p_id].index(elem)
-                        child1[idx] = parents[p_id][idx]
-                        child2[idx] = parents[p_id + 1][idx]
+                        idx = tmp_parent1.index(elem)
+                        tmp_child1[idx] = tmp_parent1[idx]
+                        tmp_child2[idx] = tmp_parent2[idx]
                     else:
-                        idx = parents[p_id].index(elem)
-                        child1[idx] = parents[p_id + 1][idx]
-                        child2[idx] = parents[p_id][idx]
+                        idx = tmp_parent1.index(elem)
+                        tmp_child1[idx] = tmp_parent2[idx]
+                        tmp_child2[idx] = tmp_parent1[idx]
+            child1, child2 = [], []
+            # Introduce the delimiters and produce the final children
+            for i in range(len(parents[p_id])):
+                if delimiters[0] and i == delimiters[0][0]:
+                    child1.append(-1)
+                    delimiters[0].pop(0)
+                else:
+                    child1.append(tmp_child1.pop(0))
+            for i in range(len(parents[p_id + 1])):
+                if delimiters[1] and i == delimiters[1][0]:
+                    child2.append(-1)
+                    delimiters[1].pop(0)
+                else:
+                    child2.append(tmp_child2.pop(0))
+
             children.append(child1)
             if child2 not in children:
                 children.append(child2)
@@ -171,21 +218,23 @@ class GAPlanner(Planner):
         return children
 
 
-    def _mutate(self, chromosome):
+    def _mutate(self, chromosomes):
         '''
         This method implements the swap mutation.
         '''
-        idx1 = randint(0,len(chromosome))
-        while chromosome[idx1] == -1:
-            idx1 = randint(0,len(chromosome))
 
-        idx2 = randint(0,len(chromosome))
-        while chromosome[idx2] == -1 or idx2 == idx1:
-            idx2 = randint(0,len(chromosome))
+        for chromosome in chromosomes:
+            idx1 = randint(0, len(chromosome) - 1)
+            while chromosome[idx1] == -1:
+                idx1 = randint(0, len(chromosome) - 1)
 
-        chromosome[idx1], chromosome[idx2] = chromosome[idx2], chromosome[idx1]
+            idx2 = randint(0, len(chromosome) - 1)
+            while chromosome[idx2] == -1 or idx2 == idx1:
+                idx2 = randint(0, len(chromosome) - 1)
 
-        return chromosome
+            chromosome[idx1], chromosome[idx2] = chromosome[idx2], chromosome[idx1]
+
+        return chromosomes
 
 
     # def _rebalancing(self):
@@ -198,30 +247,16 @@ class GAPlanner(Planner):
         '''
         This methods calculates the fitness of the individuals in  the population.
         '''
-
-        total_operations = 0
-        tmp_oper = []
-        for workflow in self._campaign['campaign']:
-            tmp_oper.append(workflow['num_oper'])
-            total_operations += workflow['num_oper']
-        
-        total_rate = 0
-        res_perf = []
-        for resource in self._resources:
-            res_perf.append(resource['performance'])
-            total_rate += resource['performance']
-
-        est_txs = self._calc_est_tx(tmp_oper, res_perf)
-
-        abs_term = total_operations / total_rate
-
+        self._fitness = []
         for individual in self._population:
             total_dist = 0
             sched = self._decode_schedule(individual)
+            self._logger.debug('Calculating fitness of %s with sched %s',
+                                individual, sched)
             for r_id in range(len(self._resources)):
                 workflows = sched[r_id]
-                term = sum([est_txs[w_id][r_id] for w_id in workflows])
-                total_dist += math.pow(abs(abs_term - term), 2)
+                term = sum([self._est_txs[w_id][r_id] for w_id in workflows])
+                total_dist += math.pow(abs(self._abs_fitness_term - term), 2)
             error = math.sqrt(total_dist)
 
             if error:
@@ -237,6 +272,54 @@ class GAPlanner(Planner):
     #
     #     pass
 
+    def _get_makespan(self, individual):
+        '''
+        This method calculates the makespan based on a specific individual and
+        returns it.
+        '''
+
+        sched = self._decode_schedule(individual)
+        makespan = 0
+        for r_id in range(len(self._resources)):
+            workflows = sched[r_id]
+            term = sum([self._est_txs[w_id][r_id] for w_id in workflows]) 
+            makespan = max(makespan, term)
+
+        return makespan
+
+    def _get_plan(self, individual):
+        '''
+        This method gets an individual and return the plan it corresponds
+        '''
+
+        sched = self._decode_schedule(individual)
+        self._logger.debug('Plan sched: %s', sched)
+        self._plan = list()
+        # FIXME: add replanning
+        # This list tracks when a resource whould be available.
+        # if isinstance(start_time, list):
+        #     resource_free = start_time
+        # elif isinstance(start_time, float) or isinstance(start_time, int):
+        #     resource_free = [start_time] * len(tmp_res)
+        # else:
+        #     resource_free = [0] * len(tmp_res)
+
+        resource_free = [0] * len(self._resources)
+        try:
+            for idx in range(len(self._campaign)):
+                wf_est_tx = self._est_txs[idx]
+                for r_id in range(len(sched)):
+                    if idx in sched[r_id]:
+                        break
+                tmp_str_time = resource_free[r_id]
+                tmp_end_time = tmp_str_time + wf_est_tx[r_id]
+                self._plan.append((self._campaign[idx], self._resources[r_id],
+                                tmp_str_time, tmp_end_time))
+                resource_free[r_id] = tmp_end_time
+        except Exception as e:
+            print(idx, r_id, sched, individual, e)
+            raise
+
 
     def plan(self, campaign=None, resources=None, num_oper=None, start_time=None,
              deadline=None, max_gen=100):
@@ -251,35 +334,44 @@ class GAPlanner(Planner):
             list(tuples)
         '''
 
-        tmp_cmp = campaign if campaign else self._campaign['campaign']
+        tmp_cmp = campaign if campaign else self._campaign
         tmp_res = resources if resources else self._resources
-        tmp_nop = num_oper if num_oper else self._num_oper
+        # FIXME: allow replanning
+        # tmp_nop = num_oper if num_oper else self._num_oper
 
         self._initialize_population(tmp_cmp, tmp_res)
+        self._logger.debug('Initial  population: %s', self._population)
         self._calc_fitness()
         sorted_fitness = sorted(enumerate(self._fitness), key=lambda x: x[1])
+        self._logger.debug('Sorted fitness: %s', sorted_fitness)
         gen_id = 0
+        curr_makespan = 0
         while True:
+            print('Gen: %d' % gen_id)
             parents = self._selection()
             children = self._crossover(parents)
             children = self._mutate(children)
+            self._logger.debug('Number of parents: %d, number of children %d',
+                               len(parents), len(children))
             # Replace half of the individuals with the worst fitness
-            for i in range(self._population_size / 2):
+            for i in range(len(children)):
                 self._population[sorted_fitness[i][0]] = children[i]
             # Get the one with the best fitness and check it
             self._calc_fitness()
             sorted_fitness = sorted(enumerate(self._fitness), key=lambda x: x[1])
+            self._logger.debug('Sorted fitness: %s', sorted_fitness)
             best_individual = self._population[sorted_fitness[-1][0]]
             tmp_makespan = self._get_makespan(best_individual)
-
+            self._get_plan(best_individual)
+            self._logger.debug('Best individual makespan: %f and plan %s',
+                                tmp_makespan, self._plan)
             if deadline is not None and tmp_makespan < deadline:
                 break
-            elif gen_id == max_gen or tmp_makespan > curr_makespan:
+            elif gen_id == max_gen or tmp_makespan < curr_makespan:
                 break
-            self._plan = self._get_plan(best_individual)
             curr_makespan = tmp_makespan
+            gen_id += 1
 
-        self._plan = self._get_plan(best_individual)
         self._logger.info('Derived plan %s', self._plan)
         return self._plan
 
