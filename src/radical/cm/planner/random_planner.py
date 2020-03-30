@@ -49,10 +49,10 @@ class RandomPlanner(Planner):
         *Returns:*
             list(tuples)
         '''
-
-        tmp_cmp = campaign if campaign else self._campaign
+        # FIXME: add replanning
+        # tmp_cmp = campaign if campaign else self._campaign
         tmp_res = resources if resources else self._resources
-        tmp_nop = num_oper if num_oper else self._num_oper
+        # tmp_nop = num_oper if num_oper else self._num_oper
         res_perf = list()
         for resource in self._resources:
             res_perf.append(resource['performance'])
