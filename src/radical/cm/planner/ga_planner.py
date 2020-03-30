@@ -4,6 +4,7 @@ License: MIT
 Copyright: 2018-2019
 """
 import math
+from copy import deepcopy
 
 from .base import Planner
 from random import random, randint
@@ -149,10 +150,11 @@ class GAPlanner(Planner):
     def _crossover(self, parents):
         '''
         This method implements the cycle crossover method
+
+        Reference: https://codereview.stackexchange.com/questions/226179/easiest-way-to-implement-cycle-crossover
         '''
         children = []
         for p_id in range(0, len(parents), 2):
-
             delimiters = [[], []]
             tmp_parent1 = []
             tmp_parent2 = []
@@ -169,33 +171,54 @@ class GAPlanner(Planner):
                 else:
                     tmp_parent2.append(parents[p_id + 1][j])
 
-            # Do cyclic crossover without the delimiters to produce 2 children
-            seen = [0] * len(tmp_parent1)
-            cycles = []
+            swap = True
+            count = 0
+            pos = 0
+            p1_copy = deepcopy(tmp_parent1)
+            p2_copy = deepcopy(tmp_parent2)
             tmp_child1 = [-1] * len(tmp_parent1)
-            tmp_child2 = [-1] * len(tmp_parent1)
-            i = 0
-            for i in range(len(tmp_parent1)):
-                if seen[i] == 0:
-                    ptr = i
-                    tmp_cycle = [tmp_parent1[ptr]]
-                    ptr = tmp_parent2[tmp_parent1[ptr] - 1] - 1
-                    while tmp_parent1[ptr] not in tmp_cycle:
-                        seen[ptr] = 1
-                        tmp_cycle.append(tmp_parent1[ptr])
-                        ptr = tmp_parent2[tmp_parent1[ptr] - 1] - 1
-                    cycles.append(tmp_cycle)
+            tmp_child2 = [-1] * len(tmp_parent2)
+            chrom_length = len(tmp_parent1)
+            while True:
+                if count > chrom_length:
+                    break
+                for i in range(chrom_length):
+                    if tmp_child1[i] == -1:
+                        pos = i
+                        break
 
-            for i in range(len(cycles)):
-                for elem in cycles[i]:
-                    if i % 2 == 0:
-                        idx = tmp_parent1.index(elem)
-                        tmp_child1[idx] = tmp_parent1[idx]
-                        tmp_child2[idx] = tmp_parent2[idx]
+                if swap:
+                    while True:
+                        tmp_child1[pos] = tmp_parent1[pos]
+                        count += 1
+                        pos = tmp_parent2.index(tmp_parent1[pos])
+                        if p1_copy[pos] == -1:
+                            swap = False
+                            break
+                        p1_copy[pos] = -1
+                else:
+                    while True:
+                        tmp_child1[pos] = tmp_parent2[pos]
+                        count += 1
+                        pos = tmp_parent1.index(tmp_parent2[pos])
+                        if p2_copy[pos] == -1:
+                            swap = True
+                            break
+                        p2_copy[pos] = -1
+
+            for i in range(chrom_length):  # for the second child
+                if tmp_child1[i] == tmp_parent1[i]:
+                    tmp_child2[i] = tmp_parent2[i]
+                else:
+                    tmp_child2[i] = tmp_parent1[i]
+
+            for i in range(chrom_length):  # Special mode
+                if tmp_child1[i] == -1:
+                    if p1_copy[i] == -1:  # it means that the ith gene from p1 has been already transfered
+                        tmp_child1[i] = tmp_parent2[i]
                     else:
-                        idx = tmp_parent1.index(elem)
-                        tmp_child1[idx] = tmp_parent2[idx]
-                        tmp_child2[idx] = tmp_parent1[idx]
+                        tmp_child1[i] = tmp_parent1[i]
+
             child1, child2 = [], []
             # Introduce the delimiters and produce the final children
             for i in range(len(parents[p_id])):
@@ -210,11 +233,11 @@ class GAPlanner(Planner):
                     delimiters[1].pop(0)
                 else:
                     child2.append(tmp_child2.pop(0))
-
             children.append(child1)
             if child2 not in children:
                 children.append(child2)
 
+            self._logger.debug('Children %s %s', child1, child2)
         return children
 
 
@@ -224,6 +247,7 @@ class GAPlanner(Planner):
         '''
 
         for chromosome in chromosomes:
+            self._logger.debug('Before mutation %s', chromosome)
             idx1 = randint(0, len(chromosome) - 1)
             while chromosome[idx1] == -1:
                 idx1 = randint(0, len(chromosome) - 1)
@@ -233,7 +257,7 @@ class GAPlanner(Planner):
                 idx2 = randint(0, len(chromosome) - 1)
 
             chromosome[idx1], chromosome[idx2] = chromosome[idx2], chromosome[idx1]
-
+            self._logger.debug('After mutation %s', chromosome)
         return chromosomes
 
 
@@ -255,7 +279,7 @@ class GAPlanner(Planner):
                                 individual, sched)
             for r_id in range(len(self._resources)):
                 workflows = sched[r_id]
-                term = sum([self._est_txs[w_id][r_id] for w_id in workflows])
+                term = sum([self._est_txs[w_id - 1][r_id] for w_id in workflows])
                 total_dist += math.pow(abs(self._abs_fitness_term - term), 2)
             error = math.sqrt(total_dist)
 
@@ -264,13 +288,6 @@ class GAPlanner(Planner):
             else:
                 self._fitness.append(1)
 
-
-    # def _rebalancing(self):
-    #     '''
-    #     This method implements the rebalancing heuristic.
-    #     '''
-    #
-    #     pass
 
     def _get_makespan(self, individual):
         '''
@@ -282,7 +299,7 @@ class GAPlanner(Planner):
         makespan = 0
         for r_id in range(len(self._resources)):
             workflows = sched[r_id]
-            term = sum([self._est_txs[w_id][r_id] for w_id in workflows]) 
+            term = sum([self._est_txs[w_id - 1][r_id] for w_id in workflows]) 
             makespan = max(makespan, term)
 
         return makespan
@@ -309,7 +326,7 @@ class GAPlanner(Planner):
             for idx in range(len(self._campaign)):
                 wf_est_tx = self._est_txs[idx]
                 for r_id in range(len(sched)):
-                    if idx in sched[r_id]:
+                    if self._campaign[idx]['id'] in sched[r_id]:
                         break
                 tmp_str_time = resource_free[r_id]
                 tmp_end_time = tmp_str_time + wf_est_tx[r_id]
@@ -317,12 +334,12 @@ class GAPlanner(Planner):
                                 tmp_str_time, tmp_end_time))
                 resource_free[r_id] = tmp_end_time
         except Exception as e:
-            print(idx, r_id, sched, individual, e)
+            self._logger.error(idx, r_id, sched, individual, e)
             raise
 
 
     def plan(self, campaign=None, resources=None, num_oper=None, start_time=None,
-             deadline=None, max_gen=100):
+             **kargs):
         '''
         This method implements the basic HEFT algorithm. It returns a list of tuples
         Each tuple contains: Workflow ID, Resource ID, Start Time, End Time.
@@ -333,6 +350,9 @@ class GAPlanner(Planner):
         *Returns:*
             list(tuples)
         '''
+
+        deadline = kargs.get('deadline', None)
+        max_gen = kargs.get('max_gen', 100)
 
         tmp_cmp = campaign if campaign else self._campaign
         tmp_res = resources if resources else self._resources
@@ -347,9 +367,11 @@ class GAPlanner(Planner):
         gen_id = 0
         curr_makespan = 0
         while True:
-            print('Gen: %d' % gen_id)
+            self._logger.debug('Generation: %d', gen_id)
             parents = self._selection()
             children = self._crossover(parents)
+            self._logger.debug('Number of parents: %d, number of children %d',
+                               len(parents), len(children))
             children = self._mutate(children)
             self._logger.debug('Number of parents: %d, number of children %d',
                                len(parents), len(children))
@@ -366,6 +388,8 @@ class GAPlanner(Planner):
             self._logger.debug('Best individual makespan: %f and plan %s',
                                 tmp_makespan, self._plan)
             if deadline is not None and tmp_makespan < deadline:
+                break
+            elif sorted_fitness[-1][1] == 1:
                 break
             elif gen_id == max_gen or tmp_makespan < curr_makespan:
                 break

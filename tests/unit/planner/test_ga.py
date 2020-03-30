@@ -147,6 +147,11 @@ def test_crossover(mocked_init, mocked_raise_on):
     assert children[0] == [1, 3, 7, -1, 4, 2, -1, 6, 5, 8, 9]
     assert children[1] == [9, 2, -1, 3, 8, 5, 6, -1, 7, 1, 4]
 
+    parents = [[1, 4, -1, 3, -1, -1, 2], [-1, 2, 4, -1, 1, -1, 3]]
+    children = planner._crossover(parents=parents)
+    assert children[0] == [1, 4, -1, 3, -1, -1, 2]
+    assert children[1] == [-1, 2, 4, -1, 1, -1, 3]
+
 
 # ------------------------------------------------------------------------------
 #
@@ -154,19 +159,28 @@ def test_crossover(mocked_init, mocked_raise_on):
 @mock.patch('radical.utils.raise_on')
 def test_get_plan(mocked_init, mocked_raise_on):
 
-    actual_plan = [('W1', {'id': 2, 'performance': 1}, 0, 10), 
-                   ('W2', {'id': 1, 'performance': 1}, 0, 10), 
-                   ('W3', {'id': 2, 'performance': 1}, 10, 20), 
-                   ('W4', {'id': 1, 'performance': 1}, 10, 20), 
-                   ('W5', {'id': 3, 'performance': 1}, 0, 10), 
-                   ('W6', {'id': 1, 'performance': 1}, 20, 30), 
-                   ('W7', {'id': 1, 'performance': 1}, 30, 40), 
-                   ('W8', {'id': 2, 'performance': 1}, 20, 30), 
-                   ('W9', {'id': 3, 'performance': 1}, 10, 20), 
-                   ('W10', {'id': 3, 'performance': 1}, 20, 30)]
+    actual_plan = [({'description': 'W1', 'id': 0, 'num_oper': 10}, {'id': 2, 'performance': 1}, 0, 10), 
+                   ({'description': 'W2', 'id': 1, 'num_oper': 10}, {'id': 1, 'performance': 1}, 0, 10), 
+                   ({'description': 'W3', 'id': 2, 'num_oper': 10}, {'id': 2, 'performance': 1}, 10, 20), 
+                   ({'description': 'W4', 'id': 3, 'num_oper': 10}, {'id': 1, 'performance': 1}, 10, 20), 
+                   ({'description': 'W5', 'id': 4, 'num_oper': 10}, {'id': 3, 'performance': 1}, 0, 10), 
+                   ({'description': 'W6', 'id': 5, 'num_oper': 10}, {'id': 1, 'performance': 1}, 20, 30), 
+                   ({'description': 'W7', 'id': 6, 'num_oper': 10}, {'id': 1, 'performance': 1}, 30, 40), 
+                   ({'description': 'W8', 'id': 7, 'num_oper': 10}, {'id': 2, 'performance': 1}, 20, 30), 
+                   ({'description': 'W9', 'id': 8, 'num_oper': 10}, {'id': 3, 'performance': 1}, 10, 20), 
+                   ({'description': 'W10', 'id': 9, 'num_oper': 10}, {'id': 3, 'performance': 1}, 20, 30)]
     planner = GAPlanner(None, None, None)
     planner._logger = ru.Logger('dummy')
-    planner._campaign = ['W1', 'W2', 'W3', 'W4', 'W5', 'W6', 'W7', 'W8', 'W9', 'W10']
+    planner._campaign = [{'description': 'W1', 'id': 0, 'num_oper': 10},
+                         {'description': 'W2', 'id': 1, 'num_oper': 10},
+                         {'description': 'W3', 'id': 2, 'num_oper': 10},
+                         {'description': 'W4', 'id': 3, 'num_oper': 10},
+                         {'description': 'W5', 'id': 4, 'num_oper': 10},
+                         {'description': 'W6', 'id': 5, 'num_oper': 10},
+                         {'description': 'W7', 'id': 6, 'num_oper': 10},
+                         {'description': 'W8', 'id': 7, 'num_oper': 10},
+                         {'description': 'W9', 'id': 8, 'num_oper': 10},
+                         {'description': 'W10', 'id': 9, 'num_oper': 10}]
     planner._resources = [{'id': 1, 'performance': 1},
                           {'id': 2, 'performance': 1},
                           {'id': 3, 'performance': 1}]
@@ -184,7 +198,28 @@ def test_get_plan(mocked_init, mocked_raise_on):
     planner._get_plan([1, 3, 5, 6, -1, 2, 7, 0, -1, 4, 8, 9])
 
     assert planner._plan == actual_plan
+    actual_plan = [({'description': None, 'id': 1, 'num_oper': 75000}, {'id': 1, 'performance': 1}, 0, 75000.0), 
+                   ({'description': None, 'id': 2, 'num_oper': 75000}, {'id': 3, 'performance': 1}, 0, 75000.0), 
+                   ({'description': None, 'id': 3, 'num_oper': 75000}, {'id': 4, 'performance': 1}, 0, 75000.0), 
+                   ({'description': None, 'id': 4, 'num_oper': 75000}, {'id': 2, 'performance': 1}, 0, 75000.0)]
+    planner = GAPlanner(None, None, None)
+    planner._logger = ru.Logger('dummy')
+    planner._campaign = [{'description': None, 'id': 1, 'num_oper': 75000},
+                         {'description': None, 'id': 2, 'num_oper': 75000},
+                         {'description': None, 'id': 3, 'num_oper': 75000},
+                         {'description': None, 'id': 4, 'num_oper': 75000}]
+    planner._resources = [{'id': 1, 'performance': 1},
+                          {'id': 2, 'performance': 1},
+                          {'id': 3, 'performance': 1},
+                          {'id': 4, 'performance': 1}]
+    planner._num_oper = [75000, 75000, 75000, 75000]
+    planner._est_txs = [[75000, 75000, 75000, 75000],
+                        [75000, 75000, 75000, 75000],
+                        [75000, 75000, 75000, 75000],
+                        [75000, 75000, 75000, 75000]]
+    planner._get_plan([1,-1,4,-1,2,-1,3])
 
+    assert planner._plan == actual_plan
 # ------------------------------------------------------------------------------
 #
 @mock.patch.object(GAPlanner, '__init__', return_value=None)
