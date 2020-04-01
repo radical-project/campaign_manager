@@ -56,6 +56,7 @@ class Bookkeeper(object):
         self._work_thread = None  # Private attribute that will hold the thread
         self._monitoring_thread = None  # Private attribute that will hold the thread
         self._cont = False
+        self._hold = False
 
         self._logger = ru.Logger(name='rcm.bookkeeper', level='DEBUG')
         # self._prof   = ru.Profiler(name='radical.cm.bookkeeper',
@@ -122,6 +123,8 @@ class Bookkeeper(object):
         self._logger.debug('Workflow %s to state %s', workflow_id, new_state)
         with self._exec_state_lock:
             self._workflows_state[workflow_id] = new_state
+        if new_state is st.DONE:
+            self._hold = True
 
     def work(self):
         '''
@@ -145,11 +148,14 @@ class Bookkeeper(object):
                 self._logger.error("Objective cannot be satisfied. Ending execution")
                 with self._exec_state_lock:
                     self._campaign['state'] = st.FAILED
-                    self._terminate_event.set()
+                    self._terminate()
             else:
                 workflows = list()  # Workflows to enact
                 resources = list()  # The selected resources
                 self._logger.debug('Checking workflows %s', self._cont)
+                while (not self._cont) or self._hold:
+                    continue
+                
                 for (wf, rc, start_time, est_end_time) in self._plan:
                     # Do not enact to workflows that sould have been executed
                     # already.
@@ -179,9 +185,10 @@ class Bookkeeper(object):
                 for workflow in self._campaign['campaign']:
                     if self._workflows_state[workflow['id']] == st.NEW:
                         remain = False
-                
-                if remain and self._cont:
-                    self._logger.debug("Let's keep")
+                self._logger.debug('remain: %s, continue: %s, hold: %s', remain,
+                                   self._cont, self._hold)
+                if (remain or self._cont) and not self._hold:
+                    self._logger.debug("Let's keep going")
                     self._enactor.cont()
                     self._cont = False
                 else:
@@ -196,14 +203,15 @@ class Bookkeeper(object):
         '''
         while not self._terminate_event.is_set():
             while self._workflows_to_monitor:
-                with self._monitor_lock:
-                    workflow = self._workflows_to_monitor.pop(0)
-                    resource = self._unavail_resources.pop(0)
+                workflow = self._workflows_to_monitor[0]
+                resource = self._unavail_resources[0]
                 self._logger.debug('Checking workflow %s that ends at %f',
                                     workflow['description'],
                                     self._est_end_times[resource['id']])
                 if self._workflows_state[workflow['id']] not in st.CFINAL:
                     with self._monitor_lock:
+                        workflow = self._workflows_to_monitor.pop(0)
+                        resource = self._unavail_resources.pop(0)
                         self._workflows_to_monitor.append(workflow)
                         self._unavail_resources.append(resource)
                 else:
@@ -215,6 +223,10 @@ class Bookkeeper(object):
                     if self._env.now == self._est_end_times[resource['id']]:
                         self._logger.info('Workflow %s finished',
                                             workflow['description'])
+                        with self._monitor_lock:
+                            workflow = self._workflows_to_monitor.pop(0)
+                            resource = self._unavail_resources.pop(0)
+                        self._hold = False
                         self._logger.debug('Still monitoring: %s', 
                                             self._unavail_resources)
                     else:
@@ -260,6 +272,7 @@ class Bookkeeper(object):
                         self._plan = tmp_plan
 
                         self._update_checkpoints()
+                        self._hold = False
 
     def get_makespan(self):
         '''

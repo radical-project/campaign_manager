@@ -45,10 +45,10 @@ class SimulatedEnactor(Enactor):
         self._sim_env = env
         self._run = False
 
+        self._terminate_simulation = mt.Event()
         self._simulation_thread = mt.Thread(target=self._sim_run,
                                             name='monitor-thread')
-        self._terminate_simulation = mt.Event()  # Thread event to terminate.
-        self._simulation_thread.start()
+        self._simulation_thread.start()  # Thread event to terminate.
 
 
     def enact(self, workflows, resources):
@@ -131,6 +131,7 @@ class SimulatedEnactor(Enactor):
 
     def _sim_run(self):
 
+        self._logger.debug('Simulation thread started. Run: %s', self._run)
         while not self._terminate_simulation.is_set():
             try:
                 if self._run:
