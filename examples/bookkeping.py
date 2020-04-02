@@ -1,7 +1,8 @@
 from radical.cm.utils.calculator.api.resource import Resource
 from radical.cm.bookkeeper import Bookkeeper
 from random import randint
-#pylint: disable=protected-access
+# pylint: disable=protected-access
+
 
 # ------------------------------------------------------------------------------
 #

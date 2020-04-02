@@ -3,7 +3,7 @@ from radical.cm.utils.calculator.api.resource import Resource
 from radical.cm.enactor import SimulatedEnactor
 import time
 
-#pylint: disable=protected-access
+# pylint: disable=protected-access
 environ = Environment()
 
 enactor = SimulatedEnactor(env=environ)
