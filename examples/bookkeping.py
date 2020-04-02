@@ -19,6 +19,7 @@ def get_makespan(curr_plan):
     checkpoints.sort()
     return checkpoints[-1]
 
+
 # ------------------------------------------------------------------------------
 # Create campaign
 campaign = []
@@ -30,9 +31,10 @@ for i in range(16):
                 'requirements': None}
     campaign.append(workflow)
 
+
 # ------------------------------------------------------------------------------
 # Create a resource list
-tmp_resources = Resource(num_cores=8, dist_mean=1)#, temporal_var=0.1)
+tmp_resources = Resource(num_cores=16, dist_mean=1, temporal_var=0.1)
 tmp_resources.create_core_list()
 res = []
 for i in range(len(tmp_resources.core_list)):

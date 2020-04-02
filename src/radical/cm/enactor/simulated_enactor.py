@@ -47,7 +47,7 @@ class SimulatedEnactor(Enactor):
 
         self._terminate_simulation = mt.Event()
         self._simulation_thread = mt.Thread(target=self._sim_run,
-                                            name='monitor-thread')
+                                            name='sim-thread')
         self._simulation_thread.start()  # Thread event to terminate.
 
 
@@ -189,14 +189,17 @@ class SimulatedEnactor(Enactor):
         Public method to terminate the Enactor
         '''
         self._logger.info('Start terminating procedure')
-        self._terminate_simulation.set()
-        self._simulation_thread.join()
         # self._prof.prof('str_terminating', uid=self._uid)
         if self._monitoring_thread:
             # self._prof.prof('monitor_terminate', uid=self._uid)
             self._terminate_monitor.set()
             self._monitoring_thread.join()
             # self._prof.prof('monitor_terminated', uid=self._uid)
+        self._logger.debug('Monitor thread terminated')
+        self._terminate_simulation.set()
+        self._simulation_thread.join()
+        self._logger.debug('Simulation thread terminated')
+        
 
     def register_state_cb(self, cb):
         '''
