@@ -1,10 +1,9 @@
 from radical.cm.utils.calculator.api.resource import Resource
 from radical.cm.bookkeeper import Bookkeeper
-import time
 from random import randint
+#pylint: disable=protected-access
 
-
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 #
 def get_makespan(curr_plan):
 
@@ -15,7 +14,7 @@ def get_makespan(curr_plan):
             checkpoints.append(work[2])
         if work[3] not in checkpoints:
             checkpoints.append(work[3])
-    
+
     checkpoints.sort()
     return checkpoints[-1]
 
