@@ -40,7 +40,7 @@ class Enactor(object):
 
         self._uid = ru.generate_id('rcm.enactor', mode=ru.ID_PRIVATE)
         path = os.getcwd() + '/'
-        name = self._uid
+        # name = self._uid
 
         self._logger = ru.Logger(name='rcm.enactor', path=path, level='DEBUG')
         # self._prof   = ru.Profiler(name=name, path=path)

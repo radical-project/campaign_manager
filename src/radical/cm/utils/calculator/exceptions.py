@@ -7,6 +7,7 @@ class CalcError(Exception):
     """CalcError is the base exception raised by Ensemble Toolkit"""
 
     def __init__(self, msg):
+        # pylint: disable=useless-super-delegation
         super(CalcError, self).__init__(msg)
 
 

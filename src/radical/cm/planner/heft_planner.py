@@ -79,7 +79,7 @@ class HeftPlanner(Planner):
         av_est_idx_sorted = [i[0] for i in sorted(enumerate(av_est_tx),
                                                   key=lambda x:x[1],
                                                   reverse=True)]
-        
+
         # This list tracks when a resource whould be available.
         if isinstance(start_time, list):
             resource_free = start_time

@@ -78,7 +78,6 @@ class Bookkeeper(object):
                                           resources=self._resources,
                                           num_oper=num_oper)
 
-
     def _update_checkpoints(self):
         '''
         Create a list of timestamps when workflows may start executing or end.
@@ -95,7 +94,6 @@ class Bookkeeper(object):
                 self._checkpoints.append(work[3])
 
         self._checkpoints.sort()
-
 
     def _verify_objective(self):
         '''
@@ -155,7 +153,7 @@ class Bookkeeper(object):
                 self._logger.debug('Checking workflows %s', self._cont)
                 while (not self._cont) or self._hold:
                     continue
-                
+
                 for (wf, rc, start_time, est_end_time) in self._plan:
                     # Do not enact to workflows that sould have been executed
                     # already.
@@ -166,7 +164,7 @@ class Bookkeeper(object):
                         self._est_end_times[rc['id']] = est_end_time
                         self._logger.debug('Time: %s: Enacting %s workflow on %s resource. Will end %f',
                                            self._env.now, wf, rc, est_end_time)
-                
+
                 # There is no need to call the enactor when no new things
                 # should happen.
                 self._logger.debug('Adding items: %s, %s', workflows, resources)
@@ -179,7 +177,7 @@ class Bookkeeper(object):
                                         self._workflows_to_monitor,
                                         self._unavail_resources,
                                         self._est_end_times)
-                    
+
                 # Inform the enactor to continue until everything ends.
                 remain = True
                 for workflow in self._campaign['campaign']:
@@ -193,7 +191,6 @@ class Bookkeeper(object):
                     self._cont = False
                 else:
                     self._logger.debug('Still running on its own')
-
 
     def monitor(self):
         '''
@@ -311,7 +308,6 @@ class Bookkeeper(object):
         # self._prof.prof('work_bookkeper_terminated', uid=self._uid)
         self._logger.debug('Working thread terminated')
 
-
     def run(self):
         '''
         This method starts two threads for executing the campaign. The first
@@ -338,7 +334,7 @@ class Bookkeeper(object):
             self._logger.debug('Time now: %s, checkpoints: %s', self._time, self._checkpoints)
             while self._checkpoints is None:
                 continue
-            
+
             self._cont = True
             while self._campaign['state'] not in st.CFINAL:
                 if self._time != self._env.now:
@@ -346,7 +342,7 @@ class Bookkeeper(object):
                     self._cont = True
                     self._logger.debug('Time now: %s, checkpoint: %s',
                                     self._time, self._checkpoints[-1])
-                
+
                 # Check if all workflows are in a final state.
                 cont = False
 
@@ -356,7 +352,7 @@ class Bookkeeper(object):
                         break
                     elif self._workflows_state[workflow['id']] not in st.CFINAL:
                         cont = True
-                
+
                 if not cont:
                     self._campaign['state'] = st.DONE
 

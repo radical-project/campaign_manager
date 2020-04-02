@@ -50,7 +50,6 @@ class SimulatedEnactor(Enactor):
                                             name='sim-thread')
         self._simulation_thread.start()  # Thread event to terminate.
 
-
     def enact(self, workflows, resources):
         '''
         Method enact receives a set workflows and resources. It is responsible to
@@ -65,7 +64,7 @@ class SimulatedEnactor(Enactor):
             # proceed.
             if workflow['id'] in self._execution_status:
                 self._logger.info('Workflow %s is in state %s', workflow, 
-                                  st._state_dict[self._get_workflow_state(workflow['id'])])
+                                  st.state_dict[self._get_workflow_state(workflow['id'])])
                 continue
 
             try:
@@ -130,7 +129,7 @@ class SimulatedEnactor(Enactor):
                             self._to_monitor.append(workflow_id)
 
     def _sim_run(self):
-
+        # pylint: disable=protected-access
         self._logger.debug('Simulation thread started. Run: %s', self._run)
         while not self._terminate_simulation.is_set():
             try:
@@ -148,7 +147,7 @@ class SimulatedEnactor(Enactor):
                     self._run = False
             except EmptySchedule:
                 continue
-
+        # pylint: enable=protected-access
 
     def get_status(self, workflows=None):
         '''
@@ -199,7 +198,6 @@ class SimulatedEnactor(Enactor):
         self._terminate_simulation.set()
         self._simulation_thread.join()
         self._logger.debug('Simulation thread terminated')
-        
 
     def register_state_cb(self, cb):
         '''
