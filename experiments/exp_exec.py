@@ -4,7 +4,6 @@ __copyright__ = 'Copyright 2013-2014, http://radical.rutgers.edu'
 __license__   = 'MIT'
 
 import os
-import sys
 
 verbose  = os.environ.get('RADICAL_PILOT_VERBOSE', 'REPORT')
 os.environ['RADICAL_PILOT_VERBOSE'] = verbose
@@ -19,7 +18,7 @@ import radical.utils as ru
 # ------------------------------------------------------------------------------
 
 
-#------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 #
 if __name__ == '__main__':
 
@@ -46,11 +45,11 @@ if __name__ == '__main__':
         # Define an [n]-core local pilot that runs for [x] minutes
         # Here we use a dict to initialize the description object
         pd_init = {
-                'resource'      : 'local.localhost_anaconda',
-                'runtime'       : 120,  # pilot runtime (min)
-                'exit_on_error' : True,
-                'cores'         : 6,
-                }
+                   'resource'      : 'local.localhost_anaconda',
+                   'runtime'       : 120,  # pilot runtime (min)
+                   'exit_on_error' : True,
+                   'cores'         : 6,
+                  }
         pdesc = rp.ComputePilotDescription(pd_init)
 
         # Launch the pilot.
@@ -72,7 +71,7 @@ if __name__ == '__main__':
         cud.pre_exec   = ['conda activate campaign']
         cud.executable = 'python'
         cud.arguments  = ['static_resources_exp.py']
-        
+
         # this is a shortcut for:
         cud.input_staging  = {'source': 'client:///static_resources_exp.py', 
                               'target': 'unit:///static_resources_exp.py',
@@ -82,7 +81,7 @@ if __name__ == '__main__':
         cud.pre_exec   = ['conda activate campaign']
         cud.executable = 'python'
         cud.arguments  = ['static_resources_exp2.py']
-        
+
         # this is a shortcut for:
         cud.input_staging  = {'source': 'client:///static_resources_exp2.py', 
                               'target': 'unit:///static_resources_exp2.py',
@@ -92,7 +91,7 @@ if __name__ == '__main__':
         cud.pre_exec   = ['conda activate campaign']
         cud.executable = 'python'
         cud.arguments  = ['static_resources_exp3.py']
-        
+
         # this is a shortcut for:
         cud.input_staging  = {'source': 'client:///static_resources_exp3.py', 
                               'target': 'unit:///static_resources_exp3.py',
@@ -102,7 +101,7 @@ if __name__ == '__main__':
         cud.pre_exec   = ['conda activate campaign']
         cud.executable = 'python'
         cud.arguments  = ['static_resources_exp4.py']
-        
+
         # this is a shortcut for:
         cud.input_staging  = {'source': 'client:///static_resources_exp4.py', 
                               'target': 'unit:///static_resources_exp4.py',
@@ -112,7 +111,7 @@ if __name__ == '__main__':
         cud.pre_exec   = ['conda activate campaign']
         cud.executable = 'python'
         cud.arguments  = ['static_resources_exp5.py']
-        
+
         # this is a shortcut for:
         cud.input_staging  = {'source': 'client:///static_resources_exp5.py', 
                               'target': 'unit:///static_resources_exp5.py',
@@ -122,7 +121,7 @@ if __name__ == '__main__':
         cud.pre_exec   = ['conda activate campaign']
         cud.executable = 'python'
         cud.arguments  = ['static_resources_exp6.py']
-        
+
         # this is a shortcut for:
         cud.input_staging  = {'source': 'client:///static_resources_exp6.py', 
                               'target': 'unit:///static_resources_exp6.py',
@@ -139,7 +138,7 @@ if __name__ == '__main__':
         # Wait for all compute units to reach a final state (DONE, CANCELED or FAILED).
         report.header('gather results')
         umgr.wait_units()
-    
+
     except Exception as e:
         # Something unexpected happened in the pilot code above
         report.error('caught Exception: %s\n' % e)
@@ -150,7 +149,7 @@ if __name__ == '__main__':
         # corresponding KeyboardInterrupt exception for shutdown.  We also catch
         # SystemExit (which gets raised if the main threads exits for some other
         # reason).
-        report.warn('exit requested\n')
+        report.warn('exit requested: %s\n' % e)
 
     finally:
         # always clean up the session, no matter if we caught an exception or
@@ -161,4 +160,4 @@ if __name__ == '__main__':
     report.header()
 
 
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
