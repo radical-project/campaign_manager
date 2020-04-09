@@ -4,6 +4,7 @@ __copyright__ = 'Copyright 2013-2014, http://radical.rutgers.edu'
 __license__   = 'MIT'
 
 import os
+import sys
 
 verbose  = os.environ.get('RADICAL_PILOT_VERBOSE', 'REPORT')
 os.environ['RADICAL_PILOT_VERBOSE'] = verbose
@@ -22,6 +23,7 @@ import radical.utils as ru
 #
 if __name__ == '__main__':
 
+    repetitions = int(sys.argv[1])
     # we use a reporter class for nicer output
     report = ru.Reporter(name='radical.pilot')
     report.title('Getting Started (RP version %s)' % rp.version)
@@ -74,7 +76,7 @@ if __name__ == '__main__':
         cud = rp.ComputeUnitDescription()
         cud.pre_exec   = ['module load anaconda3','source activate $SCRATCH/cm_env']
         cud.executable = 'python'
-        cud.arguments  = ['static_resources_exp.py', '1000']
+        cud.arguments  = ['static_resources_exp.py', repetitions]
         cud.input_staging  = {'source': 'client:///heft/static_resources_exp.py',
                               'target': 'unit:///static_resources_exp.py',
                               'action': rp.TRANSFER}
@@ -82,7 +84,7 @@ if __name__ == '__main__':
         cud = rp.ComputeUnitDescription()
         cud.pre_exec   = ['module load anaconda3','source activate $SCRATCH/cm_env']
         cud.executable = 'python'
-        cud.arguments  = ['static_resources_exp2.py', '1000']
+        cud.arguments  = ['static_resources_exp2.py', repetitions]
         # this is a shortcut for:
         cud.input_staging  = [{'source': 'client:///heterogeneous_campaign.csv',
                               'target': 'unit:///heterogeneous_campaign.csv',
@@ -94,7 +96,7 @@ if __name__ == '__main__':
         cud = rp.ComputeUnitDescription()
         cud.pre_exec   = ['module load anaconda3', 'source activate $SCRATCH/cm_env']
         cud.executable = 'python'
-        cud.arguments  = ['static_resources_exp3.py', '1000']
+        cud.arguments  = ['static_resources_exp3.py', repetitions]
         # this is a shortcut for:
         cud.input_staging  = [{'source': 'client:///heterogeneous_campaign.csv',
                               'target': 'unit:///heterogeneous_campaign.csv',
@@ -107,7 +109,7 @@ if __name__ == '__main__':
         cud = rp.ComputeUnitDescription()
         cud.pre_exec   = ['module load anaconda3', 'source activate $SCRATCH/cm_env']
         cud.executable = 'python'
-        cud.arguments  = ['static_resources_exp4.py', '1000']
+        cud.arguments  = ['static_resources_exp4.py', repetitions]
         # this is a shortcut for:
         cud.input_staging  = [{'source': 'client:///heterogeneous_campaign.csv',
                               'target': 'unit:///heterogeneous_campaign.csv',
@@ -120,7 +122,7 @@ if __name__ == '__main__':
         cud = rp.ComputeUnitDescription()
         cud.pre_exec   = ['module load anaconda3', 'source activate $SCRATCH/cm_env']
         cud.executable = 'python'
-        cud.arguments  = ['static_resources_exp5.py', '1000']
+        cud.arguments  = ['static_resources_exp5.py', repetitions]
         # this is a shortcut for:
         cud.input_staging  = [{'source': 'client:///heterogeneous_campaign.csv',
                               'target': 'unit:///heterogeneous_campaign.csv',
@@ -133,7 +135,7 @@ if __name__ == '__main__':
         cud = rp.ComputeUnitDescription()
         cud.pre_exec   = ['module load anaconda3', 'source activate $SCRATCH/cm_env']
         cud.executable = 'python'
-        cud.arguments  = ['static_resources_exp6.py', '1000']
+        cud.arguments  = ['static_resources_exp6.py', repetitions]
         # this is a shortcut for:
         cud.input_staging  = [{'source': 'client:///heterogeneous_campaign.csv',
                                'target': 'unit:///heterogeneous_campaign.csv',
@@ -147,7 +149,7 @@ if __name__ == '__main__':
         cud = rp.ComputeUnitDescription()
         cud.pre_exec   = ['module load anaconda3','source activate $SCRATCH/cm_env']
         cud.executable = 'python'
-        cud.arguments  = ['static_resources_exp.py', '1000']
+        cud.arguments  = ['static_resources_exp.py', repetitions]
         cud.input_staging  = {'source': 'client:///ga/static_resources_exp.py',
                               'target': 'unit:///static_resources_exp.py',
                               'action': rp.TRANSFER}
@@ -155,7 +157,7 @@ if __name__ == '__main__':
         cud = rp.ComputeUnitDescription()
         cud.pre_exec   = ['module load anaconda3','source activate $SCRATCH/cm_env']
         cud.executable = 'python'
-        cud.arguments  = ['static_resources_exp2.py', '1000']
+        cud.arguments  = ['static_resources_exp2.py', repetitions]
         # this is a shortcut for:
         cud.input_staging  = [{'source': 'client:///heterogeneous_campaign.csv',
                               'target': 'unit:///heterogeneous_campaign.csv',
@@ -167,7 +169,7 @@ if __name__ == '__main__':
         cud = rp.ComputeUnitDescription()
         cud.pre_exec   = ['module load anaconda3', 'source activate $SCRATCH/cm_env']
         cud.executable = 'python'
-        cud.arguments  = ['static_resources_exp3.py', '1000']
+        cud.arguments  = ['static_resources_exp3.py', repetitions]
         # this is a shortcut for:
         cud.input_staging  = [{'source': 'client:///heterogeneous_campaign.csv',
                               'target': 'unit:///heterogeneous_campaign.csv',
@@ -180,7 +182,7 @@ if __name__ == '__main__':
         cud = rp.ComputeUnitDescription()
         cud.pre_exec   = ['module load anaconda3', 'source activate $SCRATCH/cm_env']
         cud.executable = 'python'
-        cud.arguments  = ['static_resources_exp4.py', '1000']
+        cud.arguments  = ['static_resources_exp4.py', repetitions]
         # this is a shortcut for:
         cud.input_staging  = [{'source': 'client:///heterogeneous_campaign.csv',
                               'target': 'unit:///heterogeneous_campaign.csv',
@@ -193,7 +195,7 @@ if __name__ == '__main__':
         cud = rp.ComputeUnitDescription()
         cud.pre_exec   = ['module load anaconda3', 'source activate $SCRATCH/cm_env']
         cud.executable = 'python'
-        cud.arguments  = ['static_resources_exp5.py', '1000']
+        cud.arguments  = ['static_resources_exp5.py', repetitions]
         # this is a shortcut for:
         cud.input_staging  = [{'source': 'client:///heterogeneous_campaign.csv',
                               'target': 'unit:///heterogeneous_campaign.csv',
@@ -206,7 +208,7 @@ if __name__ == '__main__':
         cud = rp.ComputeUnitDescription()
         cud.pre_exec   = ['module load anaconda3', 'source activate $SCRATCH/cm_env']
         cud.executable = 'python'
-        cud.arguments  = ['static_resources_exp6.py', '1000']
+        cud.arguments  = ['static_resources_exp6.py', repetitions]
         # this is a shortcut for:
         cud.input_staging  = [{'source': 'client:///heterogeneous_campaign.csv',
                                'target': 'unit:///heterogeneous_campaign.csv',
@@ -220,7 +222,7 @@ if __name__ == '__main__':
         cud = rp.ComputeUnitDescription()
         cud.pre_exec   = ['module load anaconda3','source activate $SCRATCH/cm_env']
         cud.executable = 'python'
-        cud.arguments  = ['static_resources_exp.py', '1000']
+        cud.arguments  = ['static_resources_exp.py', repetitions]
         cud.input_staging  = {'source': 'client:///random/static_resources_exp.py',
                               'target': 'unit:///static_resources_exp.py',
                               'action': rp.TRANSFER}
@@ -228,7 +230,7 @@ if __name__ == '__main__':
         cud = rp.ComputeUnitDescription()
         cud.pre_exec   = ['module load anaconda3','source activate $SCRATCH/cm_env']
         cud.executable = 'python'
-        cud.arguments  = ['static_resources_exp2.py', '1000']
+        cud.arguments  = ['static_resources_exp2.py', repetitions]
         # this is a shortcut for:
         cud.input_staging  = [{'source': 'client:///heterogeneous_campaign.csv',
                               'target': 'unit:///heterogeneous_campaign.csv',
@@ -240,7 +242,7 @@ if __name__ == '__main__':
         cud = rp.ComputeUnitDescription()
         cud.pre_exec   = ['module load anaconda3', 'source activate $SCRATCH/cm_env']
         cud.executable = 'python'
-        cud.arguments  = ['static_resources_exp3.py', '1000']
+        cud.arguments  = ['static_resources_exp3.py', repetitions]
         # this is a shortcut for:
         cud.input_staging  = [{'source': 'client:///heterogeneous_campaign.csv',
                               'target': 'unit:///heterogeneous_campaign.csv',
@@ -253,7 +255,7 @@ if __name__ == '__main__':
         cud = rp.ComputeUnitDescription()
         cud.pre_exec   = ['module load anaconda3', 'source activate $SCRATCH/cm_env']
         cud.executable = 'python'
-        cud.arguments  = ['static_resources_exp4.py', '1000']
+        cud.arguments  = ['static_resources_exp4.py', repetitions]
         # this is a shortcut for:
         cud.input_staging  = [{'source': 'client:///heterogeneous_campaign.csv',
                               'target': 'unit:///heterogeneous_campaign.csv',
@@ -266,7 +268,7 @@ if __name__ == '__main__':
         cud = rp.ComputeUnitDescription()
         cud.pre_exec   = ['module load anaconda3', 'source activate $SCRATCH/cm_env']
         cud.executable = 'python'
-        cud.arguments  = ['static_resources_exp5.py', '1000']
+        cud.arguments  = ['static_resources_exp5.py', repetitions]
         # this is a shortcut for:
         cud.input_staging  = [{'source': 'client:///heterogeneous_campaign.csv',
                               'target': 'unit:///heterogeneous_campaign.csv',
@@ -279,7 +281,7 @@ if __name__ == '__main__':
         cud = rp.ComputeUnitDescription()
         cud.pre_exec   = ['module load anaconda3', 'source activate $SCRATCH/cm_env']
         cud.executable = 'python'
-        cud.arguments  = ['static_resources_exp6.py', '1000']
+        cud.arguments  = ['static_resources_exp6.py', repetitions]
         # this is a shortcut for:
         cud.input_staging  = [{'source': 'client:///heterogeneous_campaign.csv',
                                'target': 'unit:///heterogeneous_campaign.csv',
