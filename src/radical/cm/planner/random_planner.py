@@ -49,7 +49,7 @@ class RandomPlanner(Planner):
         *Returns:*
             list(tuples)
         '''
-        # FIXME: add replanning
+        # FIXME: add replanning support
         # tmp_cmp = campaign if campaign else self._campaign
         tmp_res = resources if resources else self._resources
         # tmp_nop = num_oper if num_oper else self._num_oper

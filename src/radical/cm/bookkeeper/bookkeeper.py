@@ -56,6 +56,7 @@ class Bookkeeper(object):
         self._work_thread = None  # Private attribute that will hold the thread
         self._monitoring_thread = None  # Private attribute that will hold the thread
         self._cont = False
+        self._hold = False
 
         self._logger = ru.Logger(name='rcm.bookkeeper', level='DEBUG')
         # self._prof   = ru.Profiler(name='radical.cm.bookkeeper',
@@ -77,7 +78,6 @@ class Bookkeeper(object):
                                           resources=self._resources,
                                           num_oper=num_oper)
 
-
     def _update_checkpoints(self):
         '''
         Create a list of timestamps when workflows may start executing or end.
@@ -94,7 +94,6 @@ class Bookkeeper(object):
                 self._checkpoints.append(work[3])
 
         self._checkpoints.sort()
-
 
     def _verify_objective(self):
         '''
@@ -122,6 +121,8 @@ class Bookkeeper(object):
         self._logger.debug('Workflow %s to state %s', workflow_id, new_state)
         with self._exec_state_lock:
             self._workflows_state[workflow_id] = new_state
+        if new_state is st.DONE:
+            self._hold = True
 
     def work(self):
         '''
@@ -145,11 +146,14 @@ class Bookkeeper(object):
                 self._logger.error("Objective cannot be satisfied. Ending execution")
                 with self._exec_state_lock:
                     self._campaign['state'] = st.FAILED
-                    self._terminate_event.set()
+                    self._terminate()
             else:
                 workflows = list()  # Workflows to enact
                 resources = list()  # The selected resources
                 self._logger.debug('Checking workflows %s', self._cont)
+                while (not self._cont) or self._hold:
+                    continue
+
                 for (wf, rc, start_time, est_end_time) in self._plan:
                     # Do not enact to workflows that sould have been executed
                     # already.
@@ -160,7 +164,7 @@ class Bookkeeper(object):
                         self._est_end_times[rc['id']] = est_end_time
                         self._logger.debug('Time: %s: Enacting %s workflow on %s resource. Will end %f',
                                            self._env.now, wf, rc, est_end_time)
-                
+
                 # There is no need to call the enactor when no new things
                 # should happen.
                 self._logger.debug('Adding items: %s, %s', workflows, resources)
@@ -173,20 +177,20 @@ class Bookkeeper(object):
                                         self._workflows_to_monitor,
                                         self._unavail_resources,
                                         self._est_end_times)
-                    
+
                 # Inform the enactor to continue until everything ends.
                 remain = True
                 for workflow in self._campaign['campaign']:
                     if self._workflows_state[workflow['id']] == st.NEW:
                         remain = False
-                
-                if remain and self._cont:
-                    self._logger.debug("Let's keep")
+                self._logger.debug('remain: %s, continue: %s, hold: %s', remain,
+                                   self._cont, self._hold)
+                if (remain or self._cont) and not self._hold:
+                    self._logger.debug("Let's keep going")
                     self._enactor.cont()
                     self._cont = False
                 else:
                     self._logger.debug('Still running on its own')
-
 
     def monitor(self):
         '''
@@ -196,14 +200,15 @@ class Bookkeeper(object):
         '''
         while not self._terminate_event.is_set():
             while self._workflows_to_monitor:
-                with self._monitor_lock:
-                    workflow = self._workflows_to_monitor.pop(0)
-                    resource = self._unavail_resources.pop(0)
+                workflow = self._workflows_to_monitor[0]
+                resource = self._unavail_resources[0]
                 self._logger.debug('Checking workflow %s that ends at %f',
                                     workflow['description'],
                                     self._est_end_times[resource['id']])
                 if self._workflows_state[workflow['id']] not in st.CFINAL:
                     with self._monitor_lock:
+                        workflow = self._workflows_to_monitor.pop(0)
+                        resource = self._unavail_resources.pop(0)
                         self._workflows_to_monitor.append(workflow)
                         self._unavail_resources.append(resource)
                 else:
@@ -215,6 +220,10 @@ class Bookkeeper(object):
                     if self._env.now == self._est_end_times[resource['id']]:
                         self._logger.info('Workflow %s finished',
                                             workflow['description'])
+                        with self._monitor_lock:
+                            self._workflows_to_monitor.pop(0)
+                            self._unavail_resources.pop(0)
+                        self._hold = False
                         self._logger.debug('Still monitoring: %s', 
                                             self._unavail_resources)
                     else:
@@ -260,6 +269,10 @@ class Bookkeeper(object):
                         self._plan = tmp_plan
 
                         self._update_checkpoints()
+                        with self._monitor_lock:
+                            self._workflows_to_monitor.pop(0)
+                            self._unavail_resources.pop(0)
+                        self._hold = False
 
     def get_makespan(self):
         '''
@@ -280,72 +293,75 @@ class Bookkeeper(object):
         self._enactor.terminate()
 
         # Terminate your threads.
+        self._logger.debug('Enactor terminated, terminating threads')
 
         self._terminate_event.set()  # Thread event to terminate.
+        if self._hold:
+            self._hold = False
+        # self._prof.prof('monitor_bookkeper_terminate', uid=self._uid)
+        self._monitoring_thread.join()
+        # self._prof.prof('monitor_bookkeper_terminated', uid=self._uid)
+        self._logger.debug('Monitor thread terminated')
 
-
-        if self._work_thread:
-            # self._prof.prof('work_bookkeper_terminate', uid=self._uid)
-            self._work_thread.join()  # Private attribute that will hold the thread
-            # self._prof.prof('work_bookkeper_terminated', uid=self._uid)
-
-        if self._monitoring_thread:
-            # self._prof.prof('monitor_bookkeper_terminate', uid=self._uid)
-            self._monitoring_thread.join()
-            # self._prof.prof('monitor_bookkeper_terminated', uid=self._uid)
+        # self._prof.prof('work_bookkeper_terminate', uid=self._uid)
+        self._work_thread.join()  # Private attribute that will hold the thread
+        # self._prof.prof('work_bookkeper_terminated', uid=self._uid)
+        self._logger.debug('Working thread terminated')
 
     def run(self):
         '''
         This method starts two threads for executing the campaign. The first
         thread starts the work method. The second thread the monitoring thread.
         '''
+        try:
+            # Populate the execution status dictionary with workflows
+            with self._exec_state_lock:
+                for workflow in self._campaign['campaign']:
+                    self._workflows_state[workflow['id']] = st.NEW
 
-        # Populate the execution status dictionary with workflows
-        with self._exec_state_lock:
-            for workflow in self._campaign['campaign']:
-                self._workflows_state[workflow['id']] = st.NEW
+            self._logger.info('Starting work thread')
+            self._work_thread = mt.Thread(target=self.work,
+                                            name='work-thread')
+            self._work_thread.start()
+            self._logger.info('Starting monitor thread')
+            self._monitoring_thread = mt.Thread(target=self.monitor,
+                                            name='monitor-thread')
+            self._monitoring_thread.start()
 
-        self._logger.info('Starting work thread')
-        self._work_thread = mt.Thread(target=self.work,
-                                          name='work-thread')
-        self._work_thread.start()
-        self._logger.info('Starting monitor thread')
-        self._monitoring_thread = mt.Thread(target=self.monitor,
-                                          name='monitor-thread')
-        self._monitoring_thread.start()
+            # This waits regardless if workflows are failing or not. This loop can
+            # do meaningful work such as checking the state of the campaign. It can
+            # be a while true, until something happens.
+            self._logger.debug('Time now: %s, checkpoints: %s', self._time, self._checkpoints)
+            while self._checkpoints is None:
+                continue
 
-        # This waits regardless if workflows are failing or not. This loop can
-        # do meaningful work such as checking the state of the campaign. It can
-        # be a while true, until something happens.
-        self._logger.debug('Time now: %s, checkpoints: %s', self._time, self._checkpoints)
-        while self._checkpoints is None:
-            continue
-        
-        self._cont = True
-        while self._campaign['state'] not in st.CFINAL:
-            if self._time != self._env.now:
-                self._time = self._env.now
-                self._cont = True
-                self._logger.debug('Time now: %s, checkpoint: %s',
-                                   self._time, self._checkpoints[-1])
-            
-            # Check if all workflows are in a final state.
-            cont = False
+            self._cont = True
+            while self._campaign['state'] not in st.CFINAL:
+                if self._time != self._env.now:
+                    self._time = self._env.now
+                    self._cont = True
+                    self._logger.debug('Time now: %s, checkpoint: %s',
+                                    self._time, self._checkpoints[-1])
 
-            for workflow in self._campaign['campaign']:
-                if self._workflows_state[workflow['id']] is st.FAILED:
-                    self._campaign['state'] = st.FAILED
-                    break
-                elif self._workflows_state[workflow['id']] not in st.CFINAL:
-                    cont = True
-            
-            if not cont:
+                # Check if all workflows are in a final state.
+                cont = False
+
+                for workflow in self._campaign['campaign']:
+                    if self._workflows_state[workflow['id']] is st.FAILED:
+                        self._campaign['state'] = st.FAILED
+                        break
+                    elif self._workflows_state[workflow['id']] not in st.CFINAL:
+                        cont = True
+
+                if not cont:
+                    self._campaign['state'] = st.DONE
+
+            if self._campaign['state'] not in st.CFINAL:
                 self._campaign['state'] = st.DONE
-
-        if self._campaign['state'] not in st.CFINAL:
-            self._campaign['state'] = st.DONE
-
-        self._terminate()
+        except Exception as ex:
+            print(ex)
+        finally:
+            self._terminate()
 
     def get_campaign_state(self):
 

@@ -4,7 +4,6 @@ __copyright__ = 'Copyright 2013-2014, http://radical.rutgers.edu'
 __license__   = 'MIT'
 
 import os
-import sys
 
 verbose  = os.environ.get('RADICAL_PILOT_VERBOSE', 'REPORT')
 os.environ['RADICAL_PILOT_VERBOSE'] = verbose
@@ -47,12 +46,10 @@ if __name__ == '__main__':
         # Define an [n]-core local pilot that runs for [x] minutes
         # Here we use a dict to initialize the description object
         pd_init = {
-                   'resource'      : 'xsede.bridges',
-                   'runtime'       : 720,  # pilot runtime (min)
+                   'resource'      : 'local.localhost_anaconda',
+                   'runtime'       : 120,  # pilot runtime (min)
                    'exit_on_error' : True,
-                   'cores'         : 24,
-                   'queue'         : 'RM',
-                   'project'       : ''
+                   'cores'         : 6,
                   }
         pdesc = rp.ComputePilotDescription(pd_init)
 

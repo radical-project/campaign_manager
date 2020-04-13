@@ -17,11 +17,11 @@ CANCELED = 5  # Campaign got canceled by the user.
 CFINAL = [DONE, FAILED, CANCELED]  # Final states for a campaign.
 
 
-_state_dict = {0: 'NEW',
-               1: 'PLANNING',
-               2: 'EXECUTING',
-               3: 'DONE',
-               4: 'FAILED',
-               5: 'CANCELED'
-              }
+state_dict = {0: 'NEW',
+              1: 'PLANNING',
+              2: 'EXECUTING',
+              3: 'DONE',
+              4: 'FAILED',
+              5: 'CANCELED'
+             }
 # ------------------------------------------------------------------------------

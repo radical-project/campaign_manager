@@ -45,11 +45,10 @@ class SimulatedEnactor(Enactor):
         self._sim_env = env
         self._run = False
 
+        self._terminate_simulation = mt.Event()
         self._simulation_thread = mt.Thread(target=self._sim_run,
-                                            name='monitor-thread')
-        self._terminate_simulation = mt.Event()  # Thread event to terminate.
-        self._simulation_thread.start()
-
+                                            name='sim-thread')
+        self._simulation_thread.start()  # Thread event to terminate.
 
     def enact(self, workflows, resources):
         '''
@@ -65,7 +64,7 @@ class SimulatedEnactor(Enactor):
             # proceed.
             if workflow['id'] in self._execution_status:
                 self._logger.info('Workflow %s is in state %s', workflow, 
-                                  st._state_dict[self._get_workflow_state(workflow['id'])])
+                                  st.state_dict[self._get_workflow_state(workflow['id'])])
                 continue
 
             try:
@@ -130,7 +129,8 @@ class SimulatedEnactor(Enactor):
                             self._to_monitor.append(workflow_id)
 
     def _sim_run(self):
-
+        # pylint: disable=protected-access
+        self._logger.debug('Simulation thread started. Run: %s', self._run)
         while not self._terminate_simulation.is_set():
             try:
                 if self._run:
@@ -147,7 +147,7 @@ class SimulatedEnactor(Enactor):
                     self._run = False
             except EmptySchedule:
                 continue
-
+        # pylint: enable=protected-access
 
     def get_status(self, workflows=None):
         '''
@@ -188,14 +188,16 @@ class SimulatedEnactor(Enactor):
         Public method to terminate the Enactor
         '''
         self._logger.info('Start terminating procedure')
-        self._terminate_simulation.set()
-        self._simulation_thread.join()
         # self._prof.prof('str_terminating', uid=self._uid)
         if self._monitoring_thread:
             # self._prof.prof('monitor_terminate', uid=self._uid)
             self._terminate_monitor.set()
             self._monitoring_thread.join()
             # self._prof.prof('monitor_terminated', uid=self._uid)
+        self._logger.debug('Monitor thread terminated')
+        self._terminate_simulation.set()
+        self._simulation_thread.join()
+        self._logger.debug('Simulation thread terminated')
 
     def register_state_cb(self, cb):
         '''
