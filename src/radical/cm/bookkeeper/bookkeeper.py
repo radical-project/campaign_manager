@@ -64,7 +64,7 @@ class Bookkeeper(object):
         self._monitoring_thread = None  # Private attribute that will hold the thread
         self._cont = False
         self._hold = False
-        
+
         path = os.getcwd() + '/' + self._sid
 
         self._logger = ru.Logger(name=self._uid, path=path, level='DEBUG')
