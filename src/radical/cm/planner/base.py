@@ -3,7 +3,7 @@ Author: Ioannis Paraskevakos
 License: MIT
 Copyright: 2018-2019
 """
-
+import os
 import radical.utils as ru
 
 
@@ -21,12 +21,16 @@ class Planner(object):
     to do.
     '''
 
-    def __init__(self, campaign, resources, num_oper):
+    def __init__(self, campaign, resources, num_oper, sid=None):
         self._campaign = campaign
         self._resources = resources
         self._num_oper = num_oper
         self._plan = list()
-        self._logger = ru.Logger(name='rcm.planner', level='DEBUG')
+        self._uid = ru.generate_id('planner.%(counter)04d', mode=ru.ID_CUSTOM,
+                                    ns=sid)
+        path = os.getcwd() + '/' + sid
+        # name = self._uid
+        self._logger = ru.Logger(name=self._uid, level='DEBUG', path=path)
 
 
     def _calc_est_tx(self, cmp_oper, resources):
