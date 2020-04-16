@@ -4,8 +4,8 @@ License: MIT
 Copyright: 2018-2019
 """
 
-
-from random import randint
+import os
+from random import randint, seed
 from .base import Planner
 
 
@@ -35,7 +35,7 @@ class RandomPlanner(Planner):
         for resource in self._resources:
             res_perf.append(resource['performance'])
         self._est_tx = self._calc_est_tx(cmp_oper=self._num_oper,
-                                         resources=res_perf)               
+                                         resources=res_perf)
 
     def plan(self, campaign=None, resources=None, num_oper=None, start_time=None):
         '''
@@ -48,14 +48,18 @@ class RandomPlanner(Planner):
         *Returns:*
             list(tuples)
         '''
+        if os.environ.get('PLANNER_TEST',"FALSE").lower() == 'true':
+            self._logger.debug('Setting seed')
+            seed(0)
+
         # FIXME: add replanning support
-        # tmp_cmp = campaign if campaign else self._campaign
+        tmp_cmp = campaign if campaign else self._campaign
         tmp_res = resources if resources else self._resources
-        # tmp_nop = num_oper if num_oper else self._num_oper
+        tmp_nop = num_oper if num_oper else self._num_oper
         res_perf = list()
         for resource in self._resources:
             res_perf.append(resource['performance'])
-        self._est_tx = self._calc_est_tx(cmp_oper=self._num_oper,
+        self._est_tx = self._calc_est_tx(cmp_oper=tmp_nop,
                                          resources=res_perf)
         # Reset the plan in case of a recall
         self._plan = list()
