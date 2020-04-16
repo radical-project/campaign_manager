@@ -72,12 +72,12 @@ class RandomPlanner(Planner):
         else:
             resource_free = [0] * len(tmp_res)
 
-        for idx in range(len(self._campaign)):
+        for idx in range(len(tmp_cmp)):
             wf_est_tx = self._est_tx[idx]
             resource = randint(0,len(self._resources) - 1)
             tmp_str_time = resource_free[resource]
             tmp_end_time = tmp_str_time + wf_est_tx[resource]
-            self._plan.append((self._campaign[idx], self._resources[resource],
+            self._plan.append((tmp_cmp[idx], self._resources[resource],
                                tmp_str_time, tmp_end_time))
             resource_free[resource] = tmp_end_time
 
