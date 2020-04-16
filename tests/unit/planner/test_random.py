@@ -15,7 +15,7 @@ try:
 except ImportError:
     from unittest import mock
 
-os.environ['PLANNER_TEST']='TRUE'
+os.environ['PLANNER_TEST'] = 'TRUE'
 
 # ------------------------------------------------------------------------------
 #
