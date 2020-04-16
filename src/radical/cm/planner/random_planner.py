@@ -25,11 +25,11 @@ class RandomPlanner(Planner):
     Each tuple will have the workflow, selected resource, starting time and
     estimated finish time.
     '''
-    def __init__(self, campaign, resources, num_oper):
+    def __init__(self, campaign, resources, num_oper, sid=None):
 
         super(RandomPlanner, self).__init__(campaign=campaign,
                                           resources=resources,
-                                          num_oper=num_oper)
+                                          num_oper=num_oper, sid=sid)
 
         res_perf = list()
         for resource in self._resources:

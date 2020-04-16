@@ -25,9 +25,9 @@ class SimulatedEnactor(Enactor):
     and executes the workflows on their selected resources. 
     '''
 
-    def __init__(self, env=None):
+    def __init__(self, env=None, sid=None):
 
-        super(SimulatedEnactor, self).__init__()
+        super(SimulatedEnactor, self).__init__(sid=sid)
 
         # List with all the workflows that are executing and require to be
         # monitored. This list is atomic and requires a lock

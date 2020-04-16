@@ -26,11 +26,11 @@ class HeftPlanner(Planner):
     Each tuple will have the workflow, selected resource, starting time and
     estimated finish time.
     '''
-    def __init__(self, campaign, resources, num_oper):
+    def __init__(self, campaign, resources, num_oper, sid=None):
 
         super(HeftPlanner, self).__init__(campaign=campaign,
                                           resources=resources,
-                                          num_oper=num_oper)
+                                          num_oper=num_oper, sid=sid)
 
         # Calculate the estimated execution time of each workflow on to each 
         # resource. This table will be used to calculate the plan.

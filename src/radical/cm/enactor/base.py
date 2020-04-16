@@ -25,7 +25,7 @@ class Enactor(object):
     *logger*: a logging object.
     '''
 
-    def __init__(self):
+    def __init__(self, sid=None):
 
         self._worflows = list()  # A list of workflows IDs
         # This will a hash table of workflows. The table will include the
@@ -38,11 +38,12 @@ class Enactor(object):
         #                 'end_time': Epoch of when the workflow finished.}
         self._execution_status = dict()  # This will create a hash table of workflows
 
-        self._uid = ru.generate_id('rcm.enactor', mode=ru.ID_PRIVATE)
-        path = os.getcwd() + '/'
+        self._uid = ru.generate_id('enactor.%(counter)04d', mode=ru.ID_CUSTOM,
+                                    ns=sid)
+        path = os.getcwd() + '/' + sid
         # name = self._uid
 
-        self._logger = ru.Logger(name='rcm.enactor', path=path, level='DEBUG')
+        self._logger = ru.Logger(name=self._uid, path=path, level='DEBUG')
         # self._prof   = ru.Profiler(name=name, path=path)
 
 

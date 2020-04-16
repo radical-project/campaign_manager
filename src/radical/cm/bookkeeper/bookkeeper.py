@@ -3,7 +3,7 @@ Author: Ioannis Paraskevakos
 License: MIT
 Copyright: 2018-2019
 """
-
+import os
 import threading as mt
 import radical.utils as ru
 
@@ -27,12 +27,19 @@ class Bookkeeper(object):
     *objective:* The campaign's objective
     '''
 
-    def __init__(self, campaign, resources, objective=None, planner='random'):
+    def __init__(self, campaign, resources, objective=None, planner='random',
+                 sid=None):
 
         self._campaign = {'campaign': campaign,
                           'state': st.NEW
                          }
-        self._uid = ru.generate_id('rcm.bookkeeper', mode=ru.ID_PRIVATE)
+        if sid:
+            self._sid = sid
+        else:
+            self._sid = ru.generate_id('rcm.session', mode=ru.ID_PRIVATE)
+        self._uid = ru.generate_id('bookkeper.%(counter)04d',
+                                   mode=ru.ID_CUSTOM, ns=self._sid)
+
         self._resources = resources
         self._checkpoints = None
         self._plan = None
@@ -46,7 +53,7 @@ class Bookkeeper(object):
         self._workflows_to_monitor = list()
         self._est_end_times = dict()
         self._env = Environment()
-        self._enactor = SimulatedEnactor(env=self._env)
+        self._enactor = SimulatedEnactor(env=self._env, sid=self._sid)
         self._enactor.register_state_cb(self.state_update_cb)
 
 
@@ -58,7 +65,9 @@ class Bookkeeper(object):
         self._cont = False
         self._hold = False
 
-        self._logger = ru.Logger(name='rcm.bookkeeper', level='DEBUG')
+        path = os.getcwd() + '/' + self._sid
+
+        self._logger = ru.Logger(name=self._uid, path=path, level='DEBUG')
         # self._prof   = ru.Profiler(name='radical.cm.bookkeeper',
         #                           path=os.getcwd() + '/')
 
@@ -66,17 +75,17 @@ class Bookkeeper(object):
         if planner.lower() == 'random':
             self._planner = RandomPlanner(campaign=self._campaign['campaign'],
                                           resources=self._resources,
-                                          num_oper=num_oper)
+                                          num_oper=num_oper, sid=self._sid)
         elif planner.lower() == 'heft':
             self._planner = HeftPlanner(campaign=self._campaign['campaign'],
                                           resources=self._resources,
-                                          num_oper=num_oper)
+                                          num_oper=num_oper, sid=self._sid)
         else:
             self._logger.warning('Planner %s is not implemented. Rolling to a \
                                   random planner')
             self._planner = RandomPlanner(campaign=self._campaign['campaign'],
                                           resources=self._resources,
-                                          num_oper=num_oper)
+                                          num_oper=num_oper, sid=self._sid)
 
     def _update_checkpoints(self):
         '''
