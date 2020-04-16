@@ -6,15 +6,19 @@ Unit test for heft_planner scheduler
 """
 # pylint: disable=protected-access, unused-argument
 
+import os
 from radical.cm.planner import GAPlanner
 import radical.utils as ru
-from random import randint
+# from random import randint
 import math
 
 try:
     import mock
 except ImportError:
     from unittest import mock
+
+os.environ['PLANNER_TEST'] = 'TRUE'
+
 
 # ------------------------------------------------------------------------------
 #
@@ -53,32 +57,44 @@ def test_decoding(mocked_init, mocked_raise_on):
 @mock.patch('radical.utils.raise_on')
 def test_initialize_population(mocked_init, mocked_raise_on):
 
+    population = [[3, -1, 1, 2, 4, 8, -1, 5, 6, 7, 9, 10],
+                  [6, 8, -1, 1, 2, 3, 4, 5, 10, -1, 7, 9],
+                  [2, 4, -1, 5, 9, -1, 1, 3, 6, 7, 8, 10],
+                  [1, 2, 6, -1, 4, 7, 9, -1, 3, 5, 8, 10],
+                  [3, 5, -1, 4, 7, 10, -1, 1, 2, 6, 8, 9]]
     planner = GAPlanner(None, None, None)
     planner._logger = ru.Logger('dummy')
     planner._population = []
-    planner._population_size = 20
-    workflows = []
-    for i in range(8):
-        oper = randint(1,100)
-        workflow = {'description': 'W%s' % str(i + 1),
-                    'id': i + 1,
-                    'num_oper': oper,
-                    'requirements': None}
-        workflows.append(workflow)
-    resources = [{'id': 1, 'performance': 523},
-                 {'id': 2, 'performance': 487},
-                 {'id': 3, 'performance': 96}]
+    planner._population_size = 5
+    planner._est_txs = [[1, 0.5, 0.3],
+                        [2,   1, 0.7],
+                        [3, 1.5, 1],
+                        [4,   2, 1.3],
+                        [5, 2.5, 1.7],
+                        [6,   3, 2],
+                        [7, 3.5, 2.3],
+                        [8,   4, 2.7],
+                        [9, 4.5, 3],
+                        [10,  5, 3.3]]
+    workflows = [{'description': 'W1','id': 1,'num_oper': 1,'requirements': None},
+                 {'description': 'W2','id': 2,'num_oper': 2,'requirements': None},
+                 {'description': 'W3','id': 3,'num_oper': 3,'requirements': None},
+                 {'description': 'W4','id': 4,'num_oper': 4,'requirements': None},
+                 {'description': 'W5','id': 5,'num_oper': 5,'requirements': None},
+                 {'description': 'W6','id': 6,'num_oper': 6,'requirements': None},
+                 {'description': 'W7','id': 7,'num_oper': 7,'requirements': None},
+                 {'description': 'W8','id': 8,'num_oper': 8,'requirements': None},
+                 {'description': 'W9','id': 9,'num_oper': 9,'requirements': None},
+                 {'description': 'W10','id': 10,'num_oper': 10,'requirements': None}]
+    
+    resources = [{'id': 1, 'performance': 1},
+                 {'id': 2, 'performance': 2},
+                 {'id': 3, 'performance': 3}]
 
-    planner._initialize_population(workflows=workflows, resources=resources)
-    assert isinstance(planner._population, list)
-    for individual in planner._population:
-        assert isinstance(individual, list)
-        assert individual.count(-1) == len(resources) - 1
-        assert len(individual) - individual.count(-1) == len(workflows)
-        while -1 in individual:
-            individual.remove(-1)
-        assert len(individual) == len(set(individual))
+    planner._initialize_population(workflows=workflows, resources=resources,
+                                   random_init=0.5, start_time=None)
 
+    assert planner._population == population
 # ------------------------------------------------------------------------------
 #
 @mock.patch.object(GAPlanner, '__init__', return_value=None)

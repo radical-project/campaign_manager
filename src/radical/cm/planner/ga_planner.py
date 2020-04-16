@@ -4,10 +4,11 @@ License: MIT
 Copyright: 2018-2019
 """
 import math
+import os
 from copy import deepcopy
 
 from .base import Planner
-from random import random, randint
+from random import random, randint, seed
 
 
 class GAPlanner(Planner):
@@ -30,7 +31,8 @@ class GAPlanner(Planner):
     Each tuple will have the workflow, selected resource, starting time and
     estimated finish time.
     '''
-    def __init__(self, campaign, resources, num_oper, population_size=20):
+    def __init__(self, campaign, resources, num_oper, population_size=20,
+                 random_init=0.5):
 
         super(GAPlanner, self).__init__(campaign=campaign,
                                         resources=resources,
@@ -49,7 +51,7 @@ class GAPlanner(Planner):
         self._population = []
         self._population_size = population_size
         self._fitness = []
-
+        self._random_init = random_init
         total_operations = 0
         tmp_oper = []
         for workflow in self._campaign:
@@ -111,16 +113,49 @@ class GAPlanner(Planner):
         return schedule
 
 
-    def _initialize_population(self, workflows, resources):
+    def _initialize_population(self, workflows, resources, random_init,
+                               start_time):
         '''
         This method creates the initial population. The population is 
         '''
 
+        # This part of the code is to allow unit tests to be get a reproducible
+        # result in the population initialization 
+        if os.environ.get('PLANNER_TEST',"FALSE").lower() == 'true':
+            self._logger.debug('Setting seed')
+            seed(0)
+
+        # This list tracks when a resource whould be available.
+        if isinstance(start_time, list):
+            resource_free = start_time
+        elif isinstance(start_time, float) or isinstance(start_time, int):
+            resource_free = [start_time] * len(resources)
+        else:
+            resource_free = [0] * len(resources)
+
         for _ in range(self._population_size):
             chromosome = [[] for j in range(len(resources))]
-            for idx in range(len(workflows)):
+            for idx in range(int(len(workflows) * random_init)):
+                wf_est_tx = self._est_txs[idx]
                 resource = randint(0,len(resources) - 1)
                 chromosome[resource].append(workflows[idx]['id'])
+                tmp_str_time = resource_free[resource]
+                tmp_end_time = tmp_str_time + wf_est_tx[resource]
+                resource_free[resource] = tmp_end_time
+            
+            for idx in range(int(len(workflows) * random_init), len(workflows)):
+                wf_est_tx = self._est_txs[idx]
+                min_end_time = float('inf')
+                for i in range(len(resources)):
+                    tmp_str_time = resource_free[i]
+                    tmp_end_time = tmp_str_time + wf_est_tx[i]
+                    if tmp_end_time < min_end_time:
+                        min_end_time = tmp_end_time
+                        tmp_min_idx = i
+                chromosome[tmp_min_idx].append(workflows[idx]['id'])
+                resource_free[tmp_min_idx] = resource_free[tmp_min_idx] + \
+                                             wf_est_tx[tmp_min_idx] 
+            
             self._population.append(self._encode_schedule(chromosome))
 
 
@@ -359,7 +394,7 @@ class GAPlanner(Planner):
         # FIXME: allow replanning
         # tmp_nop = num_oper if num_oper else self._num_oper
 
-        self._initialize_population(tmp_cmp, tmp_res)
+        self._initialize_population(tmp_cmp, tmp_res, self._random_init)
         self._logger.debug('Initial  population: %s', self._population)
         self._calc_fitness()
         sorted_fitness = sorted(enumerate(self._fitness), key=lambda x: x[1])
