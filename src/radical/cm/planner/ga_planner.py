@@ -52,19 +52,15 @@ class GAPlanner(Planner):
         self._population_size = population_size
         self._fitness = []
         self._random_init = random_init
-        total_operations = 0
         tmp_oper = []
         for workflow in self._campaign:
             tmp_oper.append(workflow['num_oper'])
-            total_operations += workflow['num_oper']
-
+      
         total_rate = 0
-        res_perf = []
         for resource in self._resources:
             res_perf.append(resource['performance'])
-            total_rate += resource['performance']
 
-        self._abs_fitness_term = total_operations / total_rate
+        self._abs_fitness_term = 0
         self._est_txs = self._calc_est_tx(tmp_oper, res_perf)
 
     def _encode_schedule(self, schedule):
@@ -132,6 +128,17 @@ class GAPlanner(Planner):
             resource_free = [start_time] * len(resources)
         else:
             resource_free = [0] * len(resources)
+
+        total_operations = 0
+        for workflow in workflows:
+            total_operations += workflow['num_oper']
+
+        total_rate = 0
+        for resource in self._resources:
+            total_rate += resource['performance']
+
+        self._abs_fitness_term = total_operations / total_rate + sum(resource_free)
+
 
         for _ in range(self._population_size):
             chromosome = [[] for j in range(len(resources))]
@@ -347,14 +354,6 @@ class GAPlanner(Planner):
         sched = self._decode_schedule(individual)
         self._logger.debug('Plan sched: %s', sched)
         self._plan = list()
-        # FIXME: add replanning
-        # This list tracks when a resource whould be available.
-        # if isinstance(start_time, list):
-        #     resource_free = start_time
-        # elif isinstance(start_time, float) or isinstance(start_time, int):
-        #     resource_free = [start_time] * len(tmp_res)
-        # else:
-        #     resource_free = [0] * len(tmp_res)
 
         resource_free = [0] * len(self._resources)
         try:
@@ -394,7 +393,8 @@ class GAPlanner(Planner):
         # FIXME: allow replanning
         # tmp_nop = num_oper if num_oper else self._num_oper
 
-        self._initialize_population(tmp_cmp, tmp_res, self._random_init)
+        self._initialize_population(tmp_cmp, tmp_res, self._random_init,
+                                    start_time=start_time)
         self._logger.debug('Initial  population: %s', self._population)
         self._calc_fitness()
         sorted_fitness = sorted(enumerate(self._fitness), key=lambda x: x[1])
