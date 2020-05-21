@@ -9,7 +9,7 @@ import radical.utils as ru
 
 from simpy import Environment
 
-from ..planner import HeftPlanner, RandomPlanner
+from ..planner import HeftPlanner, RandomPlanner, L2FFPlanner, GAPlanner
 from ..utils import states as st
 from ..enactor import SimulatedEnactor
 
@@ -28,11 +28,15 @@ class Bookkeeper(object):
     '''
 
     def __init__(self, campaign, resources, objective=None, planner='random',
-                 sid=None):
+                 sid=None, **kargs):
 
         self._campaign = {'campaign': campaign,
                           'state': st.NEW
                          }
+        planner_dict = {'random': RandomPlanner,
+                        'heft': HeftPlanner,
+                        'ga': GAPlanner,
+                        'l2ff': L2FFPlanner}
         if sid:
             self._sid = sid
         else:
@@ -72,21 +76,11 @@ class Bookkeeper(object):
         #                           path=os.getcwd() + '/')
 
         num_oper = [workflow['num_oper'] for workflow in self._campaign['campaign']]
-        if planner.lower() == 'random':
-            self._planner = RandomPlanner(campaign=self._campaign['campaign'],
+        planner_impl = planner_dict.get(planner.lower(), RandomPlanner)
+        self._planner = planner_impl(campaign=self._campaign['campaign'],
                                           resources=self._resources,
-                                          num_oper=num_oper, sid=self._sid)
-        elif planner.lower() == 'heft':
-            self._planner = HeftPlanner(campaign=self._campaign['campaign'],
-                                          resources=self._resources,
-                                          num_oper=num_oper, sid=self._sid)
-        else:
-            self._logger.warning('Planner %s is not implemented. Rolling to a \
-                                  random planner')
-            self._planner = RandomPlanner(campaign=self._campaign['campaign'],
-                                          resources=self._resources,
-                                          num_oper=num_oper, sid=self._sid)
-
+                                          num_oper=num_oper, sid=self._sid, **kargs)
+        
     def _update_checkpoints(self):
         '''
         Create a list of timestamps when workflows may start executing or end.
