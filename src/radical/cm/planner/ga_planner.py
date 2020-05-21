@@ -46,8 +46,6 @@ class GAPlanner(Planner):
         # execution time of a workflow on a resource.
         # TODO: not all workflows can run in a resource
         res_perf = list()
-        for resource in self._resources:
-            res_perf.append(resource['performance'])
 
         self._population = []
         self._population_size = population_size
@@ -63,6 +61,8 @@ class GAPlanner(Planner):
 
         self._abs_fitness_term = 0
         self._est_txs = self._calc_est_tx(tmp_oper, res_perf)
+        self._deadline = None
+        self._max_gen = 100
 
     def _encode_schedule(self, schedule):
         '''
@@ -386,8 +386,8 @@ class GAPlanner(Planner):
             list(tuples)
         '''
 
-        deadline = kargs.get('deadline', None)
-        max_gen = kargs.get('max_gen', 100)
+        self._deadline = kargs.get('deadline', self._deadline)
+        self._max_gen = kargs.get('max_gen', self._max_gen)
 
         tmp_cmp = campaign if campaign else self._campaign
         tmp_res = resources if resources else self._resources
@@ -423,11 +423,11 @@ class GAPlanner(Planner):
             self._get_plan(best_individual)
             self._logger.debug('Best individual makespan: %f and plan %s',
                                tmp_makespan, self._plan)
-            if deadline is not None and tmp_makespan < deadline:
+            if self._deadline is not None and tmp_makespan < self._deadline:
                 break
             elif sorted_fitness[-1][1] == 1:
                 break
-            elif gen_id == max_gen or tmp_makespan < curr_makespan:
+            elif gen_id == self._max_gen or tmp_makespan < curr_makespan:
                 break
             curr_makespan = tmp_makespan
             gen_id += 1
