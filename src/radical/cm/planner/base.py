@@ -29,7 +29,6 @@ class Planner(object):
         self._uid = ru.generate_id('planner.%(counter)04d', mode=ru.ID_CUSTOM,
                                     ns=sid)
         path = os.getcwd() + '/' + sid
-        # name = self._uid
         self._logger = ru.Logger(name=self._uid, level='DEBUG', path=path)
 
 
@@ -48,7 +47,8 @@ class Planner(object):
 
         return est_tx
 
-    def plan(self, campaign=None, resources=None, num_oper=None, start_time=0):
+    def plan(self, campaign=None, resources=None, num_oper=None, start_time=0,
+             **kargs):
         '''
         The planning method
         '''
