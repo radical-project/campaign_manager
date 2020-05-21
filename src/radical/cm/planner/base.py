@@ -29,8 +29,7 @@ class Planner(object):
         self._uid = ru.generate_id('planner.%(counter)04d', mode=ru.ID_CUSTOM,
                                     ns=sid)
         path = os.getcwd() + '/' + sid
-        # name = self._uid
-        #self._logger = ru.Logger(name=self._uid, level='DEBUG', path=path)
+        self._logger = ru.Logger(name=self._uid, level='DEBUG', path=path)
 
 
     def _calc_est_tx(self, cmp_oper, resources):
@@ -61,10 +60,10 @@ class Planner(object):
         The planning method
         '''
         if campaign and resources and num_oper:
-            #self._logger.debug('Replanning')
+            self._logger.debug('Replanning')
             self._plan = self.plan(campaign=campaign, resources=resources,
                                    num_oper=num_oper, start_time=start_time)
-        #else:
-        #    self._logger.debug('Nothing to plan for')
+        else:
+            self._logger.debug('Nothing to plan for')
 
         return self._plan

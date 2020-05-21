@@ -34,7 +34,8 @@ class L2FFPlanner(Planner):
         self._est_tx = self._calc_est_tx(cmp_oper=self._num_oper,
                                          resources=res_perf)
 
-    def plan(self, campaign=None, resources=None, num_oper=None, start_time=None):
+    def plan(self, campaign=None, resources=None, num_oper=None, start_time=None,
+             **kargs):
         '''
         This method implements a random algorithm. It returns a list of tuples
         Each tuple contains: Workflow ID, Resource ID, Start Time, End Time.
