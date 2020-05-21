@@ -7,7 +7,7 @@ Unit test for heft_planner scheduler
 # pylint: disable=protected-access, unused-argument
 
 import os
-from radical.cm.planner import GAPlanner, Planner
+from radical.cm.planner import GAPlanner
 import radical.utils as ru
 # from random import randint
 import math
@@ -42,7 +42,7 @@ def test_init(mocked_calc_est_tx, mocked_raise_on):
                         num_oper=[10, 10, 10, 10, 10, 10, 10, 10, 10, 10],
                         population_size=50, random_init=1.0, sid='test')
     planner._logger = ru.Logger('dummy')
-    
+
     assert planner._campaign == [{'description': 'W1', 'id': 0, 'num_oper': 10}]
     assert planner._resources == [{'id': 1, 'performance': 1},
                                   {'id': 2, 'performance': 1},
@@ -63,7 +63,7 @@ def test_init(mocked_calc_est_tx, mocked_raise_on):
                                 [8,   4, 2.7],
                                 [9, 4.5, 3],
                                 [10,  5, 3.3]]
-    assert planner._deadline == None
+    assert planner._deadline is None
     assert planner._max_gen == 100
 
 
