@@ -37,6 +37,7 @@ def test_encoding(mocked_init, mocked_raise_on):
 
     assert encode == [1,3,5,6,-1,2,7,-1,4,8,9]
 
+
 # ------------------------------------------------------------------------------
 #
 @mock.patch.object(GAPlanner, '__init__', return_value=None)
@@ -50,6 +51,7 @@ def test_decoding(mocked_init, mocked_raise_on):
     sched = planner._decode_schedule(encoding=encode)
 
     assert sched == [[1, 3, 5, 6], [2, 7], [4, 8, 9]]
+
 
 # ------------------------------------------------------------------------------
 #
@@ -95,6 +97,8 @@ def test_initialize_population(mocked_init, mocked_raise_on):
                                    random_init=0.5, start_time=None)
 
     assert planner._population == population
+
+
 # ------------------------------------------------------------------------------
 #
 @mock.patch.object(GAPlanner, '__init__', return_value=None)
@@ -131,6 +135,7 @@ def test_calc_fitness(mocked_init, mocked_raise_on):
     assert planner._fitness[1] == 1
     assert planner._fitness[0] == (1 / math.sqrt(200))
 
+
 # ------------------------------------------------------------------------------
 #
 @mock.patch.object(GAPlanner, '__init__', return_value=None)
@@ -148,6 +153,7 @@ def test_selection(mocked_init, mocked_raise_on):
     parents = planner._selection()
     assert (parents[0] == [1, 3, 5, 6, -1, 2, 7, -1, 4, 8, 9] or
             parents[0] == [1, 5, 6, -1, 3, 2, 7, -1, 4, 8, 9])
+
 
 # ------------------------------------------------------------------------------
 #
@@ -236,6 +242,8 @@ def test_get_plan(mocked_init, mocked_raise_on):
     planner._get_plan([1,-1,4,-1,2,-1,3])
 
     assert planner._plan == actual_plan
+
+
 # ------------------------------------------------------------------------------
 #
 @mock.patch.object(GAPlanner, '__init__', return_value=None)
