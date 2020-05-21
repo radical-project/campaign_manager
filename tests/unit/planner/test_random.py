@@ -17,6 +17,7 @@ except ImportError:
 
 os.environ['PLANNER_TEST'] = 'TRUE'
 
+
 # ------------------------------------------------------------------------------
 #
 @mock.patch.object(RandomPlanner, '__init__', return_value=None)
@@ -45,6 +46,7 @@ def test_plan1(mocked_init, mocked_raise_on):
 
     est_plan = planner.plan()
     assert est_plan == actual_plan
+
 
 # ------------------------------------------------------------------------------
 #

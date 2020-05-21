@@ -44,6 +44,7 @@ def test_plan1(mocked_init, mocked_raise_on):
     est_plan = planner.plan()
     assert est_plan == actual_plan
 
+
 # ------------------------------------------------------------------------------
 #
 @mock.patch.object(L2FFPlanner, '__init__', return_value=None)

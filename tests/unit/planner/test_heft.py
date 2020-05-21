@@ -14,6 +14,7 @@ try:
 except ImportError:
     from unittest import mock
 
+
 # ------------------------------------------------------------------------------
 #
 @mock.patch.object(HeftPlanner, '__init__', return_value=None)
@@ -51,6 +52,7 @@ def test_plan(mocked_init, mocked_calc_est_tx, mocked_raise_on):
 
     assert est_plan == actual_plan
 
+
 # ------------------------------------------------------------------------------
 #
 @mock.patch.object(HeftPlanner, '__init__', return_value=None)
@@ -79,6 +81,7 @@ def test_plan2(mocked_init, mocked_raise_on):
     est_plan = planner.plan()
     assert est_plan == actual_plan
 
+
 # ------------------------------------------------------------------------------
 #
 @mock.patch.object(HeftPlanner, '__init__', return_value=None)
@@ -106,6 +109,7 @@ def test_plan3(mocked_init, mocked_raise_on):
     est_plan = planner.plan()
     assert est_plan == actual_plan
 
+
 # ------------------------------------------------------------------------------
 #
 @mock.patch.object(HeftPlanner, '__init__', return_value=None)
@@ -122,6 +126,7 @@ def test_plan4(mocked_init, mocked_raise_on):
     planner._logger = ru.Logger('dummy')
     est_plan = planner.plan()
     assert est_plan == actual_plan
+
 
 # ------------------------------------------------------------------------------
 #
@@ -149,6 +154,7 @@ def test_plan_start_time(mocked_init, mocked_raise_on):
     planner._logger = ru.Logger('dummy')    
     est_plan = planner.plan(start_time=5)
     assert est_plan == actual_plan
+
 
 # ------------------------------------------------------------------------------
 #

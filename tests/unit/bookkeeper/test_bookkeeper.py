@@ -15,6 +15,7 @@ try:
 except ImportError:
     from unittest import mock
 
+
 # ------------------------------------------------------------------------------
 #
 @mock.patch.object(Bookkeeper, '__init__', return_value=None)
@@ -49,6 +50,7 @@ def test_update_checkpoints(mocked_init):
 
     assert checkpoints == bookkeeper._checkpoints
 
+
 # ------------------------------------------------------------------------------
 #
 @mock.patch.object(Bookkeeper, '__init__', return_value=None)
@@ -74,6 +76,7 @@ def test_verify_objective(mocked_init, mocked_update_checkpoints):
 
     assert not bookkeeper._verify_objective()
 
+
 # ------------------------------------------------------------------------------
 #
 @mock.patch.object(Bookkeeper, '__init__', return_value=None)
@@ -96,6 +99,7 @@ def test_get_makespan(mocked_init, mocked_update_checkpoints):
     makespan = 185.11854684512429
     assert bookkeeper.get_makespan() == makespan
 
+
 # ------------------------------------------------------------------------------
 #
 @mock.patch.object(Bookkeeper, '__init__', return_value=None)
@@ -106,6 +110,7 @@ def test_get_campaign_state(mocked_init):
                             'state': st.NEW}
 
     assert bookkeeper.get_campaign_state() == st.NEW
+
 
 # ------------------------------------------------------------------------------
 #
