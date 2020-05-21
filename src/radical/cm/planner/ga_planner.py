@@ -32,11 +32,12 @@ class GAPlanner(Planner):
     estimated finish time.
     '''
     def __init__(self, campaign, resources, num_oper, population_size=20,
-                 random_init=0.5):
+                 random_init=0.5, sid=None):
 
         super(GAPlanner, self).__init__(campaign=campaign,
                                         resources=resources,
-                                        num_oper=num_oper)
+                                        num_oper=num_oper,
+                                        sid=sid)
 
         # Calculate the estimated execution time of each workflow on to each 
         # resource. This table will be used to calculate the plan.
@@ -56,7 +57,7 @@ class GAPlanner(Planner):
         for workflow in self._campaign:
             tmp_oper.append(workflow['num_oper'])
       
-        total_rate = 0
+        # total_rate = 0
         for resource in self._resources:
             res_perf.append(resource['performance'])
 
@@ -118,7 +119,7 @@ class GAPlanner(Planner):
         # This part of the code is to allow unit tests to be get a reproducible
         # result in the population initialization 
         if os.environ.get('PLANNER_TEST',"FALSE").lower() == 'true':
-            self._logger.debug('Setting seed')
+            #self._logger.debug('Setting seed')
             seed(0)
 
         # This list tracks when a resource whould be available.
@@ -134,7 +135,7 @@ class GAPlanner(Planner):
             total_operations += workflow['num_oper']
 
         total_rate = 0
-        for resource in self._resources:
+        for resource in resources:
             total_rate += resource['performance']
 
         self._abs_fitness_term = total_operations / total_rate + sum(resource_free)
@@ -279,7 +280,7 @@ class GAPlanner(Planner):
             if child2 not in children:
                 children.append(child2)
 
-            self._logger.debug('Children %s %s', child1, child2)
+            #self._logger.debug('Children %s %s', child1, child2)
         return children
 
 
@@ -289,7 +290,7 @@ class GAPlanner(Planner):
         '''
 
         for chromosome in chromosomes:
-            self._logger.debug('Before mutation %s', chromosome)
+            #self._logger.debug('Before mutation %s', chromosome)
             idx1 = randint(0, len(chromosome) - 1)
             while chromosome[idx1] == -1:
                 idx1 = randint(0, len(chromosome) - 1)
@@ -299,7 +300,7 @@ class GAPlanner(Planner):
                 idx2 = randint(0, len(chromosome) - 1)
 
             chromosome[idx1], chromosome[idx2] = chromosome[idx2], chromosome[idx1]
-            self._logger.debug('After mutation %s', chromosome)
+            #self._logger.debug('After mutation %s', chromosome)
         return chromosomes
 
 
@@ -317,8 +318,8 @@ class GAPlanner(Planner):
         for individual in self._population:
             total_dist = 0
             sched = self._decode_schedule(individual)
-            self._logger.debug('Calculating fitness of %s with sched %s',
-                                individual, sched)
+            #self._logger.debug('Calculating fitness of %s with sched %s',
+            #                    individual, sched)
             for r_id in range(len(self._resources)):
                 workflows = sched[r_id]
                 term = sum([self._est_txs[w_id - 1][r_id] for w_id in workflows])
@@ -352,7 +353,7 @@ class GAPlanner(Planner):
         '''
 
         sched = self._decode_schedule(individual)
-        self._logger.debug('Plan sched: %s', sched)
+        #self._logger.debug('Plan sched: %s', sched)
         self._plan = list()
 
         resource_free = [0] * len(self._resources)
@@ -368,7 +369,7 @@ class GAPlanner(Planner):
                                 tmp_str_time, tmp_end_time))
                 resource_free[r_id] = tmp_end_time
         except Exception as e:
-            self._logger.error(idx, r_id, sched, individual, e)
+            #self._logger.error(idx, r_id, sched, individual, e)
             raise
 
 
@@ -395,33 +396,33 @@ class GAPlanner(Planner):
 
         self._initialize_population(tmp_cmp, tmp_res, self._random_init,
                                     start_time=start_time)
-        self._logger.debug('Initial  population: %s', self._population)
+        #self._logger.debug('Initial  population: %s', self._population)
         self._calc_fitness()
         sorted_fitness = sorted(enumerate(self._fitness), key=lambda x: x[1])
-        self._logger.debug('Sorted fitness: %s', sorted_fitness)
+        #self._logger.debug('Sorted fitness: %s', sorted_fitness)
         gen_id = 0
         curr_makespan = 0
         while True:
-            self._logger.debug('Generation: %d', gen_id)
+            #self._logger.debug('Generation: %d', gen_id)
             parents = self._selection()
             children = self._crossover(parents)
-            self._logger.debug('Number of parents: %d, number of children %d',
-                               len(parents), len(children))
+            #self._logger.debug('Number of parents: %d, number of children %d',
+            #                   len(parents), len(children))
             children = self._mutate(children)
-            self._logger.debug('Number of parents: %d, number of children %d',
-                               len(parents), len(children))
+            #self._logger.debug('Number of parents: %d, number of children %d',
+            #                   len(parents), len(children))
             # Replace half of the individuals with the worst fitness
             for i in range(len(children)):
                 self._population[sorted_fitness[i][0]] = children[i]
             # Get the one with the best fitness and check it
             self._calc_fitness()
             sorted_fitness = sorted(enumerate(self._fitness), key=lambda x: x[1])
-            self._logger.debug('Sorted fitness: %s', sorted_fitness)
+            #self._logger.debug('Sorted fitness: %s', sorted_fitness)
             best_individual = self._population[sorted_fitness[-1][0]]
             tmp_makespan = self._get_makespan(best_individual)
             self._get_plan(best_individual)
-            self._logger.debug('Best individual makespan: %f and plan %s',
-                                tmp_makespan, self._plan)
+            #self._logger.debug('Best individual makespan: %f and plan %s',
+            #                    tmp_makespan, self._plan)
             if deadline is not None and tmp_makespan < deadline:
                 break
             elif sorted_fitness[-1][1] == 1:
@@ -431,7 +432,7 @@ class GAPlanner(Planner):
             curr_makespan = tmp_makespan
             gen_id += 1
 
-        self._logger.info('Derived plan %s', self._plan)
+        #self._logger.info('Derived plan %s', self._plan)
         return self._plan
 
 
@@ -440,10 +441,10 @@ class GAPlanner(Planner):
         The planning method
         '''
         if campaign and resources and num_oper:
-            self._logger.debug('Replanning')
+            #self._logger.debug('Replanning')
             self._plan = self.plan(campaign=campaign, resources=resources,
                                    num_oper=num_oper, start_time=start_time)
-        else:
-            self._logger.debug('Nothing to plan for')
+        #else:
+        #    self._logger.debug('Nothing to plan for')
 
         return self._plan
