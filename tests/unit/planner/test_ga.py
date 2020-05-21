@@ -7,7 +7,7 @@ Unit test for heft_planner scheduler
 # pylint: disable=protected-access, unused-argument
 
 import os
-from radical.cm.planner import GAPlanner
+from radical.cm.planner import GAPlanner, Planner
 import radical.utils as ru
 # from random import randint
 import math
@@ -18,6 +18,53 @@ except ImportError:
     from unittest import mock
 
 os.environ['PLANNER_TEST'] = 'TRUE'
+
+
+# ------------------------------------------------------------------------------
+#
+@mock.patch.object(GAPlanner, '_calc_est_tx', return_value=[[1, 0.5, 0.3],
+                                                            [2,   1, 0.7],
+                                                            [3, 1.5, 1],
+                                                            [4,   2, 1.3],
+                                                            [5, 2.5, 1.7],
+                                                            [6,   3, 2],
+                                                            [7, 3.5, 2.3],
+                                                            [8,   4, 2.7],
+                                                            [9, 4.5, 3],
+                                                            [10,  5, 3.3]])
+@mock.patch('radical.utils.raise_on')
+def test_init(mocked_calc_est_tx, mocked_raise_on):
+
+    planner = GAPlanner(campaign=[{'description': 'W1', 'id': 0, 'num_oper': 10}],
+                        resources=[{'id': 1, 'performance': 1},
+                                   {'id': 2, 'performance': 1},
+                                   {'id': 3, 'performance': 1}],
+                        num_oper=[10, 10, 10, 10, 10, 10, 10, 10, 10, 10],
+                        population_size=50, random_init=1.0, sid='test')
+    planner._logger = ru.Logger('dummy')
+    
+    assert planner._campaign == [{'description': 'W1', 'id': 0, 'num_oper': 10}]
+    assert planner._resources == [{'id': 1, 'performance': 1},
+                                  {'id': 2, 'performance': 1},
+                                  {'id': 3, 'performance': 1}]
+    assert planner._num_oper == [10, 10, 10, 10, 10, 10, 10, 10, 10, 10]
+    assert planner._population == []
+    assert planner._population_size == 50
+    assert planner._fitness == []
+    assert planner._random_init == 1
+    assert planner._abs_fitness_term == 0
+    assert planner._est_txs == [[1, 0.5, 0.3],
+                                [2,   1, 0.7],
+                                [3, 1.5, 1],
+                                [4,   2, 1.3],
+                                [5, 2.5, 1.7],
+                                [6,   3, 2],
+                                [7, 3.5, 2.3],
+                                [8,   4, 2.7],
+                                [9, 4.5, 3],
+                                [10,  5, 3.3]]
+    assert planner._deadline == None
+    assert planner._max_gen == 100
 
 
 # ------------------------------------------------------------------------------
