@@ -423,11 +423,11 @@ class GAPlanner(Planner):
             self._get_plan(best_individual)
             self._logger.debug('Best individual makespan: %f and plan %s',
                                tmp_makespan, self._plan)
-            if deadline is not None and tmp_makespan < deadline:
+            if self._deadline is not None and tmp_makespan < self._deadline:
                 break
             elif sorted_fitness[-1][1] == 1:
                 break
-            elif gen_id == max_gen or tmp_makespan < curr_makespan:
+            elif gen_id == self._max_gen or tmp_makespan < curr_makespan:
                 break
             curr_makespan = tmp_makespan
             gen_id += 1
