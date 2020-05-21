@@ -88,7 +88,7 @@ def test_initialize_population(mocked_init, mocked_raise_on):
                  {'description': 'W8','id': 8,'num_oper': 8,'requirements': None},
                  {'description': 'W9','id': 9,'num_oper': 9,'requirements': None},
                  {'description': 'W10','id': 10,'num_oper': 10,'requirements': None}]
-    
+
     resources = [{'id': 1, 'performance': 1},
                  {'id': 2, 'performance': 2},
                  {'id': 3, 'performance': 3}]
