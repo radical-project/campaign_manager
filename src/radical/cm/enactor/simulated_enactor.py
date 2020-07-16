@@ -188,12 +188,12 @@ class SimulatedEnactor(Enactor):
         Public method to terminate the Enactor
         '''
         self._logger.info('Start terminating procedure')
-        # self._prof.prof('str_terminating', uid=self._uid)
+        self._prof.prof('str_terminating', uid=self._uid)
         if self._monitoring_thread:
-            # self._prof.prof('monitor_terminate', uid=self._uid)
+            self._prof.prof('monitor_terminate', uid=self._uid)
             self._terminate_monitor.set()
             self._monitoring_thread.join()
-            # self._prof.prof('monitor_terminated', uid=self._uid)
+            self._prof.prof('monitor_terminated', uid=self._uid)
         self._logger.debug('Monitor thread terminated')
         self._terminate_simulation.set()
         self._simulation_thread.join()

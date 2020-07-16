@@ -68,8 +68,7 @@ class Bookkeeper(object):
         path = os.getcwd() + '/' + self._sid
 
         self._logger = ru.Logger(name=self._uid, path=path, level='DEBUG')
-        # self._prof   = ru.Profiler(name='radical.cm.bookkeeper',
-        #                           path=os.getcwd() + '/')
+        self._prof   = ru.Profiler(name=self._uid, path=path)
 
         num_oper = [workflow['num_oper'] for workflow in self._campaign['campaign']]
         if planner.lower() == 'random':
@@ -296,7 +295,7 @@ class Bookkeeper(object):
     def _terminate(self):
 
         self._logger.info('Start terminating procedure')
-        # self._prof.prof('str_bookkeper_terminating', uid=self._uid)
+        self._prof.prof('str_bookkeper_terminating', uid=self._uid)
 
         # Terminate enactor as well.
         self._enactor.terminate()
@@ -307,14 +306,14 @@ class Bookkeeper(object):
         self._terminate_event.set()  # Thread event to terminate.
         if self._hold:
             self._hold = False
-        # self._prof.prof('monitor_bookkeper_terminate', uid=self._uid)
+        self._prof.prof('monitor_bookkeper_terminate', uid=self._uid)
         self._monitoring_thread.join()
-        # self._prof.prof('monitor_bookkeper_terminated', uid=self._uid)
+        self._prof.prof('monitor_bookkeper_terminated', uid=self._uid)
         self._logger.debug('Monitor thread terminated')
 
-        # self._prof.prof('work_bookkeper_terminate', uid=self._uid)
+        self._prof.prof('work_bookkeper_terminate', uid=self._uid)
         self._work_thread.join()  # Private attribute that will hold the thread
-        # self._prof.prof('work_bookkeper_terminated', uid=self._uid)
+        self._prof.prof('work_bookkeper_terminated', uid=self._uid)
         self._logger.debug('Working thread terminated')
 
     def run(self):

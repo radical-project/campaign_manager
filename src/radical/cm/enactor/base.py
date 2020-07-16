@@ -41,10 +41,10 @@ class Enactor(object):
         self._uid = ru.generate_id('enactor.%(counter)04d', mode=ru.ID_CUSTOM,
                                     ns=sid)
         path = os.getcwd() + '/' + sid
-        # name = self._uid
+        name = self._uid
 
         self._logger = ru.Logger(name=self._uid, path=path, level='DEBUG')
-        # self._prof   = ru.Profiler(name=name, path=path)
+        self._prof   = ru.Profiler(name=name, path=path)
 
 
     def enact(self, workflows, resources):
