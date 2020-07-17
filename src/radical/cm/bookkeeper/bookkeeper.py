@@ -138,17 +138,20 @@ class Bookkeeper(object):
         '''
 
         # There is no need to check since I know there is no plan.
+        self._prof.prof('planning_start', uid=self._uid)
         if self._plan is None:
             with self._exec_state_lock:
                 self._campaign['state'] = st.PLANNING
             self._plan = self._planner.plan()
             self._logger.debug('Calculated plan: %s', self._plan)
+        self._prof.prof('planning_ended', uid=self._uid)
 
         self._update_checkpoints()
 
         with self._exec_state_lock:
             self._campaign['state'] = st.EXECUTING
 
+        self._prof.prof('work_start', uid=self._uid)
         while not self._terminate_event.is_set():
             if not self._verify_objective():
                 self._logger.error("Objective cannot be satisfied. Ending execution")
@@ -156,12 +159,14 @@ class Bookkeeper(object):
                     self._campaign['state'] = st.FAILED
                     self._terminate()
             else:
+                
+                self._prof.prof('work_submit', uid=self._uid)
                 workflows = list()  # Workflows to enact
                 resources = list()  # The selected resources
                 self._logger.debug('Checking workflows %s', self._cont)
                 while (not self._cont) or self._hold:
                     continue
-
+                
                 for (wf, rc, start_time, est_end_time) in self._plan:
                     # Do not enact to workflows that sould have been executed
                     # already.
@@ -177,7 +182,10 @@ class Bookkeeper(object):
                 # should happen.
                 self._logger.debug('Adding items: %s, %s', workflows, resources)
                 if workflows and resources:
+
+                    self._prof.prof('enactor_submit', uid=self._uid)
                     self._enactor.enact(workflows=workflows, resources=resources)
+                    self._prof.prof('enactor_submitted', uid=self._uid)
                     with self._monitor_lock:
                         self._workflows_to_monitor += workflows
                         self._unavail_resources += resources
@@ -187,6 +195,7 @@ class Bookkeeper(object):
                                         self._est_end_times)
 
                 # Inform the enactor to continue until everything ends.
+                self._prof.prof('enactor_cont', uid=self._uid)
                 remain = True
                 for workflow in self._campaign['campaign']:
                     if self._workflows_state[workflow['id']] == st.NEW:
@@ -199,6 +208,7 @@ class Bookkeeper(object):
                     self._cont = False
                 else:
                     self._logger.debug('Still running on its own')
+                self._prof.prof('work_submitted', uid=self._uid)
 
     def monitor(self):
         '''
@@ -208,6 +218,7 @@ class Bookkeeper(object):
         '''
         while not self._terminate_event.is_set():
             while self._workflows_to_monitor:
+                self._prof.prof('workflow_monitor', uid=self._uid)
                 workflow = self._workflows_to_monitor[0]
                 resource = self._unavail_resources[0]
                 self._logger.debug('Checking workflow %s that ends at %f',
@@ -219,6 +230,7 @@ class Bookkeeper(object):
                         resource = self._unavail_resources.pop(0)
                         self._workflows_to_monitor.append(workflow)
                         self._unavail_resources.append(resource)
+                    self._prof.prof('workflow_checked', uid=self._uid)
                 else:
                     self._logger.debug('Resource: %s, est_end_time: %f',
                                         resource,
@@ -234,6 +246,8 @@ class Bookkeeper(object):
                         self._hold = False
                         self._logger.debug('Still monitoring: %s', 
                                             self._unavail_resources)
+
+                        self._prof.prof('workflow_cfinished', uid=self._uid)
                     else:
                         self._logger.debug('Workflow %s finished %f.' +
                                             ' Replanning.',
@@ -242,7 +256,8 @@ class Bookkeeper(object):
 
                         # Creates an array with the expected free time of each
                         # resource. The resource that was just freed will 
-                        # use the time now.    
+                        # use the time now.   
+                        self._prof.prof('replan_start', uid=self._uid) 
                         tmp_start_times = list()
                         for res in self._resources:
                             if res == resource:
@@ -263,10 +278,12 @@ class Bookkeeper(object):
                                             tmp_campaign,
                                             tmp_num_oper)
 
+                        self._prof.prof('replan_run', uid=self._uid)
                         tmp_plan = self._planner.replan(campaign=tmp_campaign, 
                                 resources=self._resources, num_oper=tmp_num_oper,
                                 start_time=tmp_start_times)
 
+                        self._prof.prof('replan_done', uid=self._uid)
                         # If the plan has not change means that the last few
                         # workflows are executing, so nothing to plan for and
                         # the enactor should continue running.
@@ -281,6 +298,7 @@ class Bookkeeper(object):
                             self._workflows_to_monitor.pop(0)
                             self._unavail_resources.pop(0)
                         self._hold = False
+                        self._prof.prof('replan_stop', uid=self._uid)
 
     def get_makespan(self):
         '''
@@ -326,7 +344,7 @@ class Bookkeeper(object):
             with self._exec_state_lock:
                 for workflow in self._campaign['campaign']:
                     self._workflows_state[workflow['id']] = st.NEW
-
+            self._prof.prof('bookkeper_start', uid=self._uid)
             self._logger.info('Starting work thread')
             self._work_thread = mt.Thread(target=self.work,
                                             name='work-thread')
@@ -335,6 +353,7 @@ class Bookkeeper(object):
             self._monitoring_thread = mt.Thread(target=self.monitor,
                                             name='monitor-thread')
             self._monitoring_thread.start()
+            self._prof.prof('bookkeper_started', uid=self._uid)
 
             # This waits regardless if workflows are failing or not. This loop can
             # do meaningful work such as checking the state of the campaign. It can
@@ -343,6 +362,7 @@ class Bookkeeper(object):
             while self._checkpoints is None:
                 continue
 
+            self._prof.prof('bookkeper_wait', uid=self._uid)
             self._cont = True
             while self._campaign['state'] not in st.CFINAL:
                 if self._time != self._env.now:
@@ -366,6 +386,7 @@ class Bookkeeper(object):
 
             if self._campaign['state'] not in st.CFINAL:
                 self._campaign['state'] = st.DONE
+            self._prof.prof('bookkeper_stopping', uid=self._uid)
         except Exception as ex:
             print(ex)
         finally:
