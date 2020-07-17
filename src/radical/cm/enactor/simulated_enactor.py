@@ -33,6 +33,7 @@ class SimulatedEnactor(Enactor):
         # monitored. This list is atomic and requires a lock
         self._to_monitor = list()
 
+        self._prof.prof('enactor_setup', uid=self._uid)
         # Lock to provide atomicity in the monitoring data structure
         self._monitoring_lock  = ru.RLock('cm.monitor_lock')
         self._cb_lock          = ru.RLock('enactor.cb_lock')
@@ -45,10 +46,12 @@ class SimulatedEnactor(Enactor):
         self._sim_env = env
         self._run = False
 
+        self._prof.prof('enactor_start', uid=self._uid)
         self._terminate_simulation = mt.Event()
         self._simulation_thread = mt.Thread(target=self._sim_run,
                                             name='sim-thread')
         self._simulation_thread.start()  # Thread event to terminate.
+        self._prof.prof('enactor_started', uid=self._uid)
 
     def enact(self, workflows, resources):
         '''
@@ -59,6 +62,8 @@ class SimulatedEnactor(Enactor):
         *workflows:* A workflows that will execute on a resource
         *resources:* The resource that will be used.
         '''
+
+        self._prof.prof('enacting_start', uid=self._uid)
         for workflow, resource in zip(workflows, resources):
             # If the enactor has already received a workflow issue a warning and
             # proceed.
@@ -96,12 +101,15 @@ class SimulatedEnactor(Enactor):
                 self._logger.error('Workflow %s could not be executed on resource %s',
                             (workflow, resource))
 
+        self._prof.prof('enacting_stop', uid=self._uid)
         # If there is no monitoring tasks, start one.
         if self._monitoring_thread is None:
+            self._prof.prof('monitor_start', uid=self._uid)
             self._logger.info('Starting monitor thread')
             self._monitoring_thread = mt.Thread(target=self._monitor,
                                 name='monitor-thread')
             self._monitoring_thread.start()
+            self._prof.prof('monitor_started', uid=self._uid)
 
     def _monitor(self):
         '''
@@ -111,6 +119,7 @@ class SimulatedEnactor(Enactor):
 
         while not self._terminate_monitor.is_set():
             if self._to_monitor:
+                self._prof.prof('workflow_monitor_start', uid=self._uid)
                 with self._monitoring_lock:
                     # It does not iterate correctly.
                     workflow_id = self._to_monitor.pop(0)
@@ -124,9 +133,11 @@ class SimulatedEnactor(Enactor):
                         for cb in self._callbacks:
                             self._callbacks[cb](workflow_id=workflow_id,
                                                 new_state=st.DONE)
+                        self._prof.prof('workflow_success', uid=self._uid)
                     else:
                         with self._monitoring_lock:
                             self._to_monitor.append(workflow_id)
+                        self._prof.prof('workflow_monitor_end', uid=self._uid)
 
     def _sim_run(self):
         # pylint: disable=protected-access
@@ -134,6 +145,7 @@ class SimulatedEnactor(Enactor):
         while not self._terminate_simulation.is_set():
             try:
                 if self._run:
+                    self._prof.prof('sim_start', uid=self._uid)                    
                     self._logger.debug('Simulation queue: %s',
                                         self._sim_env._queue)
 
@@ -145,6 +157,7 @@ class SimulatedEnactor(Enactor):
                           isinstance(self._sim_env._queue[0][3], Process):
                         self._sim_env.step()
                     self._run = False
+                    self._prof.prof('sim_stop', uid=self._uid)
             except EmptySchedule:
                 continue
         # pylint: enable=protected-access
