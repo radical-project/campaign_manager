@@ -329,6 +329,8 @@ class Bookkeeper(object):
         self._prof.prof('monitor_bookkeper_terminated', uid=self._uid)
         self._logger.debug('Monitor thread terminated')
 
+        if not self._cont:
+            self._cont = True
         self._prof.prof('work_bookkeper_terminate', uid=self._uid)
         self._work_thread.join()  # Private attribute that will hold the thread
         self._prof.prof('work_bookkeper_terminated', uid=self._uid)
