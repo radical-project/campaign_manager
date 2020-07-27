@@ -46,7 +46,6 @@ class SimulatedEnactor(Enactor):
         self._sim_env = env
         self._run = False
 
-        self._prof.prof('enactor_start', uid=self._uid)
         self._terminate_simulation = mt.Event()
         self._simulation_thread = mt.Thread(target=self._sim_run,
                                             name='sim-thread')
@@ -104,12 +103,10 @@ class SimulatedEnactor(Enactor):
         self._prof.prof('enacting_stop', uid=self._uid)
         # If there is no monitoring tasks, start one.
         if self._monitoring_thread is None:
-            self._prof.prof('monitor_start', uid=self._uid)
             self._logger.info('Starting monitor thread')
             self._monitoring_thread = mt.Thread(target=self._monitor,
                                 name='monitor-thread')
             self._monitoring_thread.start()
-            self._prof.prof('monitor_started', uid=self._uid)
 
     def _monitor(self):
         '''
