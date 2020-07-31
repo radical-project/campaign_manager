@@ -6,6 +6,8 @@ Copyright: 2018-2019
 
 # Imports from general packages
 import threading as mt
+from time import sleep
+from copy import deepcopy
 
 # Imports from dependent packages
 import radical.utils as ru
@@ -89,7 +91,7 @@ class SimulatedEnactor(Enactor):
                                                     'start_time': self._sim_env.now,
                                                     'end_time': None}
                 for cb in self._callbacks:
-                    self._callbacks[cb](workflow_id=workflow['id'],
+                    self._callbacks[cb](workflow_ids=[workflow['id']],
                                         new_state=st.EXECUTING)
                 # Execute the task.
                 self._sim_env.process(resource['label'].execute(self._sim_env, exec_workflow))
@@ -117,24 +119,34 @@ class SimulatedEnactor(Enactor):
         while not self._terminate_monitor.is_set():
             if self._to_monitor:
                 self._prof.prof('workflow_monitor_start', uid=self._uid)
-                with self._monitoring_lock:
+                #with self._monitoring_lock:
                     # It does not iterate correctly.
-                    workflow_id = self._to_monitor.pop(0)
-                self._logger.info('Monitoring workflow %s' % workflow_id)
-                if workflow_id in self._execution_status:
-                    if self._execution_status[workflow_id]['endpoint'].exec_core:
-                        with self._monitoring_lock:
-                            self._execution_status[workflow_id]['state'] = st.DONE
-                            self._execution_status[workflow_id]['end_time'] = self._execution_status[workflow_id]['endpoint'].end_time
-                        self._logger.debug('Workflow %s finished: %s', workflow_id, self._execution_status[workflow_id]['end_time'])
-                        for cb in self._callbacks:
-                            self._callbacks[cb](workflow_id=workflow_id,
-                                                new_state=st.DONE)
+                workflow_id = self._to_monitor[0]
+                monitoring_list = deepcopy(self._to_monitor)
+                self._logger.info('Monitoring workflows %s' % monitoring_list)
+                to_remove = list()
+                for workflow_id  in monitoring_list:
+                    if workflow_id in self._execution_status:
+                        if self._execution_status[workflow_id]['endpoint'].exec_core:
+                            with self._monitoring_lock:
+                                self._execution_status[workflow_id]['state'] = st.DONE
+                                self._execution_status[workflow_id]['end_time'] = self._execution_status[workflow_id]['endpoint'].end_time
+                            self._logger.debug('Workflow %s finished: %s',
+                                                workflow_id, self._execution_status[workflow_id]['end_time'])
+                            to_remove.append(workflow_id)
                         self._prof.prof('workflow_success', uid=self._uid)
-                    else:
-                        with self._monitoring_lock:
-                            self._to_monitor.append(workflow_id)
-                        self._prof.prof('workflow_monitor_end', uid=self._uid)
+                if to_remove:
+                    for cb in self._callbacks:
+                        self._callbacks[cb](workflow_ids=to_remove,
+                                            new_state=st.DONE)
+                    with self._monitoring_lock:
+                        for wid in to_remove:
+                            self._to_monitor.remove(wid)
+                       
+#                    else:
+#                        with self._monitoring_lock:
+#                            self._to_monitor = self._to_monitor[1:] + [self._to_monitor[0]]
+                self._prof.prof('workflow_monitor_end', uid=self._uid)
 
     def _sim_run(self):
         # pylint: disable=protected-access
@@ -155,6 +167,7 @@ class SimulatedEnactor(Enactor):
                         self._sim_env.step()
                     self._run = False
                     self._prof.prof('sim_stop', uid=self._uid)
+                    sleep(1)
             except EmptySchedule:
                 continue
         # pylint: enable=protected-access

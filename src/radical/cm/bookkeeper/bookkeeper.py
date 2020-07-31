@@ -7,6 +7,8 @@ import os
 import threading as mt
 import radical.utils as ru
 
+from copy import deepcopy
+from time import sleep
 from simpy import Environment
 
 from ..planner import HeftPlanner, RandomPlanner
@@ -122,15 +124,16 @@ class Bookkeeper(object):
         else:
             return True
 
-    def state_update_cb(self, workflow_id, new_state):
+    def state_update_cb(self, workflow_ids, new_state):
         '''
         This is a state update callback. This callback is passed to the enactor.
         '''
-        self._logger.debug('Workflow %s to state %s', workflow_id, new_state)
+        self._logger.debug('Workflow %s to state %s', workflow_ids, new_state)
         with self._exec_state_lock:
-            self._workflows_state[workflow_id] = new_state
-        if new_state is st.DONE:
-            self._hold = True
+            for workflow_id in workflow_ids:
+                self._workflows_state[workflow_id] = new_state
+        #if new_state is st.DONE:
+        #    self._hold = True
 
     def work(self):
         '''
@@ -143,7 +146,8 @@ class Bookkeeper(object):
             with self._exec_state_lock:
                 self._campaign['state'] = st.PLANNING
             self._plan = self._planner.plan()
-            self._logger.debug('Calculated plan: %s', self._plan)
+            self._plan = sorted([place for place in self._plan], key=lambda place:place[-1])
+            # self._logger.debug('Calculated plan: %s', self._plan)
         self._prof.prof('planning_ended', uid=self._uid)
 
         self._update_checkpoints()
@@ -163,7 +167,7 @@ class Bookkeeper(object):
                 self._prof.prof('work_submit', uid=self._uid)
                 workflows = list()  # Workflows to enact
                 resources = list()  # The selected resources
-                self._logger.debug('Checking workflows %s', self._cont)
+                self._logger.debug('Checking workflows %s', self._hold)
                 while (not self._cont) or self._hold:
                     continue
                 
@@ -180,7 +184,7 @@ class Bookkeeper(object):
 
                 # There is no need to call the enactor when no new things
                 # should happen.
-                self._logger.debug('Adding items: %s, %s', workflows, resources)
+                #self._logger.debug('Adding items: %s, %s', workflows, resources)
                 if workflows and resources:
 
                     self._prof.prof('enactor_submit', uid=self._uid)
@@ -189,10 +193,10 @@ class Bookkeeper(object):
                     with self._monitor_lock:
                         self._workflows_to_monitor += workflows
                         self._unavail_resources += resources
-                    self._logger.debug('Things monitored: %s, %s, %s',
-                                        self._workflows_to_monitor,
-                                        self._unavail_resources,
-                                        self._est_end_times)
+                    #self._logger.debug('Things monitored: %s, %s, %s',
+                    #                    self._workflows_to_monitor,
+                    #                    self._unavail_resources,
+                    #                    self._est_end_times)
 
                 # Inform the enactor to continue until everything ends.
                 self._prof.prof('enactor_cont', uid=self._uid)
@@ -206,6 +210,9 @@ class Bookkeeper(object):
                     self._logger.debug("Let's keep going")
                     self._enactor.cont()
                     self._cont = False
+                    self._hold = True
+                    self._logger.debug('Stop execution')
+                    sleep(1)
                 else:
                     self._logger.debug('Still running on its own')
                 self._prof.prof('work_submitted', uid=self._uid)
@@ -219,86 +226,69 @@ class Bookkeeper(object):
         while not self._terminate_event.is_set():
             while self._workflows_to_monitor:
                 self._prof.prof('workflow_monitor', uid=self._uid)
-                workflow = self._workflows_to_monitor[0]
-                resource = self._unavail_resources[0]
-                self._logger.debug('Checking workflow %s that ends at %f',
-                                    workflow['description'],
-                                    self._est_end_times[resource['id']])
-                if self._workflows_state[workflow['id']] not in st.CFINAL:
+                workflows = deepcopy(self._workflows_to_monitor)
+                finished = list()
+                tmp_start_times = list()
+                for i in range(len(workflows)):
+                    if self._workflows_state[workflows[i]['id']] in st.CFINAL:
+                        resource = self._unavail_resources[i]
+                        finished.append((workflows[i], resource))
+                        if self._env.now == self._est_end_times[resource['id']]:
+                            self._logger.info('Workflow %s finished at expected time',
+                                                workflows[i]['id'])
+                        else:
+                            self._logger.debug('Workflow %s finished %f, expected %f.' +
+                                                'Need to Replanning.',
+                                                workflows[i]['id'],
+                                                self._env.now,
+                                                self._est_end_times[resource['id']])
+
+                            # Creates an array with the expected free time of each
+                            # resource. The resource that was just freed will
+                            # use the time now.
+                            for res in self._resources:
+                                if res == resource:
+                                    tmp_start_times.append(self._env.now)
+                                else:
+                                    tmp_start_times.append(self._est_end_times[res['id']])
+
+                if finished:
                     with self._monitor_lock:
-                        workflow = self._workflows_to_monitor.pop(0)
-                        resource = self._unavail_resources.pop(0)
-                        self._workflows_to_monitor.append(workflow)
-                        self._unavail_resources.append(resource)
-                    self._prof.prof('workflow_checked', uid=self._uid)
-                else:
-                    self._logger.debug('Resource: %s, est_end_time: %f',
-                                        resource,
-                                        self._est_end_times[resource['id']])
-                    # Check whether it finished the expected time. If not,
-                    # replan and continue.
-                    if self._env.now == self._est_end_times[resource['id']]:
-                        self._logger.info('Workflow %s finished',
-                                            workflow['description'])
-                        with self._monitor_lock:
-                            self._workflows_to_monitor.pop(0)
-                            self._unavail_resources.pop(0)
-                        self._hold = False
-                        self._logger.debug('Still monitoring: %s', 
-                                            self._unavail_resources)
+                        for workflow, resource in finished:
+                            self._workflows_to_monitor.remove(workflow)
+                            self._unavail_resources.remove(resource)
 
-                        self._prof.prof('workflow_cfinished', uid=self._uid)
-                    else:
-                        self._logger.debug('Workflow %s finished %f.' +
-                                            ' Replanning.',
-                                            workflow['description'],
-                                            self._env.now)
+                if tmp_start_times:
+                    self._prof.prof('replan_start', uid=self._uid)
+                    # Creates an array of the workflows that have not
+                    # started executing yet.
+                    tmp_campaign = list()
+                    for workflow in self._campaign['campaign']:
+                        if self._workflows_state[workflow['id']] == st.NEW:
+                            tmp_campaign.append(workflow)
 
-                        # Creates an array with the expected free time of each
-                        # resource. The resource that was just freed will 
-                        # use the time now.   
-                        self._prof.prof('replan_start', uid=self._uid) 
-                        tmp_start_times = list()
-                        for res in self._resources:
-                            if res == resource:
-                                tmp_start_times.append(self._env.now)
-                            else:
-                                tmp_start_times.append(self._est_end_times[res['id']])
+                    tmp_num_oper = [workflow['num_oper'] for workflow in tmp_campaign]
+#                    self._logger.debug('Replanning for: %s, %s, %s',
+#                                        tmp_start_times,
+#                                        tmp_campaign,
+#                                        tmp_num_oper)
 
-                        # Creates an array of the workflows that have not 
-                        # started executing yet.
-                        tmp_campaign = list()
-                        for workflow in self._campaign['campaign']:
-                            if self._workflows_state[workflow['id']] == st.NEW:
-                                tmp_campaign.append(workflow)
+                    self._prof.prof('replan_run', uid=self._uid)
+                    tmp_plan = self._planner.replan(campaign=tmp_campaign,
+                            resources=self._resources, num_oper=tmp_num_oper,
+                            start_time=tmp_start_times)
 
-                        tmp_num_oper = [workflow['num_oper'] for workflow in tmp_campaign]
-                        self._logger.debug('Replanning for: %s, %s, %s',
-                                            tmp_start_times,
-                                            tmp_campaign,
-                                            tmp_num_oper)
+                    self._prof.prof('replan_done', uid=self._uid)
+                    # If the plan has not change means that the last few
+                    # workflows are executing, so nothing to plan for and
+                    # the enactor should continue running.
+                    self._plan = tmp_plan
 
-                        self._prof.prof('replan_run', uid=self._uid)
-                        tmp_plan = self._planner.replan(campaign=tmp_campaign, 
-                                resources=self._resources, num_oper=tmp_num_oper,
-                                start_time=tmp_start_times)
+                    self._update_checkpoints()
 
-                        self._prof.prof('replan_done', uid=self._uid)
-                        # If the plan has not change means that the last few
-                        # workflows are executing, so nothing to plan for and
-                        # the enactor should continue running.
-                        # if tmp_plan == self._plan:
-                        #     self._enactor.cont()
-                        # else:
-                        #     self._logger.debug('Updating plan')
-                        self._plan = tmp_plan
-
-                        self._update_checkpoints()
-                        with self._monitor_lock:
-                            self._workflows_to_monitor.pop(0)
-                            self._unavail_resources.pop(0)
-                        self._hold = False
-                        self._prof.prof('replan_stop', uid=self._uid)
+                if finished:
+                    self._hold = False
+                self._prof.prof('workflow_cfinished', uid=self._uid)
 
     def get_makespan(self):
         '''
