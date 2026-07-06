@@ -53,8 +53,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.campaign import AsyncCampaignManager as CampaignManager  # noqa: E402
-from src.inference.utils import load_config  # noqa: E402
-from src.utils.workflow import _expand_env  # noqa: E402
+from src.utils.workflow import _expand_env, load_config  # noqa: E402
 
 
 # ── Plan format translation tables ───────────────────────────────────────────

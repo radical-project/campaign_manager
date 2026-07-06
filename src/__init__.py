@@ -1,1 +1,1 @@
-"""SPHERICAL — Multi-GPU inference framework."""
+"""AsyncCampaignManager — async-native HPC workflow orchestrator."""

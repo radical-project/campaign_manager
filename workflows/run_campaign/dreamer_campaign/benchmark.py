@@ -524,7 +524,7 @@ async def _run_once(config: dict, seed_offset: int) -> dict:
     _random.seed(seed_offset + 1337)
 
     from src.campaign import AsyncCampaignManager as CampaignManager
-    from src.inference.utils import load_config
+    from src.utils.workflow import load_config
     import importlib
 
     # Reset DreamerWorkflow class-level state so trigger counts don't bleed

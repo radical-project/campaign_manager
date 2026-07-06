@@ -58,7 +58,7 @@ from pathlib import Path  # noqa: E402
 
 import yaml  # noqa: E402
 
-# SPHERICAL root (for `src.campaign`, `src.inference`, ...) and the script's own
+# campaign_manager root (for `src.campaign`, `src.utils`) and the script's own
 # directory (so the workflow_registry can import dummy_workflow / ddmd_workflow /
 # miniapps_workflow / inference_workflow regardless of the launch cwd — Dragon
 # launches from a different directory than this file lives in).
@@ -66,8 +66,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src.campaign import AsyncCampaignManager as CampaignManager  # noqa: E402
-from src.inference.utils import load_config  # noqa: E402
-from src.utils.workflow import _expand_env  # noqa: E402
+from src.utils.workflow import _expand_env, load_config  # noqa: E402
 
 
 def _expand_workflow_configs(config: dict, config_dir: Path) -> dict:

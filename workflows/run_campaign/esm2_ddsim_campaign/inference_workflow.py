@@ -105,9 +105,9 @@ class InferenceWorkflow(BaseWorkflow):
         _os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
         import transformers  # noqa: F401
 
-        from src.inference.esm2_service.esm2_client import ESM2Client
-        from src.inference.esm2_service.esm2_service import ESM2InferenceService
-        from src.inference.utils import export_metrics
+        from src.inference.esm2_service.esm2_client import ESM2Client  # from SPHERICAL
+        from src.inference.esm2_service.esm2_service import ESM2InferenceService  # from SPHERICAL
+        from src.utils.workflow import export_metrics
 
         await self._ensure_initialized(cfg, ESM2InferenceService, asyncflow=self.asyncflow)
 
@@ -168,7 +168,7 @@ class InferenceWorkflow(BaseWorkflow):
             if cls._svc_handles is not None:
                 return
 
-            from src.inference.orchestrator import start_services, start_services_local
+            from src.inference.orchestrator import start_services, start_services_local  # from SPHERICAL
 
             mode = cfg.get("mode", "local")
             cls._log.info(f"Starting ESM2 services (mode={mode})")

@@ -1,6 +1,0 @@
-module load cuda
-module load gcc
-module load anaconda3
-conda activate /ocean/projects/dmr170002p/goliyad/conda_env/test_inf
-
-dragon-network-config --output-to-yaml 
