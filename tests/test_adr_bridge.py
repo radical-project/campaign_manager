@@ -319,7 +319,7 @@ class TestLLMTimeoutFallback:
 def test_schedule_decision_defaults():
     sd = ScheduleDecision()
     assert sd.priorities == {}
-    assert sd.batch_sizes == {}
+    assert sd.batch_sizes is None  # None = "omit entirely" (no batch-size changes)
     assert sd.stop is False
 
 
@@ -505,6 +505,6 @@ class TestLLMPolicyConfig:
     def test_factory_passes_system_prompt(self):
         pol = make_scheduling_policy(self._op(), kind="llm", llm_api_key="k",
                                      system_prompt="ABC")
-        # composed Policy(primary=LLM, fallback=rule); the primary carries the prompt
-        primary = getattr(pol, "primary", None) or getattr(pol, "_primary")
-        assert primary.system_prompt == "ABC"
+        # LLMSchedulingPolicy embeds its own fallback — no outer wrapper; the
+        # returned policy itself carries the system_prompt.
+        assert pol.system_prompt == "ABC"
