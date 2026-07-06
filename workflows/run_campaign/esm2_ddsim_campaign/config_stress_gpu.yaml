@@ -1,0 +1,185 @@
+# =============================================================================
+# SPHERICAL GPU Stress-Test Campaign Configuration
+# =============================================================================
+#
+# Purpose: expose GPU-resource contention that ADR policies are designed to fix,
+# while keeping ALL FOUR WORKFLOWS running under EVERY policy (fair comparison).
+#
+# The scenario — "miniapps GPU delay":
+#   All 4 GPUs are shared between inference, md, and miniapps.
+#
+#   Pass-1 (guaranteed slots, all policies):
+#     inference  floor=2 → always gets 2 GPU slots
+#     md         floor=1 → always gets 1 GPU slot   ← KEY: fair comparison
+#                          md runs under ALL policies; no policy sees md=0
+#
+#   Pass-2 (contested slot — the 1 remaining GPU):
+#     inference (priority 9) vs miniapps (priority 3) compete for it.
+#
+#   policy=none:  inference (9) wins pass-2 every tick → miniapps waits even
+#                 after md finishes and triggers it.  miniapps is delayed until
+#                 inference exhausts all its replicas and releases GPUs.
+#
+#   policy=rule:  when miniapps is pending (md triggered it), ADR boosts
+#                 miniapps priority → miniapps wins the pass-2 slot → starts
+#                 running concurrently with inference.
+#
+#   policy=bandit/llm: same outcome as rule once they learn the ordering.
+#
+# Metric: time_to_first_miniapps_s (lower = better).
+#         All policies complete all 4 workflows; the difference is HOW FAST
+#         Pipeline B (md → miniapps) produces its first result.
+#
+# Timing design (calibrated from benchmark run 19711376, simulation_length_ns=10):
+#   Real ESM2 inference:  ~114 s/replica  (A40 GPU)
+#   Real MD simulation:    ~70 s/replica  (10 ns)
+#   Real miniapps:         ~90 s/replica  (ML analysis)
+#
+#   inference.replicas=16 → 16/3 × 114 s ≈ 608 s total inference time
+#   md pipeline:  4 × 70 s / 1–2 concurrent + 4 × 90 s / cap concurrent ≈ 370 s
+#   Overlap window (inference still running while miniapps active): t=70s → t=608s
+#
+#   Under 'none':  miniapps waits 608 s → first result at ~700 s
+#   Under 'rule':  miniapps starts at ~70 s → first result at ~160 s  (4.4× faster)
+#   Wall-clock per policy: ~650–700 s (≈11 min), down from ~1570 s (≈26 min)
+#
+# GPU budget: 4 A40 GPUs on a single gpuA40x4 node.
+#   inference(floor=2) + md(floor=1) = 3 guaranteed + 1 contested = 4 GPUs.
+
+# ── Cluster Resources ─────────────────────────────────────────────────────────
+resources:
+  total_cpus: 64   # full gpuA40x4 node — CPUs are NOT the bottleneck here
+  total_gpus: 4    # inference(2) + md(1) = 3 pass-1 slots, 1 contested in pass-2
+
+# ── Engine ────────────────────────────────────────────────────────────────────
+engine: dragon   # real GPU inference via Dragon process spawning
+debug:  false
+
+# ── Telemetry ─────────────────────────────────────────────────────────────────
+telemetry:
+  collect_telemetry: true
+  telemetry_dir:    "telemetry-results"
+  resource_poll_interval: 0.5
+
+# ── Campaign Manager / ADR supervision ───────────────────────────────────────
+cm:
+  features:
+    backpressure: true
+    monitor:      true
+    sharder:      true
+
+  monitor_interval_s: 10
+
+  adr:
+    policy:    rule      # override via --policies in benchmark_adr_gpu.py
+    tick_s:    2.0
+    warmstart: true
+    seed:      0
+    record:    false
+
+    # Terminal stage: the deepest stage whose completions count as "hits".
+    # Required when DAG routing uses _on_completion (no config dependencies).
+    terminal:  dummy
+
+    # DDSim campaign goals (used by DDSimCampaignOperator):
+    #   n_md_runs      — expected miniapps completions (= md.replicas)
+    #   max_fail_rate  — task failure rate ceiling (0–1); alert if exceeded
+    n_md_runs:     4
+    max_fail_rate: 0.05
+
+    system_prompt_file: prompts/scheduling_system_prompt.txt
+
+    llm_tick_s:      10.0
+    llm_timeout_s:   20.0
+    llm_max_retries: 0
+    base_url:        https://router.huggingface.co/v1
+    model:           meta-llama/Llama-3.3-70B-Instruct
+    llm_api_key_env: HF_TOKEN
+
+# ── Workflow Registry ────────────────────────────────────────────────────────
+workflow_registry:
+  dummy:     dummy_workflow.DDSimWorkflow
+  md:        ddmd_workflow.DDMdWrapperWorkflow
+  miniapps:  miniapps_workflow.MiniAppsWrapperWorkflow
+  inference: inference_workflow.InferenceWorkflow
+
+# ── Workflow Groups ───────────────────────────────────────────────────────────
+
+workflows:
+
+  # ── ESM2 Inference ──────────────────────────────────────────────────────────
+  # HIGH priority (9).  floor=2 guarantees 2 GPU slots; competes with miniapps
+  # (not md) for the pass-2 slot.
+  # replicas=16: 16/3 × 114 s ≈ 608 s — inference is active throughout the
+  # md→miniapps pipeline (last miniapps finishes ~370 s), creating real GPU
+  # contention for the entire miniapps phase.
+  # stub_sleep_s=37: used only when benchmark_adr_gpu.py forces debug=True.
+  inference:
+    priority:             9
+    replicas:             16           # 16/3 × 114 s ≈ 608 s — inference stays active
+                                       # throughout md pipeline (last miniapps ~370 s)
+    concurrency_floor:    2            # guaranteed 2 GPU slots in pass-1
+    concurrency_cap:      3            # cap at 3: leave 1 GPU for md floor (pass-1)
+                                       # the 4th GPU is the contested pass-2 slot
+    required_cpus:        4
+    required_gpus:        1
+    stub_sleep_s:         37.0         # benchmark stub — ignored in real Dragon runs
+    config_file:          "${INF_DIR}/config.yaml"
+
+  # ── DDSim (terminal scoring/selection) ──────────────────────────────────────
+  # Fan-in terminal: receives triggers from TWO upstream paths via _on_completion:
+  #   inference.on_replica_done  → trigger_dependent("dummy", score=...)
+  #   miniapps._on_completion    → trigger_dependent("dummy", replicas=1)
+  # No config dependencies: routing is declared in the workflow code.
+  dummy:
+    priority:             5
+    concurrency_floor:    0
+    concurrency_cap:      8            # CPU-only, no GPU cost; 8 × 4 CPUs = 32 CPUs
+                                       # 16+4=20 total dummy replicas / 8 cap × 37 s ≈ 93 s
+    required_cpus:        4
+    required_gpus:        0
+    config_file:          "${DUMMY_DIR}/config.yaml"
+    num_inputs:           2
+    max_sim_batch:        2
+    training_cores:       0
+    training_epochs:      0
+    sleep_time:           0.1
+    sharding:
+      target_size:        4
+      min_size:           1
+      max_size:           16
+      stratify:           soft
+    backpressure_high:    8
+    backpressure_low:     3
+
+  # ── DDMd (MD simulations) ───────────────────────────────────────────────────
+  # concurrency_floor=1: GUARANTEED 1 GPU slot in pass-1 under ALL policies.
+  # replicas=4: with simulation_length_ns=10 each run completes in ~3-5 min;
+  # 4 replicas keep the miniapps pipeline fed without dominating wall time.
+  # concurrency_cap=2: run 2 MD replicas simultaneously when a 2nd GPU is free.
+  # DAG edge: md._on_completion → miniapps (no config dependencies needed).
+  md:
+    priority:             4
+    replicas:             4
+    concurrency_floor:    1            # guaranteed GPU slot under ALL policies
+    concurrency_cap:      2            # run up to 2 simultaneously
+    required_cpus:        4
+    required_gpus:        1
+    config_file:          "${MD_DIR}/config.yaml"
+
+  # ── MiniApps ────────────────────────────────────────────────────────────────
+  # Triggered by md._on_completion (one per md replica) — no config dependency.
+  # Competes with inference for the pass-2 GPU slot.
+  # DAG edge: miniapps._on_completion → dummy.
+  # concurrency_cap=2: allow two concurrent ML analysis runs.
+  miniapps:
+    priority:             3
+    concurrency_floor:    0
+    concurrency_cap:      4            # scale up when md releases GPU slots (was 2)
+                                       # when md finishes, 2 GPUs free → 2 miniapps concurrent
+    required_cpus:        4
+    required_gpus:        1
+    config_file:          "${MINAPPS_DIR}/config.yaml"
+    sharding: { target_size: 1, min_size: 1, max_size: 4, stratify: soft }
+    backpressure_high: 4
+    backpressure_low:  2

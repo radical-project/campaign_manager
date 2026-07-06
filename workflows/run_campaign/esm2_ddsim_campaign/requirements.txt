@@ -1,0 +1,3 @@
+pydantic-settings
+mpi4py
+opentelemetry-sdk

@@ -1,0 +1,189 @@
+# =============================================================================
+# SPHERICAL Campaign Configuration
+# =============================================================================
+
+# ── Cluster Resources ─────────────────────────────────────────────────────────
+resources:
+  total_cpus: 64   # CPU cores on the allocated node(s)
+  total_gpus: 8     # GPUs on the allocated node(s) — matches gpu_sbatch.sh --gpus=8
+
+# ── Engine ────────────────────────────────────────────────────────────────────
+engine:      dragon       # concurrent | dragon 
+debug:       false         # set true to enable rhapsody DEBUG logging
+
+# ── Telemetry ─────────────────────────────────────────────────────────────────
+telemetry:
+  collect_telemetry: true
+  telemetry_dir: "telemetry-results"
+  resource_poll_interval: 0.5   # seconds between ResourceUpdate events
+
+# ── Campaign Manager / ADR supervision ───────────────────────────────────────
+# The CM scheduler orders eligible groups by group.priority.  An optional ADR
+# policy drives those priorities each tick via set_priority() — the "agent
+# layer" that replaces the old in-loop bandit.  On HPC runs with telemetry
+# enabled the policy also sees live GPU/CPU/mem utilisation in its observation.
+cm:
+  # ── Optional feature flags ────────────────────────────────────────────────
+  # Set to true to enable; false to run baseline without the feature.
+  # Enables A/B comparison: run twice, once with false and once with true.
+  features:
+    backpressure: true   # per-edge hysteresis queue depth controller
+    monitor:      true   # pass-through + budget drift detection alerts
+    sharder:      true   # adaptive batch dispatch from trigger buffer
+
+  # Periodic monitor tick interval (seconds).
+  monitor_interval_s: 15
+
+  adr:
+    policy:    none      # none | rule | bandit | llm  (override with --policy)
+    tick_s:    2.0       # operator decision cadence (seconds)
+    warmstart: true      # bandit policy: depth-based Beta(depth+1,1) priors
+    seed:      0         # bandit policy RNG seed
+    record:    false     # true → write adr-decisions-<policy>.jsonl each run
+
+    # Terminal stage: the deepest stage whose completions are counted as "hits".
+    # Required when DAG routing uses _on_completion (no config dependencies).
+    terminal:  dummy
+
+    # DDSim campaign goals (used by DDSimCampaignOperator):
+    #   n_md_runs      — expected miniapps completions (= md.replicas)
+    #   max_fail_rate  — task failure rate ceiling (0–1); alert if exceeded
+    n_md_runs:     4
+    max_fail_rate: 0.05
+
+    # Custom LLM system prompt (relative to this config file's directory).
+    # Describes the dual-pipeline topology and GPU contention to the LLM.
+    # Remove or comment out to fall back to the generic DEFAULT_SCHEDULING_PROMPT.
+    system_prompt_file: prompts/scheduling_system_prompt.txt
+
+    # LLM policy settings (only used when policy=llm or --policy llm):
+    llm_tick_s:       10.0              # slower cadence for LLM calls
+    llm_timeout_s:    20.0              # per-call timeout before falling back to rule
+    llm_max_retries:  0                 # instructor structured-output retries
+    # model:            openai/gpt-4o-mini
+    # llm_api_key_env:  OPENROUTER_API_KEY  # env var that holds the key
+    # # base_url: http://localhost:11434/v1  # uncomment for local Ollama
+
+    #
+    # ── Alternative backends (swap base_url + model + key) ────────────────
+    #   Local Ollama (no key, no cost, but slow → usually falls back to rule):
+    # base_url: http://localhost:11434/v1
+    # model: qwen2.5:7b
+    # llm_api_key_env: OLLAMA_KEY   # placeholder; not actually checked
+    # llm_tick_s: 1.0
+    #   Free OpenRouter models (rate-limited, cold-start → may fall back):
+    #     model: meta-llama/llama-3.3-70b-instruct:free
+    #     llm_tick_s: 4.0
+    # HuggingFace router:
+    base_url: https://router.huggingface.co/v1
+    model: meta-llama/Llama-3.3-70B-Instruct
+    llm_api_key_env: HF_TOKEN
+    #   Claude (best quality, ~cents/run): switch LLMSchedulingPolicy to
+    #     the Anthropic SDK and use model: claude-haiku-4-5 / claude-sonnet-4-6.
+
+# ── Workflow Registry ────────────────────────────────────────────────────────
+# Maps config workflow names to "module.ClassName" strings.
+# Modules are resolved relative to the run_campaign directory.
+workflow_registry:
+  dummy:     dummy_workflow.DDSimWorkflow
+  md:        ddmd_workflow.DDMdWrapperWorkflow
+  miniapps:  miniapps_workflow.MiniAppsWrapperWorkflow
+  inference: inference_workflow.InferenceWorkflow
+
+# ── Workflow Groups ───────────────────────────────────────────────────────────
+# Each key must match a name in the workflow_registry above.
+#
+# Two modes — controlled by whether 'dependencies' is set:
+#
+#   Independent (no dependencies):
+#     replicas: N     — group starts immediately on cm.start()
+#
+#   Dependent (has dependencies):
+#     omit 'replicas' — group starts at 0 and stays inactive until an upstream
+#     replica calls  await self._trigger_dependent("name", replicas=N)
+#     The upstream workflow decides *when* and *how many* based on its own
+#     execution logic (e.g. 1 downstream run per result produced, or N based
+#     on a quality threshold).  Each call adds N more replicas to the queue;
+#     calls can repeat across the lifetime of the upstream run.
+#
+#   To switch a dependent group to independent: add 'replicas: N' and remove
+#   'dependencies'.  No workflow code needs to change — the pipeline topology
+#   lives entirely in this config.
+#
+# Field reference
+# ---------------
+#   replicas             : total replicas for independent groups; omit for dependent
+#   concurrency_floor         : guaranteed concurrent slots (scheduler pass 1)
+#   concurrency_cap         : sliding-window concurrency cap (scheduler pass 2)
+#   priority             : higher → scheduled first when resources are contested
+#   dependencies         : upstream groups this workflow depends on; also used by
+#                          the CM to route _signal_done() — when group X signals
+#                          done, every group listing X here gets +1 replica queued
+#   dependency_threshold : N finished upstream replicas satisfies dep check when
+#                          using _signal_done() fallback (default 1)
+#   required_cpus/gpus   : per-replica resource reservation (ResourcePool)
+#   config_file          : path to the workflow's own YAML merged into the
+#                          constructor config (${VAR} expanded at load time)
+
+workflows:
+
+  # ── ESM2 Inference ─────────────────────────────────────────────────────────
+  # Independent: starts immediately on cm.start().
+  # on_replica_done triggers 1 'dummy' replica per successful inference result.
+  inference:
+    priority:             6
+    replicas:             8
+    concurrency_floor:         1
+    concurrency_cap:         4
+    required_cpus:        4
+    required_gpus:        1
+    config_file:          "${INF_DIR}/config.yaml"
+
+  # ── DDSim ──────────────────────────────────────────────────────────────────
+  # Dependent on inference: stays at replicas=0 until InferenceWorkflow calls
+  # _trigger_dependent("dummy", replicas=1) for each successful result.
+  # To run independently: add 'replicas: N' and remove 'dependencies'.
+  dummy:
+    priority:             5
+    concurrency_floor:         2
+    concurrency_cap:         4
+    required_cpus:        4
+    required_gpus:        0
+    dependencies:         [inference]
+    config_file:          "${DUMMY_DIR}/config.yaml"
+    # Sharder: buffer inference→dummy triggers and batch-dispatch up to 4 at a time.
+    # Soft stratify allows partial batches (inference produces exactly 8 triggers total).
+    sharding: { target_size: 4, min_size: 1, max_size: 8, stratify: soft }
+    # Backpressure: throttle when 12 dummy replicas are queued; widen at 4.
+    backpressure_high: 12
+    backpressure_low:  4
+
+  # ── DDMd (MD simulations) ──────────────────────────────────────────────────
+  # Independent: starts immediately, runs in parallel with inference.
+  # Each completed iteration calls _signal_done() → CM queues 1 miniapps replica.
+  md:
+    priority:      10
+    replicas:      2
+    concurrency_floor:  1
+    concurrency_cap:  1
+    required_cpus: 4
+    required_gpus: 1
+    config_file:   "${MD_DIR}/config.yaml"   # MD_DIR exported by gpu_sbatch.sh
+
+  # ── MiniApps ───────────────────────────────────────────────────────────────
+  # Dependent on md: stays at replicas=0 until DDMdWrapperWorkflow calls
+  # _trigger_dependent("miniapps", replicas=N) based on MD results.
+  # To run independently: add 'replicas: N' and remove 'dependencies'.
+  miniapps:
+    priority:      8
+    concurrency_floor:  1
+    concurrency_cap:  1
+    required_cpus: 4
+    required_gpus: 1
+    dependencies:  [md]
+    config_file:   "${MINAPPS_DIR}/config.yaml"
+    # Sharder: buffer md→miniapps triggers (md runs 2 replicas, each may trigger 1+).
+    sharding: { target_size: 1, min_size: 1, max_size: 4, stratify: soft }
+    # Backpressure: throttle when 4 miniapps replicas are queued; widen at 2.
+    backpressure_high: 4
+    backpressure_low:  2

@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# asyncflow runtime sessions
+asyncflow.session.*
+
+# SLURM logs
+slurm-*.out
+
+# Runtime output directories (campaign artifacts)
+ESM2/results/
+ESM2/client_inference_*.json
+ESM2/metrics_*.json
+ESM2/_dragon_config_*.json
+Dummy/
+MiniApps/
+cache/
+adr-logs/
+plots/
+telemetry-results-*/
+*.npy
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+*.iml
+
+# Local Claude Code settings
+.claude/settings.local.json

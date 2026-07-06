@@ -1,0 +1,265 @@
+plan_id: vax-funnel-dreamer/v1
+campaign_id: vax-funnel-dreamer
+schema_version: cm-plan/1.0
+created_at: '2026-05-07T00:00:00Z'
+contract:
+  total_budget_node_hours: 100000
+  deadline_hours: 504
+  min_acceptable_yield: 50
+  facility_caps:
+    frontier: 70000
+    perlmutter: 30000
+stages:
+- id: s1_ligand_filter
+  upstream: library
+  downstream: s2_ml_affinity
+  budget_node_hours: 7200
+  pilot:
+    facility: perlmutter
+    partition: cpu
+    nodes: 300
+    walltime_h: 24
+  concurrency_cap: 30
+  concurrency_floor: 4
+  dreamer:
+    use_stub: true
+    simulated_duration: 3.0
+    simulated_jitter: 0.05
+    score_noise: 0.0
+    score_threshold: 0.6
+- id: s2_ml_affinity
+  upstream: s1_ligand_filter
+  downstream: s3_docking
+  budget_node_hours: 20000
+  downstream_input_target: 100
+  pilot:
+    facility: perlmutter
+    partition: gpu
+    nodes: 100
+    walltime_h: 48
+  surrogate:
+    model_ref: surrogate-s2-v1
+    uncertainty_cutoff: 0.2
+    cutoff_nudge_bounds:
+    - 0.1
+    - 0.4
+    score_cutoff: 0.5
+    score_cutoff_nudge_bounds:
+    - 0.3
+    - 0.8
+    uncertainty_cutoff_nudge_bounds:
+    - 0.15
+    - 0.5
+    advance_threshold: 0.88
+  concurrency_cap: 24
+  sharding:
+    target_size: 80
+    min_size: 8
+    max_size: 160
+    stratify: soft
+  dreamer:
+    use_stub: true
+    simulated_duration: 6.0
+    simulated_jitter: 0.05
+    score_noise: 0.05
+    score_threshold: 0.65
+- id: s3_docking
+  upstream: s2_ml_affinity
+  downstream: s4_md_refinement
+  variant: full
+  budget_node_hours: 30000
+  downstream_input_target: 30
+  pilot:
+    facility: frontier
+    partition: gpu
+    nodes: 200
+    walltime_h: 72
+  surrogate:
+    model_ref: surrogate-s3-v1
+    uncertainty_cutoff: 0.25
+    cutoff_nudge_bounds:
+    - 0.15
+    - 0.4
+    score_cutoff: 0.55
+    score_cutoff_nudge_bounds:
+    - 0.35
+    - 0.85
+    uncertainty_cutoff_nudge_bounds:
+    - 0.1
+    - 0.45
+    advance_threshold: 0.82
+  concurrency_cap: 12
+  sharding:
+    target_size: 20
+    min_size: 4
+    max_size: 40
+    stratify: soft
+    profile: diverse_top
+  dreamer:
+    use_stub: true
+    simulated_duration: 1.0
+    simulated_jitter: 0.1
+    score_noise: 0.05
+    score_threshold: 0.7
+  concurrency_floor: 2
+- id: s4_md_refinement
+  upstream: s3_docking
+  downstream: s5_fep_ranking
+  budget_node_hours: 30000
+  downstream_input_target: 10
+  pilot:
+    facility: frontier
+    partition: gpu
+    nodes: 400
+    walltime_h: 168
+  surrogate:
+    score_cutoff: 0.6
+    score_cutoff_nudge_bounds:
+    - 0.4
+    - 0.9
+    uncertainty_cutoff: 0.2
+    uncertainty_cutoff_nudge_bounds:
+    - 0.08
+    - 0.4
+    advance_threshold: 0.75
+  concurrency_cap: 8
+  sharding:
+    target_size: 12
+    min_size: 4
+    max_size: 24
+    stratify: soft
+  dreamer:
+    use_stub: true
+    simulated_duration: 1.0
+    simulated_jitter: 0.2
+    score_noise: 0.05
+    score_threshold: 0.75
+  concurrency_floor: 2
+- id: s5_fep_ranking
+  upstream: s4_md_refinement
+  downstream: final_lead_set
+  budget_node_hours: 25000
+  pilot:
+    facility: frontier
+    partition: largemem
+    nodes: 200
+    walltime_h: 240
+  downstream_input_target: 5
+  campaign_target: 5
+  surrogate:
+    score_cutoff: 0.65
+    score_cutoff_nudge_bounds:
+    - 0.45
+    - 0.92
+    uncertainty_cutoff: 0.18
+    uncertainty_cutoff_nudge_bounds:
+    - 0.07
+    - 0.35
+    advance_threshold: 0.9
+  concurrency_cap: 6
+  sharding:
+    target_size: 6
+    min_size: 2
+    max_size: 12
+    stratify: soft
+  dreamer:
+    use_stub: true
+    simulated_duration: 1.0
+    simulated_jitter: 0.4
+    score_noise: 0.05
+    score_threshold: 0.8
+  concurrency_floor: 2
+edges:
+- name: lib_to_s1
+  upstream: library
+  downstream: s1_ligand_filter
+  profile: round_robin
+  backpressure:
+    high_water: 2250
+    low_water: 1000
+- name: s1_to_s2
+  upstream: s1_ligand_filter
+  downstream: s2_ml_affinity
+  profile: diverse_top
+  backpressure:
+    high_water: 500
+    low_water: 200
+- name: s2_to_s3
+  upstream: s2_ml_affinity
+  downstream: s3_docking
+  profile: explore_exploit
+  backpressure:
+    high_water: 300
+    low_water: 120
+- name: s3_to_s4
+  upstream: s3_docking
+  downstream: s4_md_refinement
+  profile: diverse_top
+  backpressure:
+    high_water: 200
+    low_water: 80
+- name: s4_to_s5
+  upstream: s4_md_refinement
+  downstream: s5_fep_ranking
+  profile: pure_promise
+  backpressure:
+    high_water: 200
+    low_water: 80
+replan:
+  cadence_hours: 6
+  budget_burn_deviation_pct: 80
+  pass_through_deviation_pct: 10
+  surrogate_recall_floor: 0.9
+  deadline_slip_hours: 24
+  facility_outage_hours: 4
+provenance:
+  cm_code_commit: dreamer-emulation
+  inputs_hash: ''
+  outputs_hash: ''
+  seeds:
+    sharder: 19
+  containers:
+    s1_ligand_filter: ghcr.io/demo/ligand-filter@sha256:demo
+    s2_ml_affinity: ghcr.io/demo/ml-affinity@sha256:demo
+    s3_docking: ghcr.io/demo/docking@sha256:demo
+    s4_md_refinement: ghcr.io/demo/md@sha256:demo
+    s5_fep_ranking: ghcr.io/demo/fep@sha256:demo
+debug:
+  stage_replicas:
+    s1_ligand_filter: 10000
+cm:
+  engine: concurrent
+  debug: false
+  features:
+    backpressure: true
+    monitor: true
+    sharder: true
+  monitor_interval_s: 8
+  adl:
+    policy: none
+    tick_s: 1.0
+    warmstart: true
+    seed: 0
+    base_url: https://openrouter.ai/api/v1
+    model: openai/gpt-4o-mini
+    llm_api_key_env: OPENROUTER_API_KEY
+    # System prompt steering the LLM — edit prompts/scheduling_system_prompt.txt
+    # to change HOW it schedules (no code change). Inline `system_prompt: |` also
+    # works and overrides the file; omit both → built-in DEFAULT_SCHEDULING_PROMPT.
+    system_prompt_file: prompts/scheduling_system_prompt.txt
+    llm_tick_s: 3.0
+    llm_timeout_s: 10.0
+    llm_max_retries: 1
+    record: false
+  resources:
+    total_cpus: 1024
+    total_gpus: 24
+  telemetry:
+    collect_telemetry: true
+    telemetry_dir: telemetry-results
+  workflow_registry:
+    s1_ligand_filter: dreamer_workflow.DreamerWorkflow
+    s2_ml_affinity: dreamer_workflow.DreamerWorkflow
+    s3_docking: dreamer_workflow.DreamerWorkflow
+    s4_md_refinement: dreamer_workflow.DreamerWorkflow
+    s5_fep_ranking: dreamer_workflow.DreamerWorkflow

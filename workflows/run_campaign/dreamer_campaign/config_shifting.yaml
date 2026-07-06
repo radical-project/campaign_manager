@@ -1,0 +1,439 @@
+# =============================================================================
+# SPHERICAL Dreamer Campaign Plan
+#
+# Format: cm-prototype cm-plan/1.0  +  SPHERICAL extensions
+#   Mirrors /u/mgoliyad1/cm-prototype/plans/example_campaign.yaml exactly.
+#   Two SPHERICAL-specific additions:
+#     cm:      — Campaign Manager runtime settings (engine, resources, registry)
+#     dreamer: — radical.dreamer emulation parameters (one block per stage)
+#
+# Prototype fields per stage (unchanged):
+#   id, upstream, downstream, budget_node_hours,
+#   pilot, concurrency_cap, surrogate, downstream_input_target, variant
+#
+# SPHERICAL-only additions per stage:
+#   sharding  — adaptive batch dispatch from the trigger buffer (see below)
+#   dreamer   — radical.dreamer emulation block (num_cores, perf_dist, …)
+#
+# ── sharding block ────────────────────────────────────────────────────────────
+# Controls how trigger_dependent() signals are batched before entering the
+# runnable queue.  Only meaningful for dependent (non-root) stages.
+#
+#   target_size: int    Target batch size per dispatch cycle.
+#                       Actual size is modulated by BP state and pilot occupancy.
+#
+#   min_size:    int    Hard lower bound on dispatch size (never dispatch fewer).
+#
+#   max_size:    int    Hard upper bound on dispatch size (never dispatch more).
+#
+#   stratify:    str    Batching strategy — one of:
+#     off               Bypass adaptive_size entirely; always dispatch exactly 1
+#                       trigger per scheduling cycle.  Useful when no batching
+#                       is desired but backpressure control is still wanted.
+#     soft              Adaptive sizing (BP + occupancy modulation) with tail
+#                       dispatch: if the buffer holds fewer than target_size
+#                       triggers, dispatch whatever is buffered immediately.
+#                       Best for stages where partial batches are acceptable.
+#     strict            Adaptive sizing, but HOLD the buffer until it accumulates
+#                       at least target_size triggers before dispatching.
+#                       A partial tail is only flushed when the upstream group
+#                       is truly done (no more triggers will arrive).
+#                       Best for stratified sampling stages (docking, MD) where
+#                       chemical diversity within a batch matters.
+#
+#   (Batch size follows a fixed backpressure → multiplier mapping:
+#    0.5× THROTTLE / 1.0× HOLD / 1.5× WIDEN.  Adaptive batch sizing is now an
+#    ADL-layer concern via the set_batch_size lever, not an in-sharder bandit.)
+#
+# ── edges / backpressure block ────────────────────────────────────────────────
+# Each edge can carry a backpressure stanza that controls the downstream stage's
+# queue depth via a hysteresis state machine:
+#
+#   high_water: int     Queue depth (triggered but not yet started) at which the
+#                       controller enters THROTTLE state.  While THROTTLE, the
+#                       sharder's dispatch() returns 0 — the producer side is
+#                       gated, so the consumer (executor) is never blocked.
+#
+#   low_water:  int     Queue depth at which the controller leaves THROTTLE and
+#                       enters WIDEN state (dispatch multiplier increases).
+#                       Must be strictly less than high_water.
+#
+#   States: HOLD (normal) → THROTTLE (queue too deep) → WIDEN (queue drained)
+#
+# ── edges / profile ───────────────────────────────────────────────────────────
+# profile maps to dreamer schedule_strategy and early_binding in run_campaign.py:
+#   round_robin       random strategy, early binding  — diversity at intake
+#   diverse_top       smallest_to_fastest, early bind — score + coverage
+#   explore_exploit   largest_to_fastest, late bind   — score + uncertainty
+#   pure_promise      largest_to_fastest, late bind   — greedy score-only
+#
+# ── cm / features block ───────────────────────────────────────────────────────
+# Feature flags for A/B comparison — run twice with a flag flipped to isolate
+# the effect of each feature:
+#   backpressure  Per-edge hysteresis queue depth controller.
+#                 Disabling removes all THROTTLE/WIDEN state transitions.
+#   monitor       Periodic health table + pass-through and budget drift alerts.
+#                 Disabling suppresses all Monitor tick logs and drift warnings.
+#   sharder       Adaptive batch dispatch from the trigger buffer.
+#                 Disabling means every trigger_dependent() goes directly into
+#                 the runnable queue (no buffering, no BP gate).
+# (Cross-stage scheduling priority is driven by the ADL layer — see cm.adl —
+#  not an in-CM bandit; the scheduler orders eligible groups by group.priority.)
+#
+# ── dreamer / perf_dist and ops_dist ─────────────────────────────────────────
+# Both distributions share the same schema:
+#   name:         uniform | normal
+#   mean:         float   Centre of the distribution.
+#   var_spatial:  float   Variance across cores/tasks (fixed at run start).
+#   var_temporal: float   Variance across time steps (optional; normal only).
+# =============================================================================
+
+plan_id:        vax-funnel-dreamer/v1
+campaign_id:    vax-funnel-dreamer
+schema_version: cm-plan/1.0
+created_at:     "2026-05-07T00:00:00Z"
+
+# ── Campaign contract ─────────────────────────────────────────────────────────
+contract:
+  total_budget_node_hours: 100000
+  deadline_hours:          504
+  min_acceptable_yield:    50
+  facility_caps:
+    frontier:   70000
+    perlmutter: 30000
+
+# ── Stages ────────────────────────────────────────────────────────────────────
+stages:
+
+  # ── S1: Ligand property filter ─────────────────────────────────────────────
+  # Prototype: Perlmutter GPU, 300 nodes × 24 h = 7 200 node-hours
+  # GPU-bound: fast GPU-accelerated graph-NN filter (all stages GPU-bound).
+  # s1 alone demands 30 GPUs > 24 available → immediately GPU-limited at 24 concurrent.
+  # s1 runtime (debug): 500 × 2s ÷ 24 = 41.7s — long enough for s2→s5 pipeline to start
+  # and overlap with s1 for ~26s, giving the scheduling bandit rich multi-stage decisions.
+  # Pipeline latency s1→s5: 2+1+3+5+4=15s; baseline target=5 at ~57s; bandit target at ~15s.
+  # Peak GPU demand: s1(24)+s2(16)+s3(12)+s4(16)+s5(6) = 74 vs 24 → 3× oversubscription.
+  - id:                     s1_ligand_filter
+    upstream:               library
+    downstream:             s2_ml_affinity
+    budget_node_hours:      7200
+    # CPU-bound screen (realistic: a cheap property filter). Keeping s1 OFF the
+    # GPUs is what makes the downstream bottleneck visible — s1 floods s2 fast
+    # (~10/s) while s2–s5 contend for the 24 GPUs, so the slow GPU stage actually
+    # accumulates a large `pending` backlog the scheduler must arbitrate.
+    pilot: { facility: perlmutter, partition: cpu, nodes: 300, walltime_h: 24 }
+    concurrency_cap:        30
+    concurrency_floor:           4     # guaranteed floor so s1 isn't starved by downstream priorities
+
+    dreamer:
+      use_stub:           true
+      simulated_duration: 3.0    # LONG-STAGE: s1 ~3s each (was 0.5) — LLM latency amortized
+      simulated_jitter:   0.05
+      # Score cascade: s1 generates initial random score in [0,1].
+      # Only candidates with score ≥ 0.60 (top 40%) enter the s2 sharder.
+      # Sharding dispatches the highest-scored ones first; baseline (no sharder) dispatches FIFO.
+      score_noise:        0.0    # root stage — raw screen score, no refinement
+      score_threshold:    0.6    # top 40% pass → ~2000 enter s2 buffer
+
+  # ── S2: ML affinity prediction ─────────────────────────────────────────────
+  # Prototype: Perlmutter GPU, 100 nodes × 48 h = 20 000 node-hours
+  # GPU-bound: ESM2/protein-ligand ML model on GPU.  Drain rate = 16 / 10 s = 1.6/s.
+  # s2 runs concurrently with s3/s4/s5 → multi-stage GPU contention for scheduling bandit.
+  - id:                     s2_ml_affinity
+    upstream:               s1_ligand_filter
+    downstream:             s3_docking
+    budget_node_hours:      20000
+    # Cascade target used by BudgetController.evaluate (denominator for
+    # progress) — only consulted when features.budget_control: true.
+    downstream_input_target: 100
+    pilot: { facility: perlmutter, partition: gpu, nodes: 100, walltime_h: 48 }
+    surrogate:
+      model_ref:                       surrogate-s2-v1
+      # Legacy keys retained for back-compat with non-budget configs.
+      uncertainty_cutoff:              0.20
+      cutoff_nudge_bounds:             [0.10, 0.40]
+      # New keys: full Triage spec for features.budget_control: true.
+      score_cutoff:                    0.50
+      score_cutoff_nudge_bounds:       [0.30, 0.80]
+      uncertainty_cutoff_nudge_bounds: [0.15, 0.50]
+      # ADVANCE threshold — when a candidate's surrogate prediction is
+      # ≥ this AND uncertainty is below cutoff, skip this stage's compute.
+      # s2 is cheap (0.5s); skip only the very confident top tier.
+      advance_threshold:               0.88
+    concurrency_cap: 16
+    # All triggers dispatched — optimisations manage scheduling, not work reduction.
+    # BP throttles queue depth to prevent runaway cascade; bandit allocates GPUs.
+    sharding: { target_size: 80, min_size: 8, max_size: 160, stratify: soft }
+
+    dreamer:
+      use_stub:           true
+      # SHIFTING BOTTLENECK — phase 1: s2 is the SLOW, heavy chokepoint (12s).
+      # Because s2 is shallow, the static rule policy ranks it near the bottom
+      # and starves it → its queue explodes → upstream THROTTLEs → pipeline
+      # stalls.  The LLM, seeing s2's deep queue + THROTTLE, boosts it.
+      simulated_duration: 8.0    # phase 1: slow (bottleneck is here)
+      duration_phases:
+        - { after: 30, duration: 3.0 }   # phase 2: after 30 s2 replicas, s2 speeds up
+      simulated_jitter:   0.05
+      score_noise:        0.05   # small noise: high-scored candidates stay high across stages
+      score_threshold:    0.65   # ~75% of s2 inputs pass → more cascade material
+
+  # ── S3: High-precision docking ─────────────────────────────────────────────
+  # Prototype: Frontier GPU, 200 nodes × 72 h = 30 000 node-hours
+  # GPU-bound: AutoDock-GPU / Glide GPU.  s2+s3+s4+s5 compete for 24 GPU slots:
+  #   s2=16 GPUs, s3=12 GPUs, s4=16 GPUs, s5=6 GPUs → peak demand 50 > 24 (2× oversubscription).
+  #   Scheduling bandit arbitrates the fierce 4-way contention over ~1300s overlap window.
+  - id:                     s3_docking
+    upstream:               s2_ml_affinity
+    downstream:             s4_md_refinement
+    variant:                full
+    budget_node_hours:      30000
+    downstream_input_target: 30
+    pilot: { facility: frontier, partition: gpu, nodes: 200, walltime_h: 72 }
+    surrogate:
+      model_ref:                       surrogate-s3-v1
+      uncertainty_cutoff:              0.25
+      cutoff_nudge_bounds:             [0.15, 0.40]
+      score_cutoff:                    0.55
+      score_cutoff_nudge_bounds:       [0.35, 0.85]
+      uncertainty_cutoff_nudge_bounds: [0.10, 0.45]
+      # s3 is 1s — more expensive; lower threshold so more candidates skip.
+      advance_threshold:               0.82
+    concurrency_cap: 12
+    sharding: { target_size: 20, min_size: 4, max_size: 40, stratify: soft, profile: diverse_top }
+
+    dreamer:
+      use_stub:           true
+      simulated_duration: 6.0    # LONG-STAGE (was 1.0)
+      simulated_jitter:   0.1
+      score_noise:        0.05
+      score_threshold:    0.70   # ~85% of s3 inputs pass
+
+  # ── S4: MD refinement ──────────────────────────────────────────────────────
+  # Prototype: Frontier MPI+GPU, 400 nodes × 168 h = 30 000 node-hours, cap=200
+  # Dependent on s3; diverse_top edge.
+  - id:                     s4_md_refinement
+    upstream:               s3_docking
+    downstream:             s5_fep_ranking
+    budget_node_hours:      30000
+    downstream_input_target: 10
+    pilot: { facility: frontier, partition: gpu, nodes: 400, walltime_h: 168 }
+    surrogate:
+      score_cutoff:                    0.60
+      score_cutoff_nudge_bounds:       [0.40, 0.90]
+      uncertainty_cutoff:              0.20
+      uncertainty_cutoff_nudge_bounds: [0.08, 0.40]
+      # s4 is 2s (MD refinement) — the most expensive non-terminal stage.
+      # Bigger wall-time savings; threshold loose enough to fire frequently.
+      advance_threshold:               0.75
+    # DEBUG: changed mpi+gpu→gpu (1 GPU/replica instead of 2) so s4 can start when a
+    # single GPU is freed — required_gpus=2 deadlocked the pipeline while s1 ran.
+    concurrency_cap:        8
+    sharding: { target_size: 12, min_size: 4, max_size: 24, stratify: soft }
+
+    dreamer:
+      use_stub:           true
+      # SHIFTING BOTTLENECK — phase 2: s4 starts FAST (2s) but slows to the heavy
+      # chokepoint (12s) once the campaign matures.  Now the bottleneck is DEEP,
+      # where the static rule already ranks it high — so rule and LLM converge in
+      # this phase.  Net: the LLM's win comes from phase 1 (shallow bottleneck);
+      # the shift demonstrates it *tracks* the bottleneck instead of assuming it.
+      simulated_duration: 2.0    # phase 1: fast (not the bottleneck yet)
+      duration_phases:
+        - { after: 10, duration: 10.0 }  # phase 2: after 10 s4 replicas, s4 becomes the chokepoint
+      simulated_jitter:   0.2
+      score_noise:        0.05
+      score_threshold:    0.75   # ~80% of s4 inputs pass
+
+  # ── S5: FEP ranking ────────────────────────────────────────────────────────
+  # Prototype: Frontier LargeMem GPU, 200 nodes × 240 h = 25 000 node-hours, cap=50
+  # Dependent on s4; pure_promise edge (greedy, score-only). Terminal stage.
+  - id:                     s5_fep_ranking
+    upstream:               s4_md_refinement
+    downstream:             final_lead_set
+    budget_node_hours:      25000
+    pilot: { facility: frontier, partition: largemem, nodes: 200, walltime_h: 240 }
+    downstream_input_target: 5    # BudgetController denominator T
+    campaign_target: 5            # early-stop at 5 leads (aligned with benchmark_adl TARGET_N).
+                                  # Phase 1 (s2 slow) bites before the 5th lead; the shift to
+                                  # s4-slow lands mid-run, so the LLM's phase-1 advantage shows.
+    surrogate:
+      score_cutoff:                    0.65
+      score_cutoff_nudge_bounds:       [0.45, 0.92]
+      uncertainty_cutoff:              0.18
+      uncertainty_cutoff_nudge_bounds: [0.07, 0.35]
+      # s5 (FEP, terminal) — only skip the very highest-confidence
+      # candidates since this is the final ranking step.
+      advance_threshold:               0.90
+    concurrency_cap:         6
+    sharding: { target_size: 6, min_size: 2, max_size: 12, stratify: soft }
+
+    dreamer:
+      use_stub:           true
+      simulated_duration: 12.0   # LONG-STAGE (was 2.0)
+      simulated_jitter:   0.4
+      score_noise:        0.05
+      score_threshold:    0.80   # terminal gate; ~3% of s1 candidates expected to reach here
+
+# ── Edges ─────────────────────────────────────────────────────────────────────
+# Unchanged from prototype.
+# profile → dreamer schedule_strategy via _PROFILE_STRATEGY in run_campaign.py
+edges:
+  # Backpressure values are expressed in local emulation scale
+  # (proportional to each downstream stage's expected replica total).
+  # Queue depth = replicas triggered but not yet started.
+  # Throttle when depth ≥ high_water; widen when depth ≤ low_water.
+  - name:       lib_to_s1
+    upstream:   library
+    downstream: s1_ligand_filter        # total=2000
+    profile:    round_robin
+    backpressure: { high_water: 2250, low_water: 1000 }
+  - name:       s1_to_s2
+    upstream:   s1_ligand_filter
+    downstream: s2_ml_affinity          # total≈325 (500 × 0.65 — score_threshold=0.35 in dreamer)
+    profile:    diverse_top
+    # Debug-scale BP: set high_water above total expected so throttle only fires on genuine
+    # overflow; sharding benefit comes from priority ranking, not queue control in debug runs.
+    backpressure: { high_water: 500, low_water: 200 }
+  - name:       s2_to_s3
+    upstream:   s2_ml_affinity
+    downstream: s3_docking              # total≈195  (325 × 0.60 — score_threshold=0.40)
+    profile:    explore_exploit
+    backpressure: { high_water: 300, low_water: 120 }
+  - name:       s3_to_s4
+    upstream:   s3_docking
+    downstream: s4_md_refinement        # total≈107  (195 × 0.55 — score_threshold=0.45)
+    profile:    diverse_top
+    backpressure: { high_water: 200, low_water: 80 }
+  - name:       s4_to_s5
+    upstream:   s4_md_refinement
+    downstream: s5_fep_ranking          # total≈107  (all pass, score_threshold=0.0)
+    profile:    pure_promise
+    backpressure: { high_water: 200, low_water: 80 }
+
+# ── Replanning triggers ───────────────────────────────────────────────────────
+# Unchanged from prototype.
+replan:
+  cadence_hours:              6
+  budget_burn_deviation_pct:  80   # pilot costs < budget ceiling by design (safety margin);
+                                   # largest gap is s2 (50×48=2400 vs 10000 nh = 76%) — alert
+                                   # only on genuine overspend above this threshold
+  pass_through_deviation_pct: 10   # tight: fires when strict-sharder batching delays S3
+  surrogate_recall_floor:     0.90
+  deadline_slip_hours:        24
+  facility_outage_hours:      4
+
+# ── Provenance ────────────────────────────────────────────────────────────────
+provenance:
+  cm_code_commit: dreamer-emulation
+  inputs_hash:    ""
+  outputs_hash:   ""
+  seeds: { sharder: 19 }
+  containers:
+    s1_ligand_filter: "ghcr.io/demo/ligand-filter@sha256:demo"
+    s2_ml_affinity:   "ghcr.io/demo/ml-affinity@sha256:demo"
+    s3_docking:       "ghcr.io/demo/docking@sha256:demo"
+    s4_md_refinement: "ghcr.io/demo/md@sha256:demo"
+    s5_fep_ranking:   "ghcr.io/demo/fep@sha256:demo"
+
+# ── Debug / emulation overrides ──────────────────────────────────────────────
+# SPHERICAL-specific parameters not in the cm-prototype schema.
+# Controls the local radical.dreamer emulation; has no effect on real HPC runs.
+debug:
+
+  # Total replicas for independent (root) stages.
+  # Dependent stages grow via trigger_dependent() signals from upstream.
+  stage_replicas:
+    s1_ligand_filter: 10000  # 10000×0.5s÷24GPU=208s s1 phase; longer overlap for bandit convergence
+
+  # Fraction of stage-N total that becomes stage-N+1 total.
+  # Gating is done by dreamer.score_threshold inside each workflow replica.
+  # Each stage triggers downstream only when output_score >= score_threshold.
+  # Expected funnel: 200 s1 → ~130 s2 → ~78 s3 → ~43 s4 → ~24 s5 (stops at target=5)
+
+
+# ── SPHERICAL Campaign Manager runtime ───────────────────────────────────────
+# Not part of the cm-prototype schema. Hoisted to top-level by the plan
+# translator in run_campaign.py when a "stages" key is detected.
+cm:
+  # engine: concurrent | dragon
+  #   concurrent — asyncio ConcurrentExecutionBackend (local, no MPI)
+  #   dragon     — radical.asyncflow DragonExecutionBackendV3 (HPC, requires Dragon)
+  engine: concurrent
+  debug:  false
+
+  # ── Optional feature flags ────────────────────────────────────────────────
+  # Set to true to enable; false to run baseline without the feature.
+  # Enables A/B comparison: run twice, once with false and once with true.
+  features:
+    backpressure: true   # per-edge hysteresis queue depth controller
+    monitor:      true   # pass-through + budget drift detection alerts
+    sharder:      true   # adaptive batch dispatch from trigger buffer
+    # NOTE: cross-stage scheduling priority is no longer an in-CM bandit; it is
+    # driven by the ADL layer (cm.adl below). The scheduler orders eligible
+    # groups purely by group.priority.
+
+  # Periodic monitor tick interval (seconds).
+  # Set short for local emulation so ticks appear during the ~90s campaign run.
+  monitor_interval_s: 8
+
+  # ── ADL supervision (radical.adl agent layer) ─────────────────────────────
+  # Drives scheduling priority from a swappable radical.adl Policy. Choose the
+  # rule / bandit / LLM strategy and compare on equal footing.  Requires
+  # `pip install -e ".[adl]"` (llm also needs ".[llm]").  Override at runtime
+  # with `--policy {none|rule|bandit|llm}`.
+  adl:
+    # Compare strategies by running each and recording (see plot_policy_comparison.py).
+    # 'bandit' wraps the same Thompson-sampling SchedulingBandit as an ADL agent.
+    policy:    none        # none = no ADL (static priorities); rule | bandit | llm
+    tick_s:    1.0         # operator decision cadence (seconds)
+    warmstart: true        # bandit policy: depth-based Beta(depth+1,1) priors
+    seed:      0           # bandit policy RNG seed
+
+    # ── LLM policy (kind=llm) ──────────────────────────────────────────────
+    # OpenRouter + GPT-4o-mini: fast (~0.5s), cheap, reliable structured output.
+    # Long-stage durations (3/3/6/12/12s) let downstream queues build up between
+    # ticks, so the LLM sees real queue_depth + backpressure transitions and can
+    # deviate from the static downstream-first ladder (chase the live bottleneck).
+    #   export OPENROUTER_API_KEY=sk-or-v1-...
+    #   python run_campaign.py --config config_longstage.yaml --policy llm --record
+    base_url:        https://openrouter.ai/api/v1
+    model:           openai/gpt-4o-mini
+    llm_api_key_env: OPENROUTER_API_KEY
+    # System prompt steering the LLM — edit prompts/scheduling_system_prompt.txt
+    # to change HOW it schedules (no code change). Inline `system_prompt: |` also
+    # works and overrides the file; omit both → built-in DEFAULT_SCHEDULING_PROMPT.
+    system_prompt_file: prompts/scheduling_system_prompt.txt
+    llm_tick_s:      3.0     # one decision per ~stage; long stages amortize LLM latency
+    llm_timeout_s:   10.0    # per-call timeout; on timeout → rule fallback for that cycle
+    llm_max_retries: 1       # instructor schema-validation retries (fast model → 1 is fine)
+    #
+    # ── Alternative backends (swap base_url + model + key) ────────────────
+    #   Local Ollama (no key, no cost, but slow → usually falls back to rule):
+    #     base_url: http://localhost:11434/v1
+    #     model: qwen2.5:7b
+    #     llm_api_key_env: OLLAMA_KEY   # placeholder; not actually checked
+    #     llm_tick_s: 1.0
+    #   Free OpenRouter models (rate-limited, cold-start → may fall back):
+    #     model: meta-llama/llama-3.3-70b-instruct:free
+    #     llm_tick_s: 4.0
+    #   Claude (best quality, ~cents/run): switch LLMSchedulingPolicy to
+    #     the Anthropic SDK and use model: claude-haiku-4-5 / claude-sonnet-4-6.
+
+    record:    false       # true/auto → log per-cycle decisions to
+                           #   adl-decisions-<policy>.jsonl (for plot_policy_comparison.py)
+
+  resources:
+    total_cpus: 1024  # 30×16(s1)+16×4(s2)+12×4(s3)+8×16(s4)+6×8(s5)=768 → 1024 with headroom
+    total_gpus: 24    # s1(30×1)+s2(16×1)+s3(12×1)+s4(8×2)+s5(6×1)=74 > 24 → 3× oversubscription; all stages GPU-bound
+
+  telemetry:
+    collect_telemetry: true
+    telemetry_dir: telemetry-results
+
+  workflow_registry:
+    s1_ligand_filter: dreamer_workflow.DreamerWorkflow
+    s2_ml_affinity:   dreamer_workflow.DreamerWorkflow
+    s3_docking:       dreamer_workflow.DreamerWorkflow
+    s4_md_refinement: dreamer_workflow.DreamerWorkflow
+    s5_fep_ranking:   dreamer_workflow.DreamerWorkflow

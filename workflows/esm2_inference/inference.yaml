@@ -1,0 +1,51 @@
+# =============================================================================
+# ESM2 Inference — workflow-specific parameters
+# =============================================================================
+
+# Model
+model_path: "facebook/esm2_t33_650M_UR50D"
+cache_dir:  "cache"
+
+# Service
+num_services:          2    # one per GPU; start_services_local assigns devices automatically
+num_gpus_per_service:  1
+num_cpus_per_service:  4
+num_workers_per_gpu:   2
+
+# Server
+server_port: 8001
+use_https:   false
+
+# Inference
+max_concurrent:    800
+timeout:           600
+inference_timeout: 300
+max_retries:       3
+
+# Batching
+# num_batches: 1600      # production value — restore for full runs
+num_batches:       100   # test value: one batch per sequence in SEQUENCES
+max_batch_tokens:  20000
+use_streaming:     false
+health_check_timeout: 300
+
+# Output
+output_dir:           "data/outputs_test"
+results_dir:          "data/outputs_test/results"
+metrics_dir:          "data/outputs_test"
+metrics_file_prefix:  "metrics"
+metrics_log_interval: 20
+
+# Sequences (for testing / demo)
+SEQUENCES:
+  - STANHFNAYKLTRPYVAYCADCGMGHSCHSPAMIENIQADATDGTLK
+  - MKTFFVLLLAGAGAG
+  - MASQDVKIVVLGGLG
+  - MVHLTPEEKSAVTALWGKV
+
+# Execution
+debug:          false   # set false for real ESM2 inference (requires model cache)
+mode:           local   # local | server  (server spawns remote HTTP servers via Dragon)
+engine:         dragon
+dragon_workers: 2500
+slurm_config:   slurm.yaml

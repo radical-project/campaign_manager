@@ -1,0 +1,5421 @@
+{
+  "none": [
+    {
+      "wall_time_s": 745.3358783721924,
+      "group_stats": {
+        "miniapps": {
+          "n_started": 5,
+          "n_finished": 5,
+          "first_start": 285.951379776001,
+          "last_finish": 724.3738729953766,
+          "span_s": 438.4224932193756,
+          "mean_dur_s": 95.15470418930053,
+          "throughput_rps": 0.011404524351122025
+        },
+        "inference": {
+          "n_started": 16,
+          "n_finished": 16,
+          "first_start": 0.0025358200073242188,
+          "last_finish": 678.6585819721222,
+          "span_s": 678.6560461521149,
+          "mean_dur_s": 119.41884577274323,
+          "throughput_rps": 0.023576007449897143
+        },
+        "dummy": {
+          "n_started": 22,
+          "n_finished": 22,
+          "first_start": 5.84359073638916,
+          "last_finish": 736.0230996608734,
+          "span_s": 730.1795089244843,
+          "mean_dur_s": 34.92871494726701,
+          "throughput_rps": 0.030129577358867322
+        },
+        "md": {
+          "n_started": 4,
+          "n_finished": 4,
+          "first_start": 5.67427921295166,
+          "last_finish": 285.9508900642395,
+          "span_s": 280.27661085128784,
+          "mean_dur_s": 70.06863832473755,
+          "throughput_rps": 0.01427161541539534
+        }
+      },
+      "bp_fractions": {},
+      "shard_events": [],
+      "scheduling_events": [
+        {
+          "chosen": [
+            "inference",
+            "inference",
+            "md",
+            "inference",
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 0.002001523971557617
+        },
+        {
+          "chosen": [
+            "md"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 68.06788563728333
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 133.35495376586914
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 133.35518884658813
+        },
+        {
+          "chosen": [
+            "md"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 141.2444338798523
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 169.33568572998047
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 169.33597254753113
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 205.30625462532043
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 205.30650854110718
+        },
+        {
+          "chosen": [
+            "md"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 212.78223037719727
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 241.65295100212097
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 241.65318322181702
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 278.1615135669708
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 278.1617531776428
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 285.9511079788208
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 314.9956181049347
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 314.99585819244385
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 351.1967215538025
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 351.1969759464264
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 352.3962779045105
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 352.3964605331421
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 387.49386382102966
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 387.49412274360657
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 423.9191908836365
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 423.9194209575653
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 425.1151728630066
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 425.1154947280884
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 460.08447194099426
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 460.0847120285034
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 495.96749567985535
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 495.96773386001587
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 531.836662530899
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 531.8369176387787
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 567.9997801780701
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 568.0002019405365
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 569.2465562820435
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 569.2468409538269
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 604.5707721710205
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 604.5710573196411
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 640.7764518260956
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 641.9756119251251
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 676.9416482448578
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 724.3737390041351
+        }
+      ],
+      "replica_events": [
+        {
+          "group": "inference",
+          "replica_id": "inference_0",
+          "event": "start",
+          "t": 0.0025358200073242188,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_1",
+          "event": "start",
+          "t": 5.674204111099243,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_0",
+          "event": "start",
+          "t": 5.67427921295166,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_2",
+          "event": "start",
+          "t": 5.843540191650391,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_0",
+          "event": "start",
+          "t": 5.84359073638916,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_0",
+          "event": "finish",
+          "t": 25.916661739349365,
+          "dur": 20.073071002960205,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_0",
+          "event": "finish",
+          "t": 68.06746292114258,
+          "dur": 62.39318370819092,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_1",
+          "event": "start",
+          "t": 68.06825304031372,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_0",
+          "event": "finish",
+          "t": 133.35505533218384,
+          "dur": 133.3525195121765,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_1",
+          "event": "start",
+          "t": 133.3567190170288,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_3",
+          "event": "start",
+          "t": 133.3817868232727,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_1",
+          "event": "finish",
+          "t": 141.24407482147217,
+          "dur": 73.17582178115845,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_2",
+          "event": "start",
+          "t": 141.24495244026184,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_1",
+          "event": "finish",
+          "t": 169.3358132839203,
+          "dur": 163.66160917282104,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_2",
+          "event": "start",
+          "t": 169.33747625350952,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_4",
+          "event": "start",
+          "t": 169.49344682693481,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_1",
+          "event": "finish",
+          "t": 170.83916807174683,
+          "dur": 37.48244905471802,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_2",
+          "event": "finish",
+          "t": 205.30636835098267,
+          "dur": 199.46282815933228,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_3",
+          "event": "start",
+          "t": 205.3099524974823,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_5",
+          "event": "start",
+          "t": 205.53523302078247,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_2",
+          "event": "finish",
+          "t": 206.5582046508789,
+          "dur": 37.220728397369385,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_2",
+          "event": "finish",
+          "t": 212.78207278251648,
+          "dur": 71.53712034225464,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_3",
+          "event": "start",
+          "t": 212.7824625968933,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_3",
+          "event": "finish",
+          "t": 241.65305471420288,
+          "dur": 108.27126789093018,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_4",
+          "event": "start",
+          "t": 241.65557026863098,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_6",
+          "event": "start",
+          "t": 241.98164558410645,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_3",
+          "event": "finish",
+          "t": 243.43554401397705,
+          "dur": 38.12559151649475,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_4",
+          "event": "finish",
+          "t": 278.1616117954254,
+          "dur": 108.6681649684906,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_5",
+          "event": "start",
+          "t": 278.161940574646,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_7",
+          "event": "start",
+          "t": 278.6030423641205,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_4",
+          "event": "finish",
+          "t": 279.78536105155945,
+          "dur": 38.12979078292847,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_3",
+          "event": "finish",
+          "t": 285.9508900642395,
+          "dur": 73.16842746734619,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_0",
+          "event": "start",
+          "t": 285.951379776001,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_5",
+          "event": "finish",
+          "t": 314.9957323074341,
+          "dur": 109.46049928665161,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_6",
+          "event": "start",
+          "t": 314.9973657131195,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_8",
+          "event": "start",
+          "t": 315.26844668388367,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_5",
+          "event": "finish",
+          "t": 316.4509787559509,
+          "dur": 38.28903818130493,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_6",
+          "event": "finish",
+          "t": 351.19683170318604,
+          "dur": 109.21518611907959,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_7",
+          "event": "start",
+          "t": 351.1987261772156,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_9",
+          "event": "start",
+          "t": 351.2129096984863,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_6",
+          "event": "finish",
+          "t": 352.38158321380615,
+          "dur": 37.384217500686646,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_0",
+          "event": "finish",
+          "t": 352.39635181427,
+          "dur": 66.44497203826904,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_8",
+          "event": "start",
+          "t": 352.39656376838684,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_1",
+          "event": "start",
+          "t": 352.40786123275757,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_7",
+          "event": "finish",
+          "t": 387.49397826194763,
+          "dur": 108.89093589782715,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_9",
+          "event": "start",
+          "t": 387.49672842025757,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_10",
+          "event": "start",
+          "t": 387.50977897644043,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_7",
+          "event": "finish",
+          "t": 388.6850607395172,
+          "dur": 37.486334562301636,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_8",
+          "event": "finish",
+          "t": 388.8352324962616,
+          "dur": 36.438668727874756,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_8",
+          "event": "finish",
+          "t": 423.9192979335785,
+          "dur": 108.65085124969482,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_10",
+          "event": "start",
+          "t": 423.92122292518616,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_11",
+          "event": "start",
+          "t": 423.9342768192291,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_9",
+          "event": "finish",
+          "t": 425.0987169742584,
+          "dur": 37.601988554000854,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_1",
+          "event": "finish",
+          "t": 425.1153199672699,
+          "dur": 72.70745873451233,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_11",
+          "event": "start",
+          "t": 425.1157109737396,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_2",
+          "event": "start",
+          "t": 425.12857604026794,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_9",
+          "event": "finish",
+          "t": 460.0845732688904,
+          "dur": 108.87166357040405,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_12",
+          "event": "start",
+          "t": 460.08637523651123,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_12",
+          "event": "start",
+          "t": 460.11496090888977,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_10",
+          "event": "finish",
+          "t": 461.2750897407532,
+          "dur": 37.35386681556702,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_11",
+          "event": "finish",
+          "t": 461.4202446937561,
+          "dur": 36.30453372001648,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_10",
+          "event": "finish",
+          "t": 495.9675953388214,
+          "dur": 108.45781636238098,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_13",
+          "event": "start",
+          "t": 495.9691963195801,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_13",
+          "event": "start",
+          "t": 495.98399567604065,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_12",
+          "event": "finish",
+          "t": 497.1554889678955,
+          "dur": 37.06911373138428,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_11",
+          "event": "finish",
+          "t": 531.8367853164673,
+          "dur": 107.90250849723816,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_14",
+          "event": "start",
+          "t": 531.8386368751526,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_14",
+          "event": "start",
+          "t": 531.851710319519,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_13",
+          "event": "finish",
+          "t": 532.9995303153992,
+          "dur": 37.03033399581909,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_12",
+          "event": "finish",
+          "t": 567.9999639987946,
+          "dur": 107.88500308990479,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_15",
+          "event": "start",
+          "t": 568.0018956661224,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_15",
+          "event": "start",
+          "t": 568.2197120189667,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_2",
+          "event": "finish",
+          "t": 569.2466304302216,
+          "dur": 144.1180543899536,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_16",
+          "event": "start",
+          "t": 569.2469527721405,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_3",
+          "event": "start",
+          "t": 569.2591309547424,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_14",
+          "event": "finish",
+          "t": 569.4205770492554,
+          "dur": 37.58194017410278,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_13",
+          "event": "finish",
+          "t": 604.5708906650543,
+          "dur": 108.58689498901367,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_17",
+          "event": "start",
+          "t": 604.5743989944458,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_4",
+          "event": "start",
+          "t": 604.5874016284943,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_15",
+          "event": "finish",
+          "t": 605.7466297149658,
+          "dur": 37.744734048843384,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_16",
+          "event": "finish",
+          "t": 605.8932926654816,
+          "dur": 36.646339893341064,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_14",
+          "event": "finish",
+          "t": 640.7766239643097,
+          "dur": 108.92491364479065,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_18",
+          "event": "start",
+          "t": 640.7787449359894,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_17",
+          "event": "finish",
+          "t": 641.9600067138672,
+          "dur": 37.38560771942139,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_3",
+          "event": "finish",
+          "t": 641.9756953716278,
+          "dur": 72.71656441688538,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_19",
+          "event": "start",
+          "t": 641.9758183956146,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_15",
+          "event": "finish",
+          "t": 678.6585819721222,
+          "dur": 110.43886995315552,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_20",
+          "event": "start",
+          "t": 678.6590883731842,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_18",
+          "event": "finish",
+          "t": 679.9178440570831,
+          "dur": 39.13909912109375,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_19",
+          "event": "finish",
+          "t": 680.1458761692047,
+          "dur": 38.17005777359009,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_20",
+          "event": "finish",
+          "t": 702.7843351364136,
+          "dur": 24.12524676322937,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_4",
+          "event": "finish",
+          "t": 724.3738729953766,
+          "dur": 119.78647136688232,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_21",
+          "event": "start",
+          "t": 724.3741228580475,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_21",
+          "event": "finish",
+          "t": 736.0230996608734,
+          "dur": 11.648976802825928,
+          "score": null
+        }
+      ],
+      "budget_events": [],
+      "policy": "none",
+      "dnf": false,
+      "telemetry_dir": "telemetry-results-gpu-none-gpu-none-run0",
+      "miniapps_started": 5,
+      "miniapps_finished": 5,
+      "inference_started": 16,
+      "inference_finished": 16,
+      "dummy_started": 22,
+      "dummy_finished": 22,
+      "md_started": 4,
+      "md_finished": 4,
+      "time_to_first_miniapps_s": 352.39635181427,
+      "time_to_first_md_s": 68.06746292114258
+    }
+  ],
+  "rule": [
+    {
+      "wall_time_s": 722.4799058437347,
+      "group_stats": {
+        "miniapps": {
+          "n_started": 5,
+          "n_finished": 5,
+          "first_start": 217.96149015426636,
+          "last_finish": 705.5637230873108,
+          "span_s": 487.60223293304443,
+          "mean_dur_s": 97.43227338790894,
+          "throughput_rps": 0.01025425985013194
+        },
+        "inference": {
+          "n_started": 16,
+          "n_finished": 16,
+          "first_start": 0.2966635227203369,
+          "last_finish": 682.9812433719635,
+          "span_s": 682.6845798492432,
+          "mean_dur_s": 120.99631869792938,
+          "throughput_rps": 0.023436885015819853
+        },
+        "dummy": {
+          "n_started": 22,
+          "n_finished": 22,
+          "first_start": 0.49137306213378906,
+          "last_finish": 717.2981028556824,
+          "span_s": 716.8067297935486,
+          "mean_dur_s": 34.68433876471086,
+          "throughput_rps": 0.030691676131914022
+        },
+        "md": {
+          "n_started": 4,
+          "n_finished": 4,
+          "first_start": 0.36186861991882324,
+          "last_finish": 217.9608154296875,
+          "span_s": 217.59894680976868,
+          "mean_dur_s": 54.399415612220764,
+          "throughput_rps": 0.018382441912721738
+        }
+      },
+      "bp_fractions": {},
+      "shard_events": [],
+      "scheduling_events": [
+        {
+          "chosen": [
+            "inference",
+            "inference",
+            "md",
+            "inference",
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 0.29617738723754883
+        },
+        {
+          "chosen": [
+            "md"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 43.38735389709473
+        },
+        {
+          "chosen": [
+            "md"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 85.13352417945862
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 139.0026454925537
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 139.0028738975525
+        },
+        {
+          "chosen": [
+            "md"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 146.17177414894104
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 175.29785084724426
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 175.29816675186157
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 210.95644164085388
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 210.95676970481873
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 217.96116638183594
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 246.91123700141907
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 246.91152930259705
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 282.83365511894226
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 282.833931684494
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 318.9256274700165
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 318.92585802078247
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 354.8746449947357
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 354.8748836517334
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 355.7748680114746
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 355.7751085758209
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 391.10104751586914
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 391.1012783050537
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 427.3186082839966
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 427.31886982917786
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 429.46831130981445
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 429.46860671043396
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 463.7331449985504
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 463.73347783088684
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 500.421422958374
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 500.42170429229736
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 501.6132073402405
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 501.6133933067322
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 536.7504613399506
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 536.7507002353668
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 573.1967239379883
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 573.1969449520111
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 574.3703508377075
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 574.3705189228058
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 609.4213383197784
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 645.8725452423096
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 682.1301264762878
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 705.5636229515076
+        }
+      ],
+      "replica_events": [
+        {
+          "group": "inference",
+          "replica_id": "inference_0",
+          "event": "start",
+          "t": 0.2966635227203369,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_1",
+          "event": "start",
+          "t": 0.3617990016937256,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_0",
+          "event": "start",
+          "t": 0.36186861991882324,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_2",
+          "event": "start",
+          "t": 0.4913158416748047,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_0",
+          "event": "start",
+          "t": 0.49137306213378906,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_0",
+          "event": "finish",
+          "t": 18.118037462234497,
+          "dur": 17.626664400100708,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_0",
+          "event": "finish",
+          "t": 43.38715147972107,
+          "dur": 43.025282859802246,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_1",
+          "event": "start",
+          "t": 43.38761329650879,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_1",
+          "event": "finish",
+          "t": 85.13334631919861,
+          "dur": 41.74573302268982,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_2",
+          "event": "start",
+          "t": 85.13373613357544,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_0",
+          "event": "finish",
+          "t": 139.00274872779846,
+          "dur": 138.70608520507812,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_1",
+          "event": "start",
+          "t": 139.00569319725037,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_3",
+          "event": "start",
+          "t": 139.01862144470215,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_2",
+          "event": "finish",
+          "t": 146.17159962654114,
+          "dur": 61.0378634929657,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_3",
+          "event": "start",
+          "t": 146.1720323562622,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_1",
+          "event": "finish",
+          "t": 175.2979884147644,
+          "dur": 174.93618941307068,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_2",
+          "event": "start",
+          "t": 175.29974007606506,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_4",
+          "event": "start",
+          "t": 175.31559872627258,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_1",
+          "event": "finish",
+          "t": 176.49253606796265,
+          "dur": 37.48684287071228,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_2",
+          "event": "finish",
+          "t": 210.95660138130188,
+          "dur": 210.46528553962708,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_3",
+          "event": "start",
+          "t": 210.9583613872528,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_5",
+          "event": "start",
+          "t": 210.97145795822144,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_2",
+          "event": "finish",
+          "t": 212.11429286003113,
+          "dur": 36.814552783966064,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_3",
+          "event": "finish",
+          "t": 217.9608154296875,
+          "dur": 71.7887830734253,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_0",
+          "event": "start",
+          "t": 217.96149015426636,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_3",
+          "event": "finish",
+          "t": 246.9113597869873,
+          "dur": 107.89273834228516,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_4",
+          "event": "start",
+          "t": 246.91174125671387,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_6",
+          "event": "start",
+          "t": 246.9226884841919,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_3",
+          "event": "finish",
+          "t": 248.4894585609436,
+          "dur": 37.531097173690796,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_4",
+          "event": "finish",
+          "t": 282.83377504348755,
+          "dur": 107.51817631721497,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_5",
+          "event": "start",
+          "t": 282.83640813827515,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_7",
+          "event": "start",
+          "t": 282.84979581832886,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_4",
+          "event": "finish",
+          "t": 284.1558187007904,
+          "dur": 37.24407744407654,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_5",
+          "event": "finish",
+          "t": 318.9257273674011,
+          "dur": 107.95426940917969,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_6",
+          "event": "start",
+          "t": 318.9284014701843,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_8",
+          "event": "start",
+          "t": 318.94069719314575,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_5",
+          "event": "finish",
+          "t": 320.0935070514679,
+          "dur": 37.25709891319275,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_6",
+          "event": "finish",
+          "t": 354.8747527599335,
+          "dur": 107.95206427574158,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_7",
+          "event": "start",
+          "t": 354.8774230480194,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_9",
+          "event": "start",
+          "t": 355.01152515411377,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_0",
+          "event": "finish",
+          "t": 355.7749590873718,
+          "dur": 137.81346893310547,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_8",
+          "event": "start",
+          "t": 355.7752432823181,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_1",
+          "event": "start",
+          "t": 355.8841972351074,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_6",
+          "event": "finish",
+          "t": 356.46804213523865,
+          "dur": 37.53964066505432,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_7",
+          "event": "finish",
+          "t": 391.1011531352997,
+          "dur": 108.25135731697083,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_9",
+          "event": "start",
+          "t": 391.10277009010315,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_10",
+          "event": "start",
+          "t": 391.2722988128662,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_7",
+          "event": "finish",
+          "t": 392.64850902557373,
+          "dur": 37.77108597755432,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_8",
+          "event": "finish",
+          "t": 393.0132076740265,
+          "dur": 37.237964391708374,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_8",
+          "event": "finish",
+          "t": 427.3187186717987,
+          "dur": 108.37802147865295,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_10",
+          "event": "start",
+          "t": 427.32055950164795,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_11",
+          "event": "start",
+          "t": 427.6990373134613,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_9",
+          "event": "finish",
+          "t": 429.37558245658875,
+          "dur": 38.272812366485596,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_1",
+          "event": "finish",
+          "t": 429.46844720840454,
+          "dur": 73.58424997329712,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_11",
+          "event": "start",
+          "t": 429.4687430858612,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_2",
+          "event": "start",
+          "t": 429.76662826538086,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_9",
+          "event": "finish",
+          "t": 463.73329305648804,
+          "dur": 108.72176790237427,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_12",
+          "event": "start",
+          "t": 463.73509764671326,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_12",
+          "event": "start",
+          "t": 464.08481192588806,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_10",
+          "event": "finish",
+          "t": 465.7284700870514,
+          "dur": 38.40791058540344,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_11",
+          "event": "finish",
+          "t": 466.5698711872101,
+          "dur": 37.10112810134888,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_10",
+          "event": "finish",
+          "t": 500.421546459198,
+          "dur": 109.14924764633179,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_13",
+          "event": "start",
+          "t": 500.42405128479004,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_13",
+          "event": "start",
+          "t": 500.4448871612549,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_12",
+          "event": "finish",
+          "t": 501.5971586704254,
+          "dur": 37.86206102371216,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_2",
+          "event": "finish",
+          "t": 501.61328125,
+          "dur": 71.84665298461914,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_14",
+          "event": "start",
+          "t": 501.6134989261627,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_3",
+          "event": "start",
+          "t": 501.63321685791016,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_11",
+          "event": "finish",
+          "t": 536.750572681427,
+          "dur": 109.0515353679657,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_15",
+          "event": "start",
+          "t": 536.7524800300598,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_14",
+          "event": "start",
+          "t": 536.7655253410339,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_13",
+          "event": "finish",
+          "t": 537.9352478981018,
+          "dur": 37.51119661331177,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_14",
+          "event": "finish",
+          "t": 538.0929431915283,
+          "dur": 36.4794442653656,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_12",
+          "event": "finish",
+          "t": 573.1968250274658,
+          "dur": 109.11201310157776,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_16",
+          "event": "start",
+          "t": 573.198522567749,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_15",
+          "event": "start",
+          "t": 573.2125821113586,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_15",
+          "event": "finish",
+          "t": 574.3546733856201,
+          "dur": 37.6021933555603,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_3",
+          "event": "finish",
+          "t": 574.3704266548157,
+          "dur": 72.73720979690552,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_17",
+          "event": "start",
+          "t": 574.370623588562,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_4",
+          "event": "start",
+          "t": 574.3839378356934,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_13",
+          "event": "finish",
+          "t": 609.4214396476746,
+          "dur": 108.97655248641968,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_18",
+          "event": "start",
+          "t": 609.423333644867,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_16",
+          "event": "finish",
+          "t": 610.629932641983,
+          "dur": 37.43141007423401,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_17",
+          "event": "finish",
+          "t": 610.7733869552612,
+          "dur": 36.40276336669922,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_14",
+          "event": "finish",
+          "t": 645.872659444809,
+          "dur": 109.10713410377502,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_19",
+          "event": "start",
+          "t": 645.8742301464081,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_18",
+          "event": "finish",
+          "t": 647.0335276126862,
+          "dur": 37.610193967819214,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_15",
+          "event": "finish",
+          "t": 682.9812433719635,
+          "dur": 109.76866126060486,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_20",
+          "event": "start",
+          "t": 682.9814665317535,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_19",
+          "event": "finish",
+          "t": 683.2641546726227,
+          "dur": 37.3899245262146,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_4",
+          "event": "finish",
+          "t": 705.5637230873108,
+          "dur": 131.17978525161743,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_21",
+          "event": "start",
+          "t": 705.5639052391052,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_20",
+          "event": "finish",
+          "t": 705.7226588726044,
+          "dur": 22.74119234085083,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_21",
+          "event": "finish",
+          "t": 717.2981028556824,
+          "dur": 11.734197616577148,
+          "score": null
+        }
+      ],
+      "budget_events": [],
+      "policy": "rule",
+      "dnf": false,
+      "decision_log": "/scratch/bblj/mgoliyad1/SPHERICAL/workflows/run_campaign/esm2_ddsim_campaign/adr-logs/gpu-rule-run0.jsonl",
+      "telemetry_dir": "telemetry-results-gpu-rule-gpu-rule-run0",
+      "miniapps_started": 5,
+      "miniapps_finished": 5,
+      "inference_started": 16,
+      "inference_finished": 16,
+      "dummy_started": 22,
+      "dummy_finished": 22,
+      "md_started": 4,
+      "md_finished": 4,
+      "time_to_first_miniapps_s": 355.7749590873718,
+      "time_to_first_md_s": 43.38715147972107
+    }
+  ],
+  "bandit": [
+    {
+      "wall_time_s": 748.5374176502228,
+      "group_stats": {
+        "miniapps": {
+          "n_started": 5,
+          "n_finished": 5,
+          "first_start": 234.16230702400208,
+          "last_finish": 731.2888131141663,
+          "span_s": 497.1265060901642,
+          "mean_dur_s": 131.2590576171875,
+          "throughput_rps": 0.010057802065965774
+        },
+        "inference": {
+          "n_started": 16,
+          "n_finished": 16,
+          "first_start": 0.039911508560180664,
+          "last_finish": 663.6330003738403,
+          "span_s": 663.5930888652802,
+          "mean_dur_s": 117.26023542881012,
+          "throughput_rps": 0.02411116129518379
+        },
+        "dummy": {
+          "n_started": 22,
+          "n_finished": 22,
+          "first_start": 0.2873406410217285,
+          "last_finish": 743.0767297744751,
+          "span_s": 742.7893891334534,
+          "mean_dur_s": 33.46872371977026,
+          "throughput_rps": 0.029618085990250148
+        },
+        "md": {
+          "n_started": 4,
+          "n_finished": 4,
+          "first_start": 0.15067076683044434,
+          "last_finish": 234.1618537902832,
+          "span_s": 234.01118302345276,
+          "mean_dur_s": 58.50245904922485,
+          "throughput_rps": 0.017093200198039754
+        }
+      },
+      "bp_fractions": {},
+      "shard_events": [],
+      "scheduling_events": [
+        {
+          "chosen": [
+            "inference",
+            "inference",
+            "md",
+            "inference",
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 0.03966045379638672
+        },
+        {
+          "chosen": [
+            "md"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 43.37963509559631
+        },
+        {
+          "chosen": [
+            "md"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 85.59583759307861
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 120.63201379776001
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 120.63227033615112
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 156.27676010131836
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 156.27699542045593
+        },
+        {
+          "chosen": [
+            "md"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 162.9969413280487
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 191.66945505142212
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 191.66969084739685
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 227.521080493927
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 227.52132058143616
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 234.16204857826233
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 263.24368238449097
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 263.24390840530396
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 298.87636518478394
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 298.87658309936523
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 334.84842467308044
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 334.8486521244049
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 370.7458174228668
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 370.7460482120514
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 371.7912976741791
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 371.7915244102478
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 406.95287227630615
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 406.9531021118164
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 442.96681118011475
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 442.96705079078674
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 478.92392683029175
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 478.9241724014282
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 515.0150792598724
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 515.0153243541718
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 516.3216633796692
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 516.3218948841095
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 551.5213477611542
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 551.5215637683868
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 588.3652031421661
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 588.365644454956
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 625.4593577384949
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 625.4596409797668
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 662.7230594158173
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 664.6674046516418
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 709.097127199173
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 731.2886333465576
+        }
+      ],
+      "replica_events": [
+        {
+          "group": "inference",
+          "replica_id": "inference_0",
+          "event": "start",
+          "t": 0.039911508560180664,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_1",
+          "event": "start",
+          "t": 0.1505746841430664,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_0",
+          "event": "start",
+          "t": 0.15067076683044434,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_2",
+          "event": "start",
+          "t": 0.28727006912231445,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_0",
+          "event": "start",
+          "t": 0.2873406410217285,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_0",
+          "event": "finish",
+          "t": 18.03723454475403,
+          "dur": 17.7498939037323,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_0",
+          "event": "finish",
+          "t": 43.37945103645325,
+          "dur": 43.2287802696228,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_1",
+          "event": "start",
+          "t": 43.37989521026611,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_1",
+          "event": "finish",
+          "t": 85.59563326835632,
+          "dur": 42.21573805809021,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_2",
+          "event": "start",
+          "t": 85.59608745574951,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_0",
+          "event": "finish",
+          "t": 120.6321268081665,
+          "dur": 120.59221529960632,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_1",
+          "event": "start",
+          "t": 120.63512992858887,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_3",
+          "event": "start",
+          "t": 120.64860558509827,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_1",
+          "event": "finish",
+          "t": 156.2768657207489,
+          "dur": 156.12629103660583,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_2",
+          "event": "start",
+          "t": 156.27991557121277,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_4",
+          "event": "start",
+          "t": 156.29946565628052,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_1",
+          "event": "finish",
+          "t": 157.44686818122864,
+          "dur": 36.81173825263977,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_2",
+          "event": "finish",
+          "t": 162.99677729606628,
+          "dur": 77.40068984031677,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_3",
+          "event": "start",
+          "t": 162.99722576141357,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_2",
+          "event": "finish",
+          "t": 191.6695580482483,
+          "dur": 191.38228797912598,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_3",
+          "event": "start",
+          "t": 191.671236038208,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_5",
+          "event": "start",
+          "t": 191.6967933177948,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_2",
+          "event": "finish",
+          "t": 192.84507036209106,
+          "dur": 36.565154790878296,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_3",
+          "event": "finish",
+          "t": 227.52118968963623,
+          "dur": 106.87258410453796,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_4",
+          "event": "start",
+          "t": 227.52285027503967,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_6",
+          "event": "start",
+          "t": 227.53619050979614,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_3",
+          "event": "finish",
+          "t": 228.71059703826904,
+          "dur": 37.039361000061035,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_3",
+          "event": "finish",
+          "t": 234.1618537902832,
+          "dur": 71.16462802886963,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_0",
+          "event": "start",
+          "t": 234.16230702400208,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_4",
+          "event": "finish",
+          "t": 263.2437834739685,
+          "dur": 106.94431781768799,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_5",
+          "event": "start",
+          "t": 263.2464773654938,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_7",
+          "event": "start",
+          "t": 263.258585691452,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_4",
+          "event": "finish",
+          "t": 264.425329208374,
+          "dur": 36.90247893333435,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_5",
+          "event": "finish",
+          "t": 298.87645983695984,
+          "dur": 107.17966651916504,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_6",
+          "event": "start",
+          "t": 298.87805700302124,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_8",
+          "event": "start",
+          "t": 298.88995575904846,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_5",
+          "event": "finish",
+          "t": 300.05691480636597,
+          "dur": 36.81043744087219,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_6",
+          "event": "finish",
+          "t": 334.8485252857208,
+          "dur": 107.31233477592468,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_7",
+          "event": "start",
+          "t": 334.8501389026642,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_9",
+          "event": "start",
+          "t": 334.8634235858917,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_6",
+          "event": "finish",
+          "t": 336.012229681015,
+          "dur": 37.134172677993774,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_7",
+          "event": "finish",
+          "t": 370.74591970443726,
+          "dur": 107.48733401298523,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_8",
+          "event": "start",
+          "t": 370.7478303909302,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_10",
+          "event": "start",
+          "t": 370.7655680179596,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_0",
+          "event": "finish",
+          "t": 371.79139852523804,
+          "dur": 137.62909150123596,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_7",
+          "event": "finish",
+          "t": 371.9309129714966,
+          "dur": 37.0807740688324,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_9",
+          "event": "start",
+          "t": 371.93101358413696,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_1",
+          "event": "start",
+          "t": 371.94773054122925,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_8",
+          "event": "finish",
+          "t": 406.95296835899353,
+          "dur": 108.06301259994507,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_10",
+          "event": "start",
+          "t": 406.9545969963074,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_11",
+          "event": "start",
+          "t": 406.9823739528656,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_8",
+          "event": "finish",
+          "t": 408.1362564563751,
+          "dur": 37.388426065444946,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_9",
+          "event": "finish",
+          "t": 408.2783217430115,
+          "dur": 36.34730815887451,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_9",
+          "event": "finish",
+          "t": 442.96691370010376,
+          "dur": 108.10349011421204,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_11",
+          "event": "start",
+          "t": 442.9689311981201,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_12",
+          "event": "start",
+          "t": 442.9838252067566,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_10",
+          "event": "finish",
+          "t": 444.1593527793884,
+          "dur": 37.204755783081055,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_10",
+          "event": "finish",
+          "t": 478.92403197288513,
+          "dur": 108.15846395492554,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_12",
+          "event": "start",
+          "t": 478.92569160461426,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_13",
+          "event": "start",
+          "t": 478.940101146698,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_11",
+          "event": "finish",
+          "t": 480.0957851409912,
+          "dur": 37.126853942871094,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_11",
+          "event": "finish",
+          "t": 515.0151913166046,
+          "dur": 108.03281736373901,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_13",
+          "event": "start",
+          "t": 515.0177345275879,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_14",
+          "event": "start",
+          "t": 515.2587523460388,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_1",
+          "event": "finish",
+          "t": 516.3217449188232,
+          "dur": 144.374014377594,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_14",
+          "event": "start",
+          "t": 516.322016954422,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_2",
+          "event": "start",
+          "t": 516.438086271286,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_12",
+          "event": "finish",
+          "t": 517.0398633480072,
+          "dur": 38.114171743392944,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_12",
+          "event": "finish",
+          "t": 551.5214409828186,
+          "dur": 108.53761577606201,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_15",
+          "event": "start",
+          "t": 551.7205958366394,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_15",
+          "event": "start",
+          "t": 551.8876738548279,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_13",
+          "event": "finish",
+          "t": 553.3257160186768,
+          "dur": 38.30798149108887,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_14",
+          "event": "finish",
+          "t": 553.7142236232758,
+          "dur": 37.39220666885376,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_13",
+          "event": "finish",
+          "t": 588.365394115448,
+          "dur": 109.42529296875,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_16",
+          "event": "start",
+          "t": 588.3672862052917,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_3",
+          "event": "start",
+          "t": 588.5446169376373,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_15",
+          "event": "finish",
+          "t": 590.1571071147919,
+          "dur": 38.436511278152466,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_14",
+          "event": "finish",
+          "t": 625.4594683647156,
+          "dur": 110.20071601867676,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_17",
+          "event": "start",
+          "t": 625.4615294933319,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_4",
+          "event": "start",
+          "t": 625.7787318229675,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_16",
+          "event": "finish",
+          "t": 627.9258875846863,
+          "dur": 39.55860137939453,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_15",
+          "event": "finish",
+          "t": 663.6330003738403,
+          "dur": 111.74532651901245,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_18",
+          "event": "start",
+          "t": 663.6332855224609,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_2",
+          "event": "finish",
+          "t": 664.667496919632,
+          "dur": 148.22941064834595,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_19",
+          "event": "start",
+          "t": 664.6677107810974,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_17",
+          "event": "finish",
+          "t": 664.8302187919617,
+          "dur": 39.36868929862976,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_18",
+          "event": "finish",
+          "t": 687.4975514411926,
+          "dur": 23.86426591873169,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_19",
+          "event": "finish",
+          "t": 687.6427688598633,
+          "dur": 22.97505807876587,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_3",
+          "event": "finish",
+          "t": 709.0973072052002,
+          "dur": 120.55269026756287,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_20",
+          "event": "start",
+          "t": 709.0975992679596,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_4",
+          "event": "finish",
+          "t": 731.2888131141663,
+          "dur": 105.51008129119873,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_21",
+          "event": "start",
+          "t": 731.289088010788,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_20",
+          "event": "finish",
+          "t": 731.4430384635925,
+          "dur": 22.345439195632935,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_21",
+          "event": "finish",
+          "t": 743.0767297744751,
+          "dur": 11.787641763687134,
+          "score": null
+        }
+      ],
+      "budget_events": [],
+      "policy": "bandit",
+      "dnf": false,
+      "decision_log": "/scratch/bblj/mgoliyad1/SPHERICAL/workflows/run_campaign/esm2_ddsim_campaign/adr-logs/gpu-bandit-run0.jsonl",
+      "telemetry_dir": "telemetry-results-gpu-bandit-gpu-bandit-run0",
+      "miniapps_started": 5,
+      "miniapps_finished": 5,
+      "inference_started": 16,
+      "inference_finished": 16,
+      "dummy_started": 22,
+      "dummy_finished": 22,
+      "md_started": 4,
+      "md_finished": 4,
+      "time_to_first_miniapps_s": 371.79139852523804,
+      "time_to_first_md_s": 43.37945103645325
+    }
+  ],
+  "llm": [
+    {
+      "wall_time_s": 684.7155249118805,
+      "group_stats": {
+        "miniapps": {
+          "n_started": 5,
+          "n_finished": 5,
+          "first_start": 234.84482979774475,
+          "last_finish": 666.0879101753235,
+          "span_s": 431.24308037757874,
+          "mean_dur_s": 101.20305562019348,
+          "throughput_rps": 0.01159438893633309
+        },
+        "inference": {
+          "n_started": 16,
+          "n_finished": 16,
+          "first_start": 2.7354159355163574,
+          "last_finish": 665.3819670677185,
+          "span_s": 662.6465511322021,
+          "mean_dur_s": 117.1490269601345,
+          "throughput_rps": 0.024145602165531983
+        },
+        "dummy": {
+          "n_started": 22,
+          "n_finished": 22,
+          "first_start": 2.8703737258911133,
+          "last_finish": 679.1305088996887,
+          "span_s": 676.2601351737976,
+          "mean_dur_s": 33.14742296392267,
+          "throughput_rps": 0.03253185993929102
+        },
+        "md": {
+          "n_started": 4,
+          "n_finished": 4,
+          "first_start": 2.752023935317993,
+          "last_finish": 234.84437203407288,
+          "span_s": 232.09234809875488,
+          "mean_dur_s": 58.0226873755455,
+          "throughput_rps": 0.017234519072976965
+        }
+      },
+      "bp_fractions": {},
+      "shard_events": [],
+      "scheduling_events": [
+        {
+          "chosen": [
+            "inference",
+            "inference",
+            "md",
+            "inference",
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 2.7344229221343994
+        },
+        {
+          "chosen": [
+            "md"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 45.84321427345276
+        },
+        {
+          "chosen": [
+            "md"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 86.61471819877625
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 119.47268271446228
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 119.47293162345886
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 155.33794593811035
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 155.33820176124573
+        },
+        {
+          "chosen": [
+            "md"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 161.9760925769806
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 191.2616572380066
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 191.26189661026
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 227.87658071517944
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 227.87681794166565
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 234.84459328651428
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 263.73831844329834
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 263.73854804039
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 299.8093318939209
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 299.8095808029175
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 336.09963750839233
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 336.09987211227417
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 372.6304512023926
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 372.6307866573334
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 373.6823616027832
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 373.6827304363251
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 408.7675733566284
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 408.76787638664246
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 445.1116542816162
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 445.1118998527527
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 446.3109347820282
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 446.3111276626587
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 481.46534538269043
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 481.46563482284546
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 517.7791376113892
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 517.7793741226196
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 518.969057559967
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 518.9693264961243
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 554.2187595367432
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 554.2189791202545
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 590.6849858760834
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 590.6852238178253
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 627.0959107875824
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 663.6845042705536
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 665.6695327758789
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 666.0878298282623
+        }
+      ],
+      "replica_events": [
+        {
+          "group": "inference",
+          "replica_id": "inference_0",
+          "event": "start",
+          "t": 2.7354159355163574,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_1",
+          "event": "start",
+          "t": 2.751972198486328,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_0",
+          "event": "start",
+          "t": 2.752023935317993,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_2",
+          "event": "start",
+          "t": 2.87031888961792,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_0",
+          "event": "start",
+          "t": 2.8703737258911133,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_0",
+          "event": "finish",
+          "t": 20.97128391265869,
+          "dur": 18.100910186767578,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_0",
+          "event": "finish",
+          "t": 45.84292483329773,
+          "dur": 43.090900897979736,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_1",
+          "event": "start",
+          "t": 45.84356951713562,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_1",
+          "event": "finish",
+          "t": 86.61446952819824,
+          "dur": 40.77090001106262,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_2",
+          "event": "start",
+          "t": 86.61503982543945,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_0",
+          "event": "finish",
+          "t": 119.47278165817261,
+          "dur": 116.73736572265625,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_1",
+          "event": "start",
+          "t": 119.47437810897827,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_3",
+          "event": "start",
+          "t": 119.48980116844177,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_1",
+          "event": "finish",
+          "t": 155.33805394172668,
+          "dur": 152.58608174324036,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_2",
+          "event": "start",
+          "t": 155.34075140953064,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_4",
+          "event": "start",
+          "t": 155.3533158302307,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_1",
+          "event": "finish",
+          "t": 156.5092043876648,
+          "dur": 37.03482627868652,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_2",
+          "event": "finish",
+          "t": 161.97592902183533,
+          "dur": 75.36088919639587,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_3",
+          "event": "start",
+          "t": 161.9763126373291,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_2",
+          "event": "finish",
+          "t": 191.26175713539124,
+          "dur": 188.39143824577332,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_3",
+          "event": "start",
+          "t": 191.26348114013672,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_5",
+          "event": "start",
+          "t": 191.2760832309723,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_2",
+          "event": "finish",
+          "t": 192.45679116249084,
+          "dur": 37.116039752960205,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_3",
+          "event": "finish",
+          "t": 227.87668132781982,
+          "dur": 108.38688015937805,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_4",
+          "event": "start",
+          "t": 227.87828946113586,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_6",
+          "event": "start",
+          "t": 227.89197421073914,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_3",
+          "event": "finish",
+          "t": 229.04092741012573,
+          "dur": 37.777446269989014,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_3",
+          "event": "finish",
+          "t": 234.84437203407288,
+          "dur": 72.86805939674377,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_0",
+          "event": "start",
+          "t": 234.84482979774475,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_4",
+          "event": "finish",
+          "t": 263.73841762542725,
+          "dur": 108.38510179519653,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_5",
+          "event": "start",
+          "t": 263.7402534484863,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_7",
+          "event": "start",
+          "t": 263.76748275756836,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_4",
+          "event": "finish",
+          "t": 264.9122760295868,
+          "dur": 37.03398656845093,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_5",
+          "event": "finish",
+          "t": 299.80943059921265,
+          "dur": 108.53334736824036,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_6",
+          "event": "start",
+          "t": 299.8123462200165,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_8",
+          "event": "start",
+          "t": 299.8255383968353,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_5",
+          "event": "finish",
+          "t": 301.00079894065857,
+          "dur": 37.26054549217224,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_6",
+          "event": "finish",
+          "t": 336.09973645210266,
+          "dur": 108.20776224136353,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_7",
+          "event": "start",
+          "t": 336.29245829582214,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_9",
+          "event": "start",
+          "t": 336.31468176841736,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_6",
+          "event": "finish",
+          "t": 337.468302488327,
+          "dur": 37.65595626831055,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_7",
+          "event": "finish",
+          "t": 372.63059639930725,
+          "dur": 108.86311364173889,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_8",
+          "event": "start",
+          "t": 372.6349427700043,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_10",
+          "event": "start",
+          "t": 372.6557958126068,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_0",
+          "event": "finish",
+          "t": 373.68246388435364,
+          "dur": 138.8376340866089,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_7",
+          "event": "finish",
+          "t": 373.8312077522278,
+          "dur": 37.53874945640564,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_9",
+          "event": "start",
+          "t": 373.8315351009369,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_1",
+          "event": "start",
+          "t": 373.84371542930603,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_8",
+          "event": "finish",
+          "t": 408.76769399642944,
+          "dur": 108.94215559959412,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_10",
+          "event": "start",
+          "t": 408.769659280777,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_11",
+          "event": "start",
+          "t": 408.78473258018494,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_8",
+          "event": "finish",
+          "t": 409.9628896713257,
+          "dur": 37.32794690132141,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_9",
+          "event": "finish",
+          "t": 410.10045433044434,
+          "dur": 36.268919229507446,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_9",
+          "event": "finish",
+          "t": 445.11175751686096,
+          "dur": 108.7970757484436,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_11",
+          "event": "start",
+          "t": 445.11388421058655,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_12",
+          "event": "start",
+          "t": 445.12771701812744,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_10",
+          "event": "finish",
+          "t": 446.2964963912964,
+          "dur": 37.52683711051941,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_1",
+          "event": "finish",
+          "t": 446.3110089302063,
+          "dur": 72.46729350090027,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_12",
+          "event": "start",
+          "t": 446.311238527298,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_2",
+          "event": "start",
+          "t": 446.33728551864624,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_10",
+          "event": "finish",
+          "t": 481.46546626091003,
+          "dur": 108.80967044830322,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_13",
+          "event": "start",
+          "t": 481.4675250053406,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_13",
+          "event": "start",
+          "t": 481.4802951812744,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_11",
+          "event": "finish",
+          "t": 482.66278982162476,
+          "dur": 37.54890561103821,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_12",
+          "event": "finish",
+          "t": 482.80972719192505,
+          "dur": 36.498488664627075,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_11",
+          "event": "finish",
+          "t": 517.7792410850525,
+          "dur": 108.99450850486755,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_14",
+          "event": "start",
+          "t": 517.7824656963348,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_14",
+          "event": "start",
+          "t": 517.7961053848267,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_13",
+          "event": "finish",
+          "t": 518.9531970024109,
+          "dur": 37.48567199707031,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_2",
+          "event": "finish",
+          "t": 518.9691872596741,
+          "dur": 72.63190174102783,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_15",
+          "event": "start",
+          "t": 518.9694938659668,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_3",
+          "event": "start",
+          "t": 518.9799304008484,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_12",
+          "event": "finish",
+          "t": 554.2188529968262,
+          "dur": 109.09113597869873,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_16",
+          "event": "start",
+          "t": 554.2204616069794,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_15",
+          "event": "start",
+          "t": 554.2278826236725,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_14",
+          "event": "finish",
+          "t": 555.4085304737091,
+          "dur": 37.62606477737427,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_15",
+          "event": "finish",
+          "t": 555.5415275096893,
+          "dur": 36.572033643722534,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_13",
+          "event": "finish",
+          "t": 590.6851027011871,
+          "dur": 109.20480751991272,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_17",
+          "event": "start",
+          "t": 590.6867563724518,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_4",
+          "event": "start",
+          "t": 590.699147939682,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_16",
+          "event": "finish",
+          "t": 591.869225025177,
+          "dur": 37.64876341819763,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_14",
+          "event": "finish",
+          "t": 627.0960075855255,
+          "dur": 109.29990220069885,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_18",
+          "event": "start",
+          "t": 627.0978262424469,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_17",
+          "event": "finish",
+          "t": 628.2960793972015,
+          "dur": 37.609323024749756,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_15",
+          "event": "finish",
+          "t": 665.3819670677185,
+          "dur": 111.15408444404602,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_19",
+          "event": "start",
+          "t": 665.3822085857391,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_3",
+          "event": "finish",
+          "t": 665.6696169376373,
+          "dur": 146.68968653678894,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_18",
+          "event": "finish",
+          "t": 666.0190427303314,
+          "dur": 38.92121648788452,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_4",
+          "event": "finish",
+          "t": 666.0879101753235,
+          "dur": 75.38876223564148,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_20",
+          "event": "start",
+          "t": 666.0880801677704,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_21",
+          "event": "start",
+          "t": 666.2538776397705,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_19",
+          "event": "finish",
+          "t": 678.4643776416779,
+          "dur": 13.08216905593872,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_21",
+          "event": "finish",
+          "t": 678.819953918457,
+          "dur": 12.566076278686523,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_20",
+          "event": "finish",
+          "t": 679.1305088996887,
+          "dur": 13.042428731918335,
+          "score": null
+        }
+      ],
+      "budget_events": [],
+      "policy": "llm",
+      "dnf": false,
+      "decision_log": "/scratch/bblj/mgoliyad1/SPHERICAL/workflows/run_campaign/esm2_ddsim_campaign/adr-logs/gpu-llm-run0.jsonl",
+      "telemetry_dir": "telemetry-results-gpu-llm-gpu-llm-run0",
+      "miniapps_started": 5,
+      "miniapps_finished": 5,
+      "inference_started": 16,
+      "inference_finished": 16,
+      "dummy_started": 22,
+      "dummy_finished": 22,
+      "md_started": 4,
+      "md_finished": 4,
+      "time_to_first_miniapps_s": 373.68246388435364,
+      "time_to_first_md_s": 45.84292483329773
+    }
+  ]
+}
