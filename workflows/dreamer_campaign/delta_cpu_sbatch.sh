@@ -31,7 +31,7 @@ export ENV_DIR="/u/${USER}/ve/dreamer_campaign"
 source "${ENV_DIR}/bin/activate"
 
 # ── Run ───────────────────────────────────────────────────────────────────────
-CAMPAIGN_DIR="${SPHERICAL_DIR}/workflows/run_campaign/dreamer_campaign"
+CAMPAIGN_DIR="${SPHERICAL_DIR}/workflows/dreamer_campaign"
 cd "${CAMPAIGN_DIR}"
 
 # Clean stale artifacts from previous runs
@@ -44,12 +44,12 @@ echo "    Stage durations: s1=2s(1500 reps) s2=5s s3=15s s4=30s s5=22s (all GPU-
 echo "    Workload: s2=787, s3=110, s4=55, s5=33 replicas (identical across all configs)"
 echo "    Expected: ~10min/run, total ~3.5h (5 runs x 4 configs)"
 
-python benchmark.py --config config.yaml --runs 5 --out benchmark_results.json
+python benchmark.py --config config.yaml --runs 5 --out benchmark_adr_results.json
 
 echo "=== Benchmark done: $(date) ==="
 
 # Regenerate plots
-python plot_optimizations.py --results benchmark_results.json --out-dir plots/optimizations
+python ../plotting/plot_adr_optimizations.py --results benchmark_adr_results.json --out-dir plots/adr
 
 echo "=== Plots written: $(date) ==="
 

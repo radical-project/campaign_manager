@@ -17,15 +17,15 @@ export ENV_DIR="/u/${USER}/ve/dreamer_campaign"
 
 source "${ENV_DIR}/bin/activate"
 
-CAMPAIGN_DIR="${SPHERICAL_DIR}/workflows/run_campaign/dreamer_campaign"
+CAMPAIGN_DIR="${SPHERICAL_DIR}/workflows/dreamer_campaign"
 cd "${CAMPAIGN_DIR}"
 rm -rf dreamer-profiles telemetry-results
 
 echo "=== Dreamer benchmark: $(date) === Node: ${SLURMD_NODENAME}"
 echo "Config: 10000 s1, target=20 s5, 5 runs x 4 configs"
 
-python benchmark.py --config config.yaml --runs 5 --out benchmark_results.json
+python benchmark.py --config config.yaml --runs 5 --out benchmark_adr_results.json
 
-python plot_optimizations.py --results benchmark_results.json --out-dir plots/optimizations
+python ../plotting/plot_adr_optimizations.py --results benchmark_adr_results.json --out-dir plots/adr
 
 echo "=== Done: $(date) ==="
