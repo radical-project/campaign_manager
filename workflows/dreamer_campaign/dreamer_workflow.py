@@ -31,19 +31,16 @@ Config keys (per stage in config.yaml, under dreamer:):
 Config keys forwarded by run_campaign.py:
   trigger_downstream     — downstream group name
   candidate_score        — upstream score (None for root stage)
-  candidate_surr         — upstream surrogate prediction
-  candidate_surr_unc     — upstream surrogate uncertainty
   candidate_scaffold     — upstream scaffold class
 """
 
 import asyncio
 import hashlib
-import json
 import os
 import random
 import sys
 from pathlib import Path
-from typing import ClassVar, Optional
+from typing import ClassVar
 
 # Scaffold alphabet for diversity signal (8 classes, assigned by hash of candidate_id)
 _SCAFFOLDS = ["scaf_A", "scaf_B", "scaf_C", "scaf_D",
@@ -89,8 +86,7 @@ class DreamerWorkflow(BaseWorkflow):
     # done* rather than wall-clock so the phase boundary is reproducible and
     # policy-fair (the same Nth replica triggers the shift regardless of which
     # scheduling policy is driving).  Reset between benchmark runs.
-    _group_state:  ClassVar[dict] = {}
-    _trigger_lock: ClassVar = None
+    _group_state: ClassVar[dict] = {}
 
     # ── Workflow entry point ──────────────────────────────────────────────────
 

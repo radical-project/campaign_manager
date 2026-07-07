@@ -102,7 +102,6 @@ async def _run_once(config: dict, seed_offset: int, policy_kind: str,
     # Reset DreamerWorkflow class-level state between runs.
     from dreamer_workflow import DreamerWorkflow
     DreamerWorkflow._group_state = {}
-    DreamerWorkflow._trigger_lock = None
 
     # Deadline-yield mode: disable early-stop so the campaign runs the full window
     # (we measure leads produced by the deadline, not time to a fixed lead count).
