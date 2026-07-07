@@ -51,7 +51,7 @@ python workflows/dreamer_campaign/benchmark.py \
     --runs 5 --out benchmark_results.json
 
 # Compare ADR scheduling policies (rule / bandit / llm)
-python workflows/dreamer_campaign/benchmark_adr.py \
+python workflows/dreamer_campaign/benchmark.py \
     --config workflows/dreamer_campaign/config.yaml \
     --out benchmark_adr_results.json
 ```
@@ -62,8 +62,7 @@ python workflows/dreamer_campaign/benchmark_adr.py \
 python workflows/plotting/plot_cm_timeline.py slurm-XXXXXX.out \
     --config workflows/dreamer_campaign/config.yaml
 
-python workflows/plotting/plot_optimizations.py \
-    --results benchmark_results.json
+python workflows/plotting/plot_adr_optimizations.py --results benchmark_adr_results.json
 
 # See workflows/plotting/README.md for all plotting tools
 ```
@@ -368,9 +367,6 @@ Campaign timelines and benchmark comparisons are in [`workflows/plotting/`](work
 ```bash
 # Gantt chart from SLURM log
 python workflows/plotting/plot_cm_timeline.py slurm-XXXXXX.out
-
-# Feature-flag benchmark comparison (7 plots)
-python workflows/plotting/plot_optimizations.py --results benchmark_results.json
 
 # ADR policy comparison (4 plots)
 python workflows/plotting/plot_adr_optimizations.py --results benchmark_adr_results.json

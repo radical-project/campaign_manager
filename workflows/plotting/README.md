@@ -49,35 +49,12 @@ python plotting/plot_dreamer_timeline.py campaign.log \
 
 ## Benchmark Comparisons
 
-### `plot_optimizations.py` — Feature-flag benchmark comparison
-
-Reads a benchmark results JSON (produced by `dreamer_campaign/benchmark.py`) and produces **7 PNG files** comparing configurations with different feature flags enabled.
-
-**Output files** (written to `--out-dir`):
-`wall_time.png`, `pipeline_gantt.png`, `cascade_funnel.png`, `gpu_utilization.png`, `shard_dispatch.png`, `bandit_convergence.png`, `time_to_target.png`
-
-**Usage**
-```bash
-python plotting/plot_optimizations.py \
-    [--results benchmark_results.json] \
-    [--out-dir plots/optimizations]
-```
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--results` | `benchmark_results.json` | Benchmark JSON from `benchmark.py` |
-| `--out-dir` | `plots/optimizations` | Directory for output PNGs (created if missing) |
-
----
-
 ### `plot_adr_optimizations.py` — ADR policy benchmark comparison
 
-Reads an ADR benchmark results JSON (from `benchmark_adr.py`) and produces **4 PNG files** comparing `rule`, `bandit`, and `llm` scheduling policies.
+Reads an ADR benchmark results JSON (from `benchmark.py`) and produces **4 PNG files** comparing `rule`, `bandit`, and `llm` scheduling policies.
 
 **Output files** (written to `--out-dir`):
 `wall_time.png`, `pipeline_gantt.png`, `cascade_funnel.png`, `time_to_target.png`
-
-> **Note**: imports helper functions from `plot_optimizations.py` — both scripts must be in the same directory.
 
 **Usage**
 ```bash
@@ -88,26 +65,8 @@ python plotting/plot_adr_optimizations.py \
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--results` | `benchmark_adr_results.json` | ADR benchmark JSON from `benchmark_adr.py` |
+| `--results` | `benchmark_adr_results.json` | ADR benchmark JSON from `benchmark.py` |
 | `--out-dir` | `plots/adr` | Directory for output PNGs (created if missing) |
-
----
-
-### `plot_budget_control.py` — Triage / BudgetController narrative
-
-Three-panel figure illustrating how the BudgetController adapts Triage cutoffs over a campaign run: ADVANCE skip rate, score-cutoff trajectory, and burn-ratio vs. plan.
-
-**Usage**
-```bash
-python plotting/plot_budget_control.py \
-    [--results benchmark_results.json] \
-    [--out plots/diagrams]
-```
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--results` | `benchmark_results.json` | Benchmark JSON from `benchmark.py` |
-| `--out` | `plots/diagrams` | Output directory |
 
 ---
 
@@ -125,7 +84,7 @@ python plotting/plot_deadline_yield.py \
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--results` | `benchmark_deadline.json` | Deadline benchmark JSON from `benchmark_adr.py` |
+| `--results` | `benchmark_deadline.json` | Deadline benchmark JSON from `benchmark.py` |
 | `--out` | `plots/deadline_yield.png` | Output PNG path |
 | `--deadline` | from results | Override deadline cutoff in seconds |
 
@@ -165,7 +124,7 @@ python plotting/plot_replica_timeline.py \
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--input` | `benchmark_adr_gpu.json` | GPU ADR benchmark JSON from `benchmark_adr_gpu.py` |
+| `--input` | `benchmark_adr_gpu.json` | GPU ADR benchmark JSON from `esm2_ddsim_campaign/benchmark_adr_gpu.py` |
 | `--out` | `plots/replica_timeline.png` | Output PNG path |
 | `--policies` | all in file | Subset of policies to plot |
 | `--dpi` | 150 | Figure DPI |
@@ -199,22 +158,19 @@ python plotting/make_presentation.py [--out spherical_benchmark.pptx]
 ```bash
 cd workflows
 
-# 1. Run the dreamer benchmark
+# 1. Run the ADR policy benchmark
 python dreamer_campaign/benchmark.py --config dreamer_campaign/config.yaml \
-    --runs 5 --out benchmark_results.json
+    --runs 5 --out benchmark_adr_results.json
 
-# 2. Run the ADR policy sweep
-python dreamer_campaign/benchmark_adr.py --config dreamer_campaign/config.yaml \
-    --out benchmark_adr_results.json
-
-# 3. Generate all plots
-python plotting/plot_optimizations.py --results benchmark_results.json
+# 2. Generate plots
 python plotting/plot_adr_optimizations.py --results benchmark_adr_results.json
-python plotting/plot_budget_control.py --results benchmark_results.json
+python plotting/plot_policy_comparison.py dreamer_campaign/adr-logs/rule-run0.jsonl \
+    dreamer_campaign/adr-logs/bandit-run0.jsonl
 
-# 4. Visualize a live or finished campaign from its SLURM log
-python plotting/plot_cm_timeline.py slurm-17715157.out --config dreamer_campaign/config.yaml
+# 3. Visualize a live or finished campaign from its SLURM log
+python plotting/plot_cm_timeline.py slurm-17715157.out \
+    --config dreamer_campaign/config.yaml
 
-# 5. Build the presentation
+# 4. Build the presentation
 python plotting/make_presentation.py
 ```
