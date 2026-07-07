@@ -267,7 +267,6 @@ def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None,
         kw["warmstart"] = bool(adr_cfg.get("warmstart", False))
         kw["seed"] = adr_cfg.get("seed", 0)
     elif kind == "llm":
-        import os
         api_key = os.environ.get(
             adr_cfg.get("llm_api_key_env", "OPENROUTER_API_KEY"), "")
         # Any OpenAI-compatible endpoint works (OpenRouter, HuggingFace router,
