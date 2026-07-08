@@ -13,8 +13,8 @@
 #SBATCH --mail-type=END,FAIL
 
 # ── Environment ───────────────────────────────────────────────────────────────
-export SPHERICAL_DIR="/scratch/bblj/${USER}/SPHERICAL"
-export DREAMER_DIR="/scratch/bblj/${USER}/radical.dreamer"
+export SPHERICAL_DIR="/scratch/***/${USER}/SPHERICAL"
+export DREAMER_DIR="/scratch/***/${USER}/radical.dreamer"
 export ENV_DIR="/u/${USER}/ve/dreamer_campaign"
 
 export DREAMER_DIR="${DREAMER_DIR}"   # picked up by dreamer_workflow.py

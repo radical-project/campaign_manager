@@ -2,7 +2,7 @@
 #
 # SPHERICAL ESM2/DDSim Campaign — SLURM CPU batch script (local/concurrent backend)
 #
-#SBATCH -A bblj-delta-cpu
+#SBATCH -A ***-delta-cpu
 #SBATCH --partition=cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -16,8 +16,8 @@
 [ -z "${HF_TOKEN}" ] && echo "WARNING: HF_TOKEN not set — LLM policy will fail" >&2
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-export SPHERICAL_DIR="/scratch/bblj/${USER}/SPHERICAL"
-export DDSIM_DIR="/scratch/bblj/${USER}/DeepDriveSim"
+export SPHERICAL_DIR="/scratch/***/${USER}/SPHERICAL"
+export DDSIM_DIR="/scratch/***/${USER}/DeepDriveSim"
 export ENV_DIR="/u/${USER}/ve/campaign"
 export VE_HOME="/u/${USER}/ve"
 

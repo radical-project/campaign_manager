@@ -12,7 +12,7 @@
 # Submit: sbatch delta_benchmark_sbatch.sh
 # Logs:   slurm-<jobid>.out  (stdout+stderr, streamed live)
 #
-#SBATCH -A bblj-delta-cpu
+#SBATCH -A ***-delta-cpu
 #SBATCH --partition=cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -25,8 +25,8 @@
 #SBATCH --error=slurm-%j.out
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-export SPHERICAL_DIR="/scratch/bblj/${USER}/SPHERICAL"
-export DREAMER_DIR="/scratch/bblj/${USER}/radical.dreamer"
+export SPHERICAL_DIR="/scratch/***/${USER}/SPHERICAL"
+export DREAMER_DIR="/scratch/***/${USER}/radical.dreamer"
 export ENV_DIR="/u/${USER}/ve/dreamer_campaign"
 
 # ── Activate venv ─────────────────────────────────────────────────────────────

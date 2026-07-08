@@ -9,16 +9,16 @@
 #
 # Defaults:
 #   ENV_DIR       = /u/$USER/ve/dreamer_campaign
-#   SPHERICAL_DIR = /scratch/bblj/$USER/SPHERICAL
-#   DREAMER_DIR   = /scratch/bblj/$USER/radical.dreamer
+#   SPHERICAL_DIR = /scratch/***/$USER/SPHERICAL
+#   DREAMER_DIR   = /scratch/***/$USER/radical.dreamer
 # =============================================================================
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     set -euo pipefail
 fi
 
 ENV_DIR="${ENV_DIR:-/u/${USER}/ve/dreamer_campaign}"
-SPHERICAL_DIR="${SPHERICAL_DIR:-/scratch/bblj/${USER}/SPHERICAL}"
-DREAMER_DIR="${DREAMER_DIR:-/scratch/bblj/${USER}/radical.dreamer}"
+SPHERICAL_DIR="${SPHERICAL_DIR:-/scratch/***/${USER}/SPHERICAL}"
+DREAMER_DIR="${DREAMER_DIR:-/scratch/***/${USER}/radical.dreamer}"
 
 while [[ $# -gt 0 ]]; do
     case $1 in

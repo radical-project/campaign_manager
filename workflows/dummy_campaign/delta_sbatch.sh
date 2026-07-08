@@ -2,7 +2,7 @@
 #
 # SPHERICAL Dummy Campaign — SLURM batch script (CPU-only, no GPU needed)
 #
-#SBATCH -A bblj-delta-cpu
+#SBATCH -A ***-delta-cpu
 #SBATCH --partition=cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -13,7 +13,7 @@
 #SBATCH --mail-type=END,FAIL
 
 # ── Environment ───────────────────────────────────────────────────────────────
-export SPHERICAL_DIR="/scratch/bblj/${USER}/SPHERICAL"
+export SPHERICAL_DIR="/scratch/***/${USER}/SPHERICAL"
 export ENV_DIR="/u/${USER}/ve/campaign"
 
 unset SLURM_EXPORT_ENV

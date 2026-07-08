@@ -10,16 +10,16 @@
 #
 # Defaults:
 #   ENV_DIR       = /u/$USER/ve/campaign
-#   SPHERICAL_DIR = /scratch/bblj/$USER/SPHERICAL
-#   DDSIM_DIR     = /scratch/bblj/$USER/DeepDriveSim
+#   SPHERICAL_DIR = /scratch/***/$USER/SPHERICAL
+#   DDSIM_DIR     = /scratch/***/$USER/DeepDriveSim
 # =============================================================================
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     set -euo pipefail
 fi
 
 ENV_DIR="${ENV_DIR:-/u/${USER}/ve/campaign}"
-SPHERICAL_DIR="${SPHERICAL_DIR:-/scratch/bblj/${USER}/SPHERICAL}"
-DDSIM_DIR="${DDSIM_DIR:-/scratch/bblj/${USER}/DeepDriveSim}"
+SPHERICAL_DIR="${SPHERICAL_DIR:-/scratch/***/${USER}/SPHERICAL}"
+DDSIM_DIR="${DDSIM_DIR:-/scratch/***/${USER}/DeepDriveSim}"
 
 while [[ $# -gt 0 ]]; do
     case $1 in

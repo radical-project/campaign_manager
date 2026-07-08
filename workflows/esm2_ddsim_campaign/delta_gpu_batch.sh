@@ -17,7 +17,7 @@
 #   bandit → miniapps>0  (converges within 3–5 cycles)
 #   llm    → miniapps>0  (if HF_TOKEN is valid)
 #
-#SBATCH -A bblj-delta-gpu
+#SBATCH -A ***-delta-gpu
 #SBATCH --partition=gpuA40x4
 #SBATCH --nodes=1
 #SBATCH --tasks-per-node=4
@@ -34,8 +34,8 @@
 [ -z "${HF_TOKEN}" ] && echo "WARNING: HF_TOKEN not set — LLM policy will fail" >&2
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-export SPHERICAL_DIR="/scratch/bblj/${USER}/SPHERICAL"
-export DDSIM_DIR="/scratch/bblj/${USER}/DeepDriveSim"
+export SPHERICAL_DIR="/scratch/***/${USER}/SPHERICAL"
+export DDSIM_DIR="/scratch/***/${USER}/DeepDriveSim"
 export ENV_DIR="/u/${USER}/ve/campaign"
 export VE_HOME="/u/${USER}/ve"
 
