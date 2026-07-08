@@ -27,6 +27,13 @@ asyncflow.session.*
 # SLURM logs
 slurm-*.out
 
+# Benchmark result data files
+workflows/esm2_ddsim_campaign/benchmark*.json
+workflows/esm2_ddsim_campaign/saved_benchmark*.json
+workflows/esm2_ddsim_campaign/config_stress*.yaml
+workflows/dreamer_campaign/benchmark*.json
+workflows/dummy_campaign/benchmark*.json
+
 # Runtime output directories (campaign artifacts)
 ESM2/results/
 ESM2/client_inference_*.json
