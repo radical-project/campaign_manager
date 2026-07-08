@@ -85,7 +85,7 @@ cm:
 # Maps config workflow names to "module.ClassName" strings.
 # Modules are resolved relative to the run_campaign directory.
 workflow_registry:
-  dummy:     dummy_workflow.DDSimWorkflow
+  dummy:     dummy_workflow.DummyWrapperWorkflow
   md:        ddmd_workflow.DDMdWrapperWorkflow
   miniapps:  miniapps_workflow.MiniAppsWrapperWorkflow
   inference: inference_workflow.InferenceWorkflow

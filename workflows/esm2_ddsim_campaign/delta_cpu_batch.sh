@@ -36,7 +36,7 @@ export MD_HOME=${DDSIM_DIR}/workflows/ddmd_workflow
 export MD_INPUT=${MD_HOME}/data
 export SGDES_DIR=/scratch/***/${USER}/SGDES
 
-export WORK_DIR=${SPHERICAL_DIR}/workflows/run_campaign
+export WORK_DIR=${SPHERICAL_DIR}/workflows/esm2_ddsim_campaign
 
 cd ${WORK_DIR}
 

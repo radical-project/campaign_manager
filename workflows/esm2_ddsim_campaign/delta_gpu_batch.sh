@@ -30,7 +30,8 @@
 #SBATCH --mail-user=mg2347@soe.rutgers.edu
 #SBATCH --mail-type=ALL
 
-export HF_TOKEN="${HF_TOKEN}"
+# HuggingFace token — set before submitting:  export HF_TOKEN=<token> && sbatch ...
+[ -z "${HF_TOKEN}" ] && echo "WARNING: HF_TOKEN not set — LLM policy will fail" >&2
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 export SPHERICAL_DIR="/scratch/bblj/${USER}/SPHERICAL"
@@ -75,28 +76,25 @@ sed -i "s|\${CONDA_ENV}|${VE_HOME}|g"       "${INPUT_DIR}/new_lassen-keras-dbsca
 # time by _expand_env(), so no cp/sed step is needed.
 
 # ── Run campaign ──────────────────────────────────────────────────────────────
-CAMPAIGN_DIR="${SPHERICAL_DIR}/workflows/run_campaign/esm2_ddsim_campaign"
+CAMPAIGN_DIR="${SPHERICAL_DIR}/workflows/esm2_ddsim_campaign"
 cd "${CAMPAIGN_DIR}"
 
 rm -rf DDMD-* telemetry-results nvml-telemetry
 
-# ── Option A: GPU benchmark (all 4 workflows, all 4 policies in one job) ─────
-# benchmark_adr_gpu.py runs all 4 workflows on real GPU hardware via Dragon.
+# benchmark.py runs all 4 workflows on real GPU hardware via Dragon.
 # Primary metric: time_to_first_miniapps_s (lower = better).
 # All policies complete all 4 workflows (md.floor=1 guarantees md runs).
-# --timeout 1800 is a safety cap; campaigns finish naturally before that.
-dragon -s benchmark_adr_gpu.py --config config_stress_gpu.yaml \
-    --timeout 1200 --policies none rule bandit llm --runs 1 --out benchmark_adr_gpu.json
+# --timeout 1200 is a safety cap; campaigns finish naturally before that.
+dragon -s benchmark.py --config config_stress_gpu.yaml \
+    --timeout 1200 --policies none rule bandit llm --runs 1 --out benchmark.json
 
-# ── Option B: CPU stress benchmark (all 4 policies in one job) ───────────────
-# Uses config_stress.yaml (concurrent engine, stub inference, no md/miniapps).
-# Metric: dummy_finished within --deadline seconds.
-#dragon benchmark_adr.py --config config_stress.yaml --mode deadline-yield --deadline 90 \
-#    --policies none rule bandit llm --runs 1 --out benchmark_adr_cpu.json
+echo "=== Benchmark done: $(date) ==="
 
-# ── Option C: Single policy run (for debugging or manual comparison) ──────────
-# Change cm.adr.policy in config_stress_gpu.yaml and run once.
-#dragon run_campaing.py --config config_stress_gpu.yaml
+# Regenerate plots
+python plot_benchmark.py --results benchmark_results.json --out-dir plots
 
-# ── Option D: Production run (original balanced config) ──────────────────────
+echo "=== Plots written: $(date) ==="
+
+rm -rf asyncflow.session*
+
 # dragon run_campaing.py --config config.yaml

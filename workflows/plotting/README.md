@@ -1,155 +1,69 @@
 # Plotting Tools
 
-Visualization scripts for campaign benchmarks, timelines, and ADR policy analysis.
-All scripts use `matplotlib` unless noted. Run from any directory — paths default to the current working directory.
+Shared visualization scripts for campaign timelines.
+All scripts use `matplotlib`. Run from any directory — paths default to the current working directory.
+
+Campaign-specific benchmark plots live alongside each campaign:
+- `dreamer_campaign/plot_benchmark.py` — policy comparison for the Dreamer campaign
+- `esm2_ddsim_campaign/plot_benchmark.py` — policy comparison for the ESM2/DDSim campaign
 
 ---
 
-## Campaign Timelines
+## `plot_dep_timeline.py` — Short campaign: dependency arrows
 
-### `plot_cm_timeline.py` — Generic campaign Gantt chart
+Parses a SLURM output file and produces a two-panel figure: per-replica Gantt chart
+with upstream→downstream dependency arrows + CPU/GPU resource utilization.
 
-Parses a SLURM output file and produces a two-panel figure: replica start/end Gantt chart and CPU/GPU resource utilization over time.
+Best for campaigns with a small number of replicas where inter-workflow triggers
+are the primary insight (e.g. ESM2/DDSim, dummy campaigns).
 
-**Usage**
 ```bash
-python plotting/plot_cm_timeline.py slurm-XXXXXX.out \
+python plotting/plot_dep_timeline.py slurm-XXXXXX.out \
     [--config config.yaml] \
+    [--policy none|rule|bandit|llm] \
     [--out cm_timeline.png]
 ```
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `log` (positional) | required | SLURM output file (`slurm-XXXXXX.out`) |
-| `--config` | none | Campaign YAML config; adds a config-summary table to the figure |
-| `--out` | `cm_timeline_<run>.png` | Output PNG path |
+| Argument            | Default                 | Description                                                      |
+|---------------------|-------------------------|------------------------------------------------------------------|
+| `log` (positional)  | required                | SLURM output file                                                |
+| `--config`          | none                    | Campaign YAML; adds a config-summary table to the figure         |
+| `--policy`          | auto (first section)    | Select a policy section when the log contains a multi-run benchmark |
+| `--out`             | `plots/dep_timeline_<run>.png` | Output PNG path                                           |
+
+**Output**: one PNG with two rows — Gantt (one bar per replica, arrows for triggered replicas) + CPU/GPU utilization step chart.
 
 ---
 
-### `plot_dreamer_timeline.py` — Dreamer campaign timeline (extended)
+## `plot_timeline.py` — Long campaign: simulation statistics
 
-Superset of `plot_cm_timeline.py` with an extra row showing Dreamer-specific simulation statistics (task distributions, stage-level throughput) read from per-replica profile JSON files.
+Parses a SLURM output file and produces a three-panel figure: concurrency-weighted
+Gantt + resource utilization + optional Dreamer emulation statistics.
 
-**Usage**
+Best for longer campaigns (hundreds to thousands of replicas per stage) run with the
+Dreamer emulation backend, where aggregate concurrency shapes and simulation metrics
+are the primary insight.
+
 ```bash
-python plotting/plot_dreamer_timeline.py campaign.log \
-    [--profiles-dir dreamer-profiles/] \
+python plotting/plot_timeline.py slurm-XXXXXX.out \
     [--config config.yaml] \
-    [--out dreamer_timeline.png]
+    [--profiles-dir dreamer-profiles/] \
+    [--title "My Campaign"] \
+    [--out timeline.png]
 ```
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `log` (positional) | required | Campaign log file |
-| `--profiles-dir` | none | Directory of per-replica Dreamer profile JSONs |
-| `--config` | none | Campaign YAML config for the summary table |
-| `--out` | auto-named PNG | Output PNG path |
+| Argument            | Default                        | Description                                               |
+|---------------------|--------------------------------|-----------------------------------------------------------|
+| `log` (positional)  | required                       | SLURM or campaign log file                                |
+| `--config`          | `config.yaml` next to log      | Campaign YAML; enriches the per-workflow stats table      |
+| `--profiles-dir`    | `dreamer-profiles/` next to log | Per-replica JSON profiles from Dreamer                   |
+| `--title`           | `Campaign Timeline — <stem>`   | Figure suptitle                                           |
+| `--out`             | `plots/timeline_<stem>.png`    | Output PNG path                                           |
 
----
-
-## Benchmark Comparisons
-
-### `plot_adr_optimizations.py` — ADR policy benchmark comparison
-
-Reads an ADR benchmark results JSON (from `benchmark.py`) and produces **4 PNG files** comparing `rule`, `bandit`, and `llm` scheduling policies.
-
-**Output files** (written to `--out-dir`):
-`wall_time.png`, `pipeline_gantt.png`, `cascade_funnel.png`, `time_to_target.png`
-
-**Usage**
-```bash
-python plotting/plot_adr_optimizations.py \
-    [--results benchmark_adr_results.json] \
-    [--out-dir plots/adr]
-```
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--results` | `benchmark_adr_results.json` | ADR benchmark JSON from `benchmark.py` |
-| `--out-dir` | `plots/adr` | Directory for output PNGs (created if missing) |
-
----
-
-### `plot_deadline_yield.py` — Leads-within-deadline bar chart
-
-Bar chart showing the fraction of leads completed within a deadline window for each ADR policy configuration.
-
-**Usage**
-```bash
-python plotting/plot_deadline_yield.py \
-    [--results benchmark_deadline.json] \
-    [--out plots/deadline_yield.png] \
-    [--deadline 3600.0]
-```
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--results` | `benchmark_deadline.json` | Deadline benchmark JSON from `benchmark.py` |
-| `--out` | `plots/deadline_yield.png` | Output PNG path |
-| `--deadline` | from results | Override deadline cutoff in seconds |
-
----
-
-## ADR Policy Analysis
-
-### `plot_policy_comparison.py` — Priority trace per ADR policy
-
-Line plot showing how each ADR policy changes group priorities over scheduling cycles, one panel per policy. Reads JSONL decision logs written by `PolicyRecorder`.
-
-**Usage**
-```bash
-python plotting/plot_policy_comparison.py run1_decisions.jsonl run2_decisions.jsonl \
-    [--out plots/policy_comparison.png]
-```
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `logs` (positional, one or more) | required | `PolicyRecorder` JSONL decision log files |
-| `--out` | `plots/policy_comparison.png` | Output PNG path |
-
----
-
-### `plot_replica_timeline.py` — Replica Gantt per ADR policy
-
-Gantt chart of replica start/end times grouped by ADR policy (`rule`, `bandit`, `llm`, `none`). Reads the GPU ADR benchmark JSON.
-
-**Usage**
-```bash
-python plotting/plot_replica_timeline.py \
-    [--input benchmark_adr_gpu.json] \
-    [--out plots/replica_timeline.png] \
-    [--policies rule bandit llm] \
-    [--dpi 150]
-```
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--input` | `benchmark_adr_gpu.json` | GPU ADR benchmark JSON from `esm2_ddsim_campaign/benchmark_adr_gpu.py` |
-| `--out` | `plots/replica_timeline.png` | Output PNG path |
-| `--policies` | all in file | Subset of policies to plot |
-| `--dpi` | 150 | Figure DPI |
-
----
-
-## Presentation
-
-### `make_presentation.py` — PowerPoint deck
-
-Assembles a PowerPoint presentation (`spherical_benchmark.pptx`) from the benchmark figures. Requires `python-pptx`.
-
-**Dependencies**
-```bash
-pip install python-pptx
-```
-
-**Usage**
-```bash
-python plotting/make_presentation.py [--out spherical_benchmark.pptx]
-```
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--out` | `spherical_benchmark.pptx` | Output PPTX file path |
+**Output**: one PNG with two or three rows:
+- Row 0: Gantt — concurrency step-function per workflow over wall-clock time
+- Row 1: CPU/GPU resource utilization
+- Row 2 *(only when `dreamer-profiles/` present)*: simulated makespan + task-ops distributions + per-workflow stats table
 
 ---
 
@@ -158,19 +72,30 @@ python plotting/make_presentation.py [--out spherical_benchmark.pptx]
 ```bash
 cd workflows
 
-# 1. Run the ADR policy benchmark
-python dreamer_campaign/benchmark.py --config dreamer_campaign/config.yaml \
-    --runs 5 --out benchmark_adr_results.json
+# ── Short campaign (ESM2/DDSim) ───────────────────────────────────────────────
 
-# 2. Generate plots
-python plotting/plot_adr_optimizations.py --results benchmark_adr_results.json
-python plotting/plot_policy_comparison.py dreamer_campaign/adr-logs/rule-run0.jsonl \
-    dreamer_campaign/adr-logs/bandit-run0.jsonl
+# 1. Run the campaign
+sbatch esm2_ddsim_campaign/delta_run_sbatch.sh
 
-# 3. Visualize a live or finished campaign from its SLURM log
-python plotting/plot_cm_timeline.py slurm-17715157.out \
-    --config dreamer_campaign/config.yaml
+# 2. Visualize the SLURM log with dependency arrows
+python plotting/plot_dep_timeline.py slurm-XXXXXX.out \
+    --config esm2_ddsim_campaign/config.yaml
 
-# 4. Build the presentation
-python plotting/make_presentation.py
+# 3. (If benchmark log with multiple policy sections)
+python plotting/plot_dep_timeline.py slurm-XXXXXX.out --policy rule
+
+# ── Long campaign (Dreamer benchmark) ────────────────────────────────────────
+
+# 1. Run the benchmark
+sbatch dreamer_campaign/delta_benchmark_sbatch.sh
+
+# 2. Plot benchmark outcomes (multi-policy comparison)
+python dreamer_campaign/plot_benchmark.py \
+    --results dreamer_campaign/benchmark_results.json \
+    --out-dir dreamer_campaign/plots/
+
+# 3. Visualize a single run with simulation statistics
+python plotting/plot_timeline.py slurm-XXXXXX.out \
+    --config dreamer_campaign/config.yaml \
+    --profiles-dir dreamer_campaign/dreamer-profiles/
 ```

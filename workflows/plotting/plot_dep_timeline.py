@@ -3,14 +3,14 @@
 Plot replica execution timeline from a campaign SLURM log.
 
 Generic (campaign-agnostic) timeline: Gantt chart of replica execution + a
-CPU/GPU resource-utilization row, for any AsyncCampaignManager run. For the
-Dreamer emulation campaign use ``dreamer_campaign/plot_dreamer_timeline.py``
-instead — it is a superset that adds a third row of simulation statistics
-(makespan, task-ops box plots, per-workflow stats) and hardcodes the s1–s5
-antigen stages.
+CPU/GPU resource-utilization row, for any AsyncCampaignManager run. Draws
+per-replica dependency arrows showing which upstream replica triggered each
+downstream one. For longer campaigns with Dreamer emulation data use
+``plot_timeline.py`` instead — it adds a third row of simulation statistics
+(makespan, task-ops box plots, per-workflow stats).
 
 Usage:
-    python plot_cm_timeline.py slurm-XXXXXX.out [--out timeline.png]
+    python plot_dep_timeline.py slurm-XXXXXX.out [--out plots/dep_timeline.png]
 """
 
 import argparse
@@ -56,18 +56,66 @@ _TRIGGER_DEP_RE = re.compile(r"trigger_dependent: '(\w+)' \+(\d+) replicas \(tot
 
 GROUP_COLORS = {
     "inference": "#4C72B0",
-    "md": "#DD8452",
-    "miniapps": "#55A868",
-    "dummy": "#C44E52",
+    "md":        "#DD8452",
+    "miniapps":  "#55A868",
+    "dummy":     "#C44E52",
 }
-DEFAULT_COLOR = "#8172B2"
+# Fallback palette for groups not in the hardcoded set above.
+_FALLBACK_COLORS = [
+    "#8172B2", "#F06292", "#4DB6AC", "#FFB74D",
+    "#BA68C8", "#4DD0E1", "#AED581", "#FF8A65",
+]
 
 GROUP_ORDER = ["md", "miniapps", "inference", "dummy"]
 
 
-def parse_log(path: str):
+def _resolve_colors(groups: list[str]) -> None:
+    """Assign distinct colors to any group not already in GROUP_COLORS."""
+    used = set(GROUP_COLORS.values())
+    cycle = [c for c in _FALLBACK_COLORS if c not in used] or _FALLBACK_COLORS
+    ci = 0
+    for g in groups:
+        if g not in GROUP_COLORS:
+            GROUP_COLORS[g] = cycle[ci % len(cycle)]
+            ci += 1
+
+
+def _find_policy_sections(path: str) -> dict[str, tuple[int, int]]:
+    """Scan a benchmark SLURM log for 'Policy: X' section headers.
+    Returns {policy_name: (start_line, end_line)} where end is exclusive."""
+    _sep_re    = re.compile(r"^={10,}\s*$")
+    _policy_re = re.compile(r"^Policy:\s+(\w+)\s*$")
+    order: list[str] = []
+    starts_map: dict[str, int] = {}
+
+    with open(path) as fh:
+        lines = fh.readlines()
+
+    for i, line in enumerate(lines):
+        if _sep_re.match(line) and i + 1 < len(lines):
+            pm = _policy_re.match(lines[i + 1])
+            if pm:
+                policy = pm.group(1)
+                if policy not in starts_map:
+                    starts_map[policy] = i
+                    order.append(policy)
+
+    result: dict[str, tuple[int, int]] = {}
+    for idx, policy in enumerate(order):
+        start = starts_map[policy]
+        end   = starts_map[order[idx + 1]] if idx + 1 < len(order) else len(lines)
+        result[policy] = (start, end)
+    return result
+
+
+def parse_log(path: str, line_range: tuple[int, int] | None = None):
     """Parse SLURM log; return spans, group_meta, resource_timeline,
-    gpu_assignments, signal_events."""
+    gpu_assignments, signal_events.  line_range restricts to a slice of
+    the file (e.g. a single policy section in a benchmark log)."""
+    with open(path) as fh:
+        all_lines = fh.readlines()
+    lines = all_lines[line_range[0]:line_range[1]] if line_range else all_lines
+
     starts: dict[str, datetime] = {}
     spans = []
     group_meta = {}
@@ -81,14 +129,12 @@ def parse_log(path: str):
 
     _iso_re = re.compile(r"^(\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2}")
     date_ref = "1970-01-01"
-    with open(path) as fh:
-        for raw in fh:
-            if m := _iso_re.match(raw):
-                date_ref = m.group(1)
-                break
+    for raw in lines:
+        if m := _iso_re.match(raw):
+            date_ref = m.group(1)
+            break
 
-    with open(path) as fh:
-        for raw in fh:
+    for raw in lines:
             if m := _GROUP_RE.search(raw):
                 name = m.group(1)
                 deps_raw = m.group(6)
@@ -151,10 +197,12 @@ def parse_log(path: str):
                     signal_events.append((elapsed, src, tgt, n, "signal_done"))
 
             if m := _TRIGGER_DEP_RE.search(raw):
-                tgt = m.group(1)
-                n = int(m.group(2))
+                tgt   = m.group(1)
+                n     = int(m.group(2))
+                total = int(m.group(3))  # total queued after this trigger
                 # Source unknown from log line — mark as "trigger_dep"
-                signal_events.append((elapsed, None, tgt, n, "trigger_dep"))
+                # total lets us identify the exact replica created: {tgt}_{total-1}
+                signal_events.append((elapsed, None, tgt, n, "trigger_dep", total))
 
             if m := _START_RE.search(raw):
                 starts[m.group(1)] = dt
@@ -248,7 +296,7 @@ def plot(
         t_end = (end - t0).total_seconds() if end != start else t_start + 0.5
         bar_w = t_end - t_start
 
-        color = GROUP_COLORS.get(group, DEFAULT_COLOR)
+        color = GROUP_COLORS.get(group, "#888888")
         edgecolor = "red" if ok is False else "none"
         lw = 1.5 if ok is False else 0
         alpha = 0.45 if ok is None else 0.88
@@ -319,7 +367,7 @@ def plot(
             va="center",
             ha="left",
             fontsize=6.5,
-            color=GROUP_COLORS.get(group, DEFAULT_COLOR),
+            color=GROUP_COLORS.get(group, "#888888"),
             fontweight="bold",
         )
 
@@ -340,16 +388,33 @@ def plot(
         g: sorted(sl, key=lambda s: s[1]) for g, sl in group_spans.items()
     }
 
-    for sig_elapsed, src_group, tgt_group, _n, kind in signal_events:
+    for sig_event in signal_events:
+        sig_elapsed, src_group, tgt_group, _n, kind = sig_event[:5]
+        trig_total = sig_event[5] if len(sig_event) > 5 else None  # trigger_dep only
+
         if tgt_group not in available:
             continue
 
-        # Find the earliest unconsumed target replica that starts at or after signal
+        # Find the target replica.
+        # For trigger_dep events: log records "total=N" meaning the replica just
+        # created is {tgt_group}_{N-1}.  Use that directly instead of time heuristics
+        # (time-based matching mis-assigns triggers when initial replicas > 0).
+        # For signal_done: fall back to time-based search.
         tgt_span = None
-        for s in available[tgt_group]:
-            if s[0] not in consumed_tgt_rows and (s[1] - t0).total_seconds() >= sig_elapsed - 0.5:
-                tgt_span = s
-                break
+        if kind == "trigger_dep" and trig_total is not None:
+            target_rid = f"{tgt_group}_{trig_total - 1}"
+            for s in available[tgt_group]:
+                rid = spans[s[0]][0]
+                if rid == target_rid and s[0] not in consumed_tgt_rows:
+                    tgt_span = s
+                    break
+        if tgt_span is None:
+            # signal_done or trigger_dep without total: earliest unconsumed replica
+            # starting at or after the signal
+            for s in available[tgt_group]:
+                if s[0] not in consumed_tgt_rows and (s[1] - t0).total_seconds() >= sig_elapsed - 0.5:
+                    tgt_span = s
+                    break
         if tgt_span is None:
             continue
         consumed_tgt_rows.add(tgt_span[0])
@@ -372,9 +437,12 @@ def plot(
             if kind == "trigger_dep":
                 # Signal fires from on_replica_done — the source replica may not
                 # yet have its "finished" line in the log.  Find the closest
-                # unconsumed source replica by finish time, without a direction
-                # constraint.
+                # unconsumed source replica by finish time.  If all source rows
+                # are consumed (more triggers than source replicas), fall back to
+                # the closest row regardless — keeps the diamond on a real bar.
                 candidates = [s for s in src_spans if s[0] not in consumed_src_rows]
+                if not candidates:
+                    candidates = src_spans  # reuse closest rather than float to center
                 if candidates:
                     best = min(
                         candidates,
@@ -402,10 +470,10 @@ def plot(
                 else:
                     src_row = (r0 + r1) / 2
 
-            src_color = GROUP_COLORS.get(resolved_src, DEFAULT_COLOR)
+            src_color = GROUP_COLORS.get(resolved_src, "#888888")
         else:
             src_row = tgt_row - 1.5
-            src_color = GROUP_COLORS.get(tgt_group, DEFAULT_COLOR)
+            src_color = GROUP_COLORS.get(tgt_group, "#888888")
 
         # Draw diamond marker at signal point on source row
         ax_gantt.plot(
@@ -436,7 +504,8 @@ def plot(
     # Fall back to a single structural arrow for deps with no logged signals
     # (e.g. log truncated or dep_threshold path)
     drawn_dep_pairs: set[tuple[str, str]] = set()
-    for _, src, tgt, _, kind in signal_events:
+    for ev in signal_events:
+        _, src, tgt, _, kind = ev[:5]
         if src:
             drawn_dep_pairs.add((src, tgt))
         elif kind == "trigger_dep":
@@ -480,7 +549,9 @@ def plot(
     ax_gantt.invert_yaxis()
     ax_gantt.grid(axis="x", linestyle="--", alpha=0.35)
 
-    legend_patches = [mpatches.Patch(color=c, label=g) for g, c in GROUP_COLORS.items()]
+    seen_groups = dict.fromkeys(s[1] for s in spans)  # insertion-ordered, deduped
+    legend_patches = [mpatches.Patch(color=GROUP_COLORS[g], label=g)
+                      for g in seen_groups if g in GROUP_COLORS]
     legend_patches += [
         mpatches.Patch(facecolor="white", edgecolor="red", linewidth=1.2, label="error"),
         mpatches.Patch(color="grey", alpha=0.45, label="still running"),
@@ -522,7 +593,7 @@ def plot(
                     deps,
                 ]
             )
-            c = GROUP_COLORS.get(gname, DEFAULT_COLOR)
+            c = GROUP_COLORS.get(gname, "#888888")
             row_colors.append([c] + ["#f5f5f5"] * (len(col_labels) - 1))
 
         tbl = ax_info.table(
@@ -544,7 +615,8 @@ def plot(
         dep_lines = []
         # Collect unique dep relationships with signal counts
         sig_counts: dict[tuple[str, str], int] = {}
-        for _, src, tgt, n, _kind in signal_events:
+        for _ev in signal_events:
+            _, src, tgt, n, _kind = _ev[:5]
             if src:
                 sig_counts[(src, tgt)] = sig_counts.get((src, tgt), 0) + n
 
@@ -619,7 +691,8 @@ def plot(
         ax_res.set_ylim(bottom=0)
 
         # Mark signal events on resource plot
-        for sig_elapsed, src, tgt, _n, _kind in signal_events:
+        for _ev in signal_events:
+            sig_elapsed, src, tgt, _n, _kind = _ev[:5]
             color = GROUP_COLORS.get(src or tgt, "#888888")
             ax_res.axvline(sig_elapsed, color=color, lw=0.7, alpha=0.5, linestyle=":")
 
@@ -680,12 +753,6 @@ def parse_config(path: str) -> dict:
     return group_meta
 
 
-def _default_out(log_path: str) -> str:
-    stem = Path(log_path).stem
-    m = re.search(r"(\d+)", stem)
-    run_num = m.group(1) if m else stem
-    return f"cm_timeline_{run_num}.png"
-
 
 def main():
     parser = argparse.ArgumentParser(description="Plot campaign manager replica timeline")
@@ -695,11 +762,41 @@ def main():
         default=None,
         help="Campaign config.yaml (auto-detected as config.yaml next to log if not given)",
     )
-    parser.add_argument("--out", default=None, help="Output PNG (default: cm_timeline_<run>.png)")
+    parser.add_argument("--out", default=None, help="Output PNG (default: plots/dep_timeline_<run>.png)")
+    parser.add_argument(
+        "--policy", default=None,
+        help="Policy section to plot when the log contains a multi-policy benchmark "
+             "(e.g. none, rule, bandit, llm). Omit to plot the whole log.",
+    )
     args = parser.parse_args()
 
+    # ── Detect policy sections ────────────────────────────────────────────────
+    sections = _find_policy_sections(args.log)
+    line_range = None
+    if sections:
+        available = list(sections.keys())
+        if args.policy is None:
+            print(
+                f"Benchmark log detected — contains policies: {available}\n"
+                f"  Use --policy <name> to plot a specific section.\n"
+                f"  Plotting first section ({available[0]!r}) by default."
+            )
+            args.policy = available[0]
+        elif args.policy not in sections:
+            raise SystemExit(
+                f"Policy {args.policy!r} not found. Available: {available}"
+            )
+        line_range = sections[args.policy]
+        print(f"Extracting policy section: {args.policy!r} "
+              f"(lines {line_range[0]}–{line_range[1]})")
+
     if args.out is None:
-        args.out = _default_out(args.log)
+        stem = Path(args.log).stem
+        suffix = f"_{args.policy}" if args.policy else ""
+        m = re.search(r"(\d+)", stem)
+        run_num = m.group(1) if m else stem
+        Path("plots").mkdir(parents=True, exist_ok=True)
+        args.out = f"plots/dep_timeline_{run_num}{suffix}.png"
 
     if args.config is None:
         candidate = Path(args.log).parent / "config.yaml"
@@ -714,7 +811,7 @@ def main():
         signal_events,
         t0,
         total_resources,
-    ) = parse_log(args.log)
+    ) = parse_log(args.log, line_range=line_range)
 
     if args.config:
         group_meta = parse_config(args.config)
@@ -722,6 +819,8 @@ def main():
     else:
         group_meta = group_meta_log
         print("No config.yaml found — using group metadata parsed from log")
+
+    _resolve_colors(list(group_meta.keys()))
 
     print(
         f"Parsed {len(spans)} replica spans, "

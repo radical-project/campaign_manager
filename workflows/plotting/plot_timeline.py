@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-Plot dreamer campaign timeline and simulation statistics.
+Plot campaign timeline with optional Dreamer emulation statistics.
 
-Dreamer-specific superset of ``../plot_cm_timeline.py``: it shares the same
-log parser, Gantt chart, and resource-utilization row, and adds a third row of
-Dreamer emulation metrics (rows 0–1 below are the generic timeline; row 2 is
-the extension). Use ``../plot_cm_timeline.py`` for non-Dreamer campaigns.
+Long-campaign superset of ``plot_dep_timeline.py``: shares the same log parser,
+Gantt chart, and resource-utilization row, and adds a third row of Dreamer
+emulation metrics when dreamer-profiles/ are present. Rows 0–1 work for any
+AsyncCampaignManager campaign; use ``plot_dep_timeline.py`` for shorter campaigns
+where per-replica dependency arrows are the primary insight.
 
 Reads:
   - A campaign log file (ANSI-colored CM output)
@@ -14,13 +15,13 @@ Reads:
 Produces a 3-row figure:
   Row 0  Gantt chart (wall-clock replica execution) + workflow config table
   Row 1  CPU / GPU resource utilization over wall-clock time
-  Row 2  Dreamer simulation metrics:
+  Row 2  Dreamer simulation metrics (only when dreamer-profiles/ exist):
            2a  Simulated makespan per replica, grouped by workflow
            2b  Task ops distribution per workflow (box plots from profile JSONs)
            2c  Per-workflow summary statistics table
 
 Usage:
-    python plot_dreamer_timeline.py log [--profiles-dir DIR] [--config FILE] [--out FILE]
+    python plot_timeline.py log [--profiles-dir DIR] [--config FILE] [--out FILE] [--title STR]
 """
 
 import argparse
@@ -47,21 +48,21 @@ import numpy as np
 
 # ── workflow appearance ──────────────────────────────────────────────────────────
 
-workflow_COLORS = {
+GROUP_COLORS = {
     "s1_ligand_filter": "#4C72B0",
     "s2_ml_affinity":   "#DD8452",
     "s3_docking":       "#55A868",
     "s4_md_refinement": "#C44E52",
     "s5_fep_ranking":   "#8172B2",
 }
-workflow_ORDER = [
+GROUP_ORDER = [
     "s1_ligand_filter",
     "s2_ml_affinity",
     "s3_docking",
     "s4_md_refinement",
     "s5_fep_ranking",
 ]
-workflow_LABELS = {
+GROUP_LABELS = {
     "s1_ligand_filter": "S1 Filter",
     "s2_ml_affinity":   "S2 ML",
     "s3_docking":       "S3 Dock",
@@ -69,6 +70,23 @@ workflow_LABELS = {
     "s5_fep_ranking":   "S5 FEP",
 }
 DEFAULT_COLOR = "#9E9E9E"
+
+_FALLBACK_COLORS = [
+    "#9C27B0", "#F06292", "#4DB6AC", "#FFB74D",
+    "#BA68C8", "#4DD0E1", "#AED581", "#FF8A65",
+]
+
+
+def _resolve_colors(groups: list) -> None:
+    """Assign fallback colors to groups not already in GROUP_COLORS."""
+    used = set(GROUP_COLORS.values())
+    cycle = [c for c in _FALLBACK_COLORS if c not in used] or _FALLBACK_COLORS
+    ci = 0
+    for g in groups:
+        if g not in GROUP_COLORS:
+            GROUP_COLORS[g] = cycle[ci % len(cycle)]
+            ci += 1
+
 
 # ── Log regexes ───────────────────────────────────────────────────────────────
 
@@ -214,8 +232,8 @@ def parse_config(path):
         cfg = yaml.safe_load(fh)
     out = {}
 
-    if "workflows" in cfg:
-        # cm-prototype plan format
+    if isinstance(cfg.get("workflows"), list):
+        # cm-prototype plan format (list of stage dicts with "id" keys)
         _PILOT_RES = {
             "cpu":      {"cpus": 16, "gpus": 0},
             "gpu":      {"cpus":  4, "gpus": 1},
@@ -266,15 +284,17 @@ def parse_config(path):
 # ── Figure builder ────────────────────────────────────────────────────────────
 
 def plot(spans, group_meta, resource_timeline, signal_events,
-         dreamer_stats, stall_events, profiles, t0, total_resources, out_path):
+         dreamer_stats, stall_events, profiles, t0, total_resources, out_path,
+         title="Campaign Timeline"):
     if not spans:
         print("No replica events found.", file=sys.stderr)
         return
 
     # workflow ordering
     present = {s[1] for s in spans}
-    ordered = [s for s in workflow_ORDER if s in present] + \
-              sorted(present - set(workflow_ORDER))
+    ordered = [s for s in GROUP_ORDER if s in present] + \
+              sorted(present - set(GROUP_ORDER))
+    _resolve_colors(ordered)
 
     def _sort(s):
         rid, grp, *_ = s
@@ -306,7 +326,7 @@ def plot(spans, group_meta, resource_timeline, signal_events,
     if has_resources: hr.append(res_h)
     if has_dreamer:   hr.append(drm_h)
     outer = gridspec.GridSpec(len(hr), 1, height_ratios=hr, hspace=0.38,
-                              top=0.96, bottom=0.03, left=0.06, right=0.97)
+                              top=0.93, bottom=0.03, left=0.06, right=0.97)
 
     ri = 0
     ax_summary = None
@@ -384,7 +404,7 @@ def plot(spans, group_meta, resource_timeline, signal_events,
             cm = cfg_workflows.get(s, {})
             fac_part = f"{cm.get('facility','—')} / {cm.get('partition','—')}"
             tbl_rows.append([
-                workflow_LABELS.get(s, s),
+                GROUP_LABELS.get(s, s),
                 fac_part,
                 f"{cm.get('budget','—'):,}" if isinstance(cm.get("budget"), (int, float)) else "—",
                 f"{cm.get('cap','—'):,}"    if isinstance(cm.get("cap"),    (int, float)) else "—",
@@ -395,7 +415,7 @@ def plot(spans, group_meta, resource_timeline, signal_events,
                 cm.get("profile", "—"),
                 st,
             ])
-            tbl_cols.append([workflow_COLORS.get(s, DEFAULT_COLOR)]
+            tbl_cols.append([GROUP_COLORS.get(s, DEFAULT_COLOR)]
                             + ["#f5f5f5"] * (len(ch) - 1))
 
         if tbl_rows:
@@ -476,7 +496,7 @@ def plot(spans, group_meta, resource_timeline, signal_events,
             continue
         xs, ys, wc_start, wc_end = workflow_sf[workflow]
 
-        color = workflow_COLORS.get(workflow, DEFAULT_COLOR)
+        color = GROUP_COLORS.get(workflow, DEFAULT_COLOR)
         meta  = group_meta.get(workflow, {})
         dur   = wc_end - wc_start
 
@@ -518,24 +538,23 @@ def plot(spans, group_meta, resource_timeline, signal_events,
     # Trigger-signal markers on the Gantt
     for t_sig, tgt, _ in signal_events:
         if tgt in ordered:
-            ax_gantt.axvline(t_sig, color=workflow_COLORS.get(tgt, "#888"),
+            ax_gantt.axvline(t_sig, color=GROUP_COLORS.get(tgt, "#888"),
                              lw=0.6, ls=":", alpha=0.4, zorder=1)
 
     ax_gantt.set_yticks(range(n_workflows))
-    ax_gantt.set_yticklabels([workflow_LABELS.get(s, s) for s in ordered],
+    ax_gantt.set_yticklabels([GROUP_LABELS.get(s, s) for s in ordered],
                               fontsize=10, fontweight="bold")
     ax_gantt.set_xlabel("Elapsed wall-clock time (s)", fontsize=9)
     ax_gantt.set_title(
-        "Campaign workflow Activity — Streaming Pipeline (wall-clock)\n"
-        "(source: CM log  ·  bar height ∝ concurrent replicas / global peak)",
+        "Streaming Pipeline Activity (wall-clock)",
         fontweight="bold", fontsize=10)
     ax_gantt.invert_yaxis()
     ax_gantt.grid(axis="x", ls="--", alpha=0.35)
     ax_gantt.set_xlim(left=0)
 
     legend_handles = (
-        [mpatches.Patch(color=workflow_COLORS.get(s, DEFAULT_COLOR),
-                        label=workflow_LABELS.get(s, s)) for s in ordered]
+        [mpatches.Patch(color=GROUP_COLORS.get(s, DEFAULT_COLOR),
+                        label=GROUP_LABELS.get(s, s)) for s in ordered]
         + [mpatches.Patch(fc="white", ec="red", lw=1.2, label="error")]
     )
     ax_gantt.legend(handles=legend_handles, loc="upper right",
@@ -562,7 +581,7 @@ def plot(spans, group_meta, resource_timeline, signal_events,
         ax_res.set_ylim(bottom=0)
 
         for t_sig, tgt, _ in signal_events:
-            ax_res.axvline(t_sig, color=workflow_COLORS.get(tgt, "#888"),
+            ax_res.axvline(t_sig, color=GROUP_COLORS.get(tgt, "#888"),
                            lw=0.8, alpha=0.4, ls=":")
 
         ax_cpu = ax_res.twinx()
@@ -606,7 +625,7 @@ def plot(spans, group_meta, resource_timeline, signal_events,
                 boxprops=dict(lw=1), whiskerprops=dict(lw=1),
                 capprops=dict(lw=1))
             for patch, s in zip(bp["boxes"], plot_stgs):
-                patch.set_facecolor(workflow_COLORS.get(s, DEFAULT_COLOR))
+                patch.set_facecolor(GROUP_COLORS.get(s, DEFAULT_COLOR))
                 patch.set_alpha(0.78)
 
             # Jittered individual points (sample ≤ 300 per workflow)
@@ -615,7 +634,7 @@ def plot(spans, group_meta, resource_timeline, signal_events,
                 sample = rng.choice(vals, size=min(300, len(vals)), replace=False)
                 jitter = rng.uniform(-0.18, 0.18, size=len(sample))
                 ax_mspan.scatter(pi + jitter, sample, s=4, alpha=0.30,
-                                 color=workflow_COLORS.get(s, DEFAULT_COLOR), zorder=3)
+                                 color=GROUP_COLORS.get(s, DEFAULT_COLOR), zorder=3)
 
             # n + median annotation beside each box
             for pi, (s, vals) in enumerate(zip(plot_stgs, box_data)):
@@ -626,10 +645,9 @@ def plot(spans, group_meta, resource_timeline, signal_events,
 
             ax_mspan.set_xticks(pos)
             ax_mspan.set_xticklabels(
-                [workflow_LABELS.get(s, s) for s in plot_stgs], fontsize=8)
+                [GROUP_LABELS.get(s, s) for s in plot_stgs], fontsize=8)
             ax_mspan.set_ylabel("Simulated makespan (dreamer time units)", fontsize=8)
-            ax_mspan.set_title("Makespan Distribution per workflow\n"
-                               "(all replicas; ops ÷ core-perf)",
+            ax_mspan.set_title("Makespan Distribution per workflow",
                                fontweight="bold", fontsize=9)
             ax_mspan.grid(axis="y", ls="--", alpha=0.35)
 
@@ -664,7 +682,7 @@ def plot(spans, group_meta, resource_timeline, signal_events,
                 boxprops=dict(lw=1), whiskerprops=dict(lw=1),
                 capprops=dict(lw=1))
             for patch, s in zip(bp["boxes"], plot_stgs):
-                patch.set_facecolor(workflow_COLORS.get(s, DEFAULT_COLOR))
+                patch.set_facecolor(GROUP_COLORS.get(s, DEFAULT_COLOR))
                 patch.set_alpha(0.78)
 
             # Jittered points (sample ≤ 300 per workflow)
@@ -673,7 +691,7 @@ def plot(spans, group_meta, resource_timeline, signal_events,
                 sample = rng.choice(ops, size=min(300, len(ops)), replace=False)
                 jitter = rng.uniform(-0.2, 0.2, size=len(sample))
                 ax_ops.scatter(pi + jitter, sample, s=3, alpha=0.30,
-                               color=workflow_COLORS.get(s, DEFAULT_COLOR), zorder=3)
+                               color=GROUP_COLORS.get(s, DEFAULT_COLOR), zorder=3)
 
             # Median annotation
             for pi, ops in enumerate(box_data):
@@ -683,17 +701,15 @@ def plot(spans, group_meta, resource_timeline, signal_events,
 
             ax_ops.set_yscale("log")
             ax_ops.set_xticks(pos)
-            ax_ops.set_xticklabels([workflow_LABELS.get(s, s) for s in plot_stgs],
+            ax_ops.set_xticklabels([GROUP_LABELS.get(s, s) for s in plot_stgs],
                                    fontsize=8)
             ax_ops.set_ylabel("Task ops (log scale, dreamer units)", fontsize=8)
-            ax_ops.set_title("Task Ops Distribution per workflow\n"
-                             "(all tasks × all replicas; log scale)",
+            ax_ops.set_title("Task Ops Distribution per workflow",
                              fontweight="bold", fontsize=9)
             ax_ops.grid(axis="y", ls="--", alpha=0.35)
 
     # ─────────────────────────────────────────────────────────────────────────
-    fig.suptitle("Dreamer Campaign — 5-workflow Drug Discovery Cascade",
-                 fontsize=13, fontweight="bold")
+    fig.suptitle(title, fontsize=13, fontweight="bold")
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"Saved → {out_path}")
 
@@ -709,11 +725,12 @@ def main():
     ap.add_argument("--config", default=None,
                     help="config.yaml (default: auto-detect next to log)")
     ap.add_argument("--out", default=None, help="Output PNG path")
+    ap.add_argument("--title", default=None, help="Figure suptitle (default: Campaign Timeline — <stem>)")
     args = ap.parse_args()
 
     log_dir = Path(args.log).parent
     stem    = Path(args.log).stem
-    if args.out        is None: args.out         = f"plots/dreamer_timeline_{stem}.png"
+    if args.out        is None: args.out         = f"plots/timeline_{stem}.png"
     if args.config     is None:
         c = log_dir / "config.yaml"
         if c.exists(): args.config = str(c)
@@ -737,7 +754,8 @@ def main():
 
     plot(spans, group_meta, resource_timeline, signal_events,
          dreamer_stats, stall_events, profiles,
-         t0, total_resources, args.out)
+         t0, total_resources, args.out,
+         title=args.title or f"Campaign Timeline — {stem}")
 
 
 if __name__ == "__main__":

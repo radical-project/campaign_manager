@@ -131,10 +131,10 @@ echo ""
 echo "── Step 5: DeepDriveSim ──"
 "${PIP}" install -q -e "${DDSIM_DIR}"
 
-# ── 6. run_campaign extra requirements ───────────────────────────────────────
+# ── 6. esm2_ddsim_campaign requirements ─────────────────────────────────────
 echo ""
-echo "── Step 6: run_campaign requirements ──"
-"${PIP}" install -q -r "${SPHERICAL_DIR}/workflows/run_campaign/requirements.txt"
+echo "── Step 6: esm2_ddsim_campaign requirements ──"
+"${PIP}" install -q -r "${SPHERICAL_DIR}/workflows/esm2_ddsim_campaign/requirements.txt"
 
 # ── 7. Apply slurm patch ─────────────────────────────────────────────────────
 echo ""

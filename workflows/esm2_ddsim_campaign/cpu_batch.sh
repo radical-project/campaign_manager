@@ -12,7 +12,8 @@
 #SBATCH --mail-user=mariya.goliyad@rutgers.edu
 #SBATCH --mail-type=ALL
 
-export HF_TOKEN="${HF_TOKEN}"
+# HuggingFace token — set before submitting:  export HF_TOKEN=<token> && sbatch ...
+[ -z "${HF_TOKEN}" ] && echo "WARNING: HF_TOKEN not set — LLM policy will fail" >&2
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 export SPHERICAL_DIR="/scratch/bblj/${USER}/SPHERICAL"
@@ -48,13 +49,15 @@ source "${ENV_DIR}/bin/activate"
 export LD_LIBRARY_PATH=${CUDA_HOME:+$CUDA_HOME/lib64:}$LD_LIBRARY_PATH
 
 # ── Run campaign ──────────────────────────────────────────────────────────────
-CAMPAIGN_DIR="${SPHERICAL_DIR}/workflows/run_campaign/esm2_ddsim_campaign"
+CAMPAIGN_DIR="${SPHERICAL_DIR}/workflows/esm2_ddsim_campaign"
 cd "${CAMPAIGN_DIR}"
 
 rm -rf DDMD-* telemetry-results nvml-telemetry
 
+# Single-policy run (local, no Dragon):
 #python run_campaing.py --config config.yaml --engine concurrent
 
-
-python benchmark_adr.py --config config_stress.yaml --mode deadline-yield --deadline 90 \
-    --policies  none rule bandit llm --runs 1 --out benchmark_adr_cpu.json
+# Full policy benchmark — use delta_gpu_batch.sh for the GPU version.
+# This script is kept for CPU-only environment testing without Dragon.
+dragon benchmark.py --config config_stress_gpu.yaml \
+    --policies none rule --runs 1 --out benchmark.json

@@ -1,43 +1,43 @@
 {
   "none": [
     {
-      "wall_time_s": 745.3358783721924,
+      "wall_time_s": 722.3538045883179,
       "group_stats": {
-        "miniapps": {
-          "n_started": 5,
-          "n_finished": 5,
-          "first_start": 285.951379776001,
-          "last_finish": 724.3738729953766,
-          "span_s": 438.4224932193756,
-          "mean_dur_s": 95.15470418930053,
-          "throughput_rps": 0.011404524351122025
-        },
-        "inference": {
-          "n_started": 16,
-          "n_finished": 16,
-          "first_start": 0.0025358200073242188,
-          "last_finish": 678.6585819721222,
-          "span_s": 678.6560461521149,
-          "mean_dur_s": 119.41884577274323,
-          "throughput_rps": 0.023576007449897143
-        },
         "dummy": {
           "n_started": 22,
           "n_finished": 22,
-          "first_start": 5.84359073638916,
-          "last_finish": 736.0230996608734,
-          "span_s": 730.1795089244843,
-          "mean_dur_s": 34.92871494726701,
-          "throughput_rps": 0.030129577358867322
+          "first_start": 12.344489097595215,
+          "last_finish": 711.594126701355,
+          "span_s": 699.2496376037598,
+          "mean_dur_s": 33.952420234680176,
+          "throughput_rps": 0.031462297321155894
+        },
+        "miniapps": {
+          "n_started": 5,
+          "n_finished": 5,
+          "first_start": 308.2656717300415,
+          "last_finish": 699.6466598510742,
+          "span_s": 391.3809881210327,
+          "mean_dur_s": 114.71718244552612,
+          "throughput_rps": 0.012775275631052813
         },
         "md": {
           "n_started": 4,
           "n_finished": 4,
-          "first_start": 5.67427921295166,
-          "last_finish": 285.9508900642395,
-          "span_s": 280.27661085128784,
-          "mean_dur_s": 70.06863832473755,
-          "throughput_rps": 0.01427161541539534
+          "first_start": 12.053470134735107,
+          "last_finish": 308.26494121551514,
+          "span_s": 296.21147108078003,
+          "mean_dur_s": 74.05256372690201,
+          "throughput_rps": 0.013503865955647468
+        },
+        "inference": {
+          "n_started": 16,
+          "n_finished": 16,
+          "first_start": 0.002257823944091797,
+          "last_finish": 631.0957796573639,
+          "span_s": 631.0935218334198,
+          "mean_dur_s": 109.56904450058937,
+          "throughput_rps": 0.02535281926760655
         }
       },
       "bp_fractions": {},
@@ -59,7 +59,34 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 0.002001523971557617
+          "timestamp": 0.001878499984741211
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 86.5628547668457
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 86.56311774253845
         },
         {
           "chosen": [
@@ -72,7 +99,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 68.06788563728333
+          "timestamp": 96.90998721122742
         },
         {
           "chosen": [
@@ -86,7 +113,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 133.35495376586914
+          "timestamp": 122.38585710525513
         },
         {
           "chosen": [
@@ -99,7 +126,34 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 133.35518884658813
+          "timestamp": 122.3861141204834
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 158.29136657714844
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 158.29165410995483
         },
         {
           "chosen": [
@@ -112,7 +166,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 141.2444338798523
+          "timestamp": 165.53904461860657
         },
         {
           "chosen": [
@@ -126,7 +180,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 169.33568572998047
+          "timestamp": 193.97426795959473
         },
         {
           "chosen": [
@@ -139,7 +193,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 169.33597254753113
+          "timestamp": 193.97451090812683
         },
         {
           "chosen": [
@@ -153,7 +207,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 205.30625462532043
+          "timestamp": 229.75326991081238
         },
         {
           "chosen": [
@@ -166,7 +220,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 205.30650854110718
+          "timestamp": 229.75351405143738
         },
         {
           "chosen": [
@@ -179,7 +233,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 212.78223037719727
+          "timestamp": 237.02322459220886
         },
         {
           "chosen": [
@@ -192,7 +246,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 241.65295100212097
+          "timestamp": 265.55964517593384
         },
         {
           "chosen": [
@@ -204,7 +258,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 241.65318322181702
+          "timestamp": 265.5598955154419
         },
         {
           "chosen": [
@@ -217,7 +271,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 278.1615135669708
+          "timestamp": 301.20370721817017
         },
         {
           "chosen": [
@@ -229,7 +283,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 278.1617531776428
+          "timestamp": 301.2039575576782
         },
         {
           "chosen": [
@@ -241,7 +295,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 285.9511079788208
+          "timestamp": 308.2652258872986
         },
         {
           "chosen": [
@@ -254,7 +308,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 314.9956181049347
+          "timestamp": 336.99030804634094
         },
         {
           "chosen": [
@@ -266,7 +320,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 314.99585819244385
+          "timestamp": 336.99058079719543
         },
         {
           "chosen": [
@@ -279,7 +333,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 351.1967215538025
+          "timestamp": 373.19255685806274
         },
         {
           "chosen": [
@@ -291,7 +345,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 351.1969759464264
+          "timestamp": 373.1929805278778
         },
         {
           "chosen": [
@@ -304,32 +358,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 352.3962779045105
-        },
-        {
-          "chosen": [
-            "miniapps"
-          ],
-          "eligible": [
-            "inference",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 352.3964605331421
-        },
-        {
-          "chosen": [
-            "dummy"
-          ],
-          "eligible": [
-            "inference",
-            "dummy",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 387.49386382102966
+          "timestamp": 409.0161461830139
         },
         {
           "chosen": [
@@ -341,7 +370,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 387.49412274360657
+          "timestamp": 409.0164797306061
         },
         {
           "chosen": [
@@ -354,7 +383,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 423.9191908836365
+          "timestamp": 445.2792444229126
         },
         {
           "chosen": [
@@ -366,7 +395,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 423.9194209575653
+          "timestamp": 445.27952337265015
         },
         {
           "chosen": [
@@ -379,7 +408,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 425.1151728630066
+          "timestamp": 446.3393099308014
         },
         {
           "chosen": [
@@ -391,7 +420,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 425.1154947280884
+          "timestamp": 446.33953499794006
         },
         {
           "chosen": [
@@ -404,7 +433,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 460.08447194099426
+          "timestamp": 481.7170367240906
         },
         {
           "chosen": [
@@ -416,7 +445,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 460.0847120285034
+          "timestamp": 481.7172067165375
         },
         {
           "chosen": [
@@ -429,7 +458,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 495.96749567985535
+          "timestamp": 518.7148966789246
         },
         {
           "chosen": [
@@ -441,57 +470,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 495.96773386001587
-        },
-        {
-          "chosen": [
-            "dummy"
-          ],
-          "eligible": [
-            "inference",
-            "dummy",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 531.836662530899
-        },
-        {
-          "chosen": [
-            "inference"
-          ],
-          "eligible": [
-            "inference",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 531.8369176387787
-        },
-        {
-          "chosen": [
-            "dummy"
-          ],
-          "eligible": [
-            "inference",
-            "dummy",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 567.9997801780701
-        },
-        {
-          "chosen": [
-            "inference"
-          ],
-          "eligible": [
-            "inference",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 568.0002019405365
+          "timestamp": 518.7151277065277
         },
         {
           "chosen": [
@@ -503,7 +482,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 569.2465562820435
+          "timestamp": 520.6783103942871
         },
         {
           "chosen": [
@@ -514,7 +493,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 569.2468409538269
+          "timestamp": 520.6784977912903
         },
         {
           "chosen": [
@@ -526,7 +505,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 604.5707721710205
+          "timestamp": 555.0784523487091
         },
         {
           "chosen": [
@@ -537,7 +516,30 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 604.5710573196411
+          "timestamp": 555.0787289142609
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 592.5390048027039
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 592.5392456054688
         },
         {
           "chosen": [
@@ -548,7 +550,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 640.7764518260956
+          "timestamp": 629.4708278179169
         },
         {
           "chosen": [
@@ -559,7 +561,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 641.9756119251251
+          "timestamp": 655.0916271209717
         },
         {
           "chosen": [
@@ -570,7 +572,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 676.9416482448578
+          "timestamp": 676.9540369510651
         },
         {
           "chosen": [
@@ -581,7 +583,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 724.3737390041351
+          "timestamp": 699.6465487480164
         }
       ],
       "replica_events": [
@@ -589,7 +591,7 @@
           "group": "inference",
           "replica_id": "inference_0",
           "event": "start",
-          "t": 0.0025358200073242188,
+          "t": 0.002257823944091797,
           "dur": null,
           "score": null
         },
@@ -597,7 +599,7 @@
           "group": "inference",
           "replica_id": "inference_1",
           "event": "start",
-          "t": 5.674204111099243,
+          "t": 12.05339789390564,
           "dur": null,
           "score": null
         },
@@ -605,7 +607,7 @@
           "group": "md",
           "replica_id": "md_0",
           "event": "start",
-          "t": 5.67427921295166,
+          "t": 12.053470134735107,
           "dur": null,
           "score": null
         },
@@ -613,7 +615,7 @@
           "group": "inference",
           "replica_id": "inference_2",
           "event": "start",
-          "t": 5.843540191650391,
+          "t": 12.344425439834595,
           "dur": null,
           "score": null
         },
@@ -621,7 +623,7 @@
           "group": "dummy",
           "replica_id": "dummy_0",
           "event": "start",
-          "t": 5.84359073638916,
+          "t": 12.344489097595215,
           "dur": null,
           "score": null
         },
@@ -629,39 +631,23 @@
           "group": "dummy",
           "replica_id": "dummy_0",
           "event": "finish",
-          "t": 25.916661739349365,
-          "dur": 20.073071002960205,
-          "score": null
-        },
-        {
-          "group": "md",
-          "replica_id": "md_0",
-          "event": "finish",
-          "t": 68.06746292114258,
-          "dur": 62.39318370819092,
-          "score": null
-        },
-        {
-          "group": "md",
-          "replica_id": "md_1",
-          "event": "start",
-          "t": 68.06825304031372,
-          "dur": null,
+          "t": 32.86824321746826,
+          "dur": 20.523754119873047,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_0",
           "event": "finish",
-          "t": 133.35505533218384,
-          "dur": 133.3525195121765,
+          "t": 86.56297492980957,
+          "dur": 86.56071710586548,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_1",
           "event": "start",
-          "t": 133.3567190170288,
+          "t": 86.56479620933533,
           "dur": null,
           "score": null
         },
@@ -669,23 +655,23 @@
           "group": "inference",
           "replica_id": "inference_3",
           "event": "start",
-          "t": 133.3817868232727,
+          "t": 86.66171860694885,
           "dur": null,
           "score": null
         },
         {
           "group": "md",
-          "replica_id": "md_1",
+          "replica_id": "md_0",
           "event": "finish",
-          "t": 141.24407482147217,
-          "dur": 73.17582178115845,
+          "t": 96.90977573394775,
+          "dur": 84.85630559921265,
           "score": null
         },
         {
           "group": "md",
-          "replica_id": "md_2",
+          "replica_id": "md_1",
           "event": "start",
-          "t": 141.24495244026184,
+          "t": 96.9102041721344,
           "dur": null,
           "score": null
         },
@@ -693,15 +679,15 @@
           "group": "inference",
           "replica_id": "inference_1",
           "event": "finish",
-          "t": 169.3358132839203,
-          "dur": 163.66160917282104,
+          "t": 122.38596391677856,
+          "dur": 110.33256602287292,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_2",
           "event": "start",
-          "t": 169.33747625350952,
+          "t": 122.38763475418091,
           "dur": null,
           "score": null
         },
@@ -709,7 +695,7 @@
           "group": "inference",
           "replica_id": "inference_4",
           "event": "start",
-          "t": 169.49344682693481,
+          "t": 122.41846036911011,
           "dur": null,
           "score": null
         },
@@ -717,23 +703,23 @@
           "group": "dummy",
           "replica_id": "dummy_1",
           "event": "finish",
-          "t": 170.83916807174683,
-          "dur": 37.48244905471802,
+          "t": 123.58799171447754,
+          "dur": 37.02319550514221,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_2",
           "event": "finish",
-          "t": 205.30636835098267,
-          "dur": 199.46282815933228,
+          "t": 158.29147863388062,
+          "dur": 145.94705319404602,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_3",
           "event": "start",
-          "t": 205.3099524974823,
+          "t": 158.29415941238403,
           "dur": null,
           "score": null
         },
@@ -741,7 +727,7 @@
           "group": "inference",
           "replica_id": "inference_5",
           "event": "start",
-          "t": 205.53523302078247,
+          "t": 158.36008262634277,
           "dur": null,
           "score": null
         },
@@ -749,23 +735,23 @@
           "group": "dummy",
           "replica_id": "dummy_2",
           "event": "finish",
-          "t": 206.5582046508789,
-          "dur": 37.220728397369385,
+          "t": 159.53038239479065,
+          "dur": 37.14274764060974,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_1",
+          "event": "finish",
+          "t": 165.53886127471924,
+          "dur": 68.62865710258484,
           "score": null
         },
         {
           "group": "md",
           "replica_id": "md_2",
-          "event": "finish",
-          "t": 212.78207278251648,
-          "dur": 71.53712034225464,
-          "score": null
-        },
-        {
-          "group": "md",
-          "replica_id": "md_3",
           "event": "start",
-          "t": 212.7824625968933,
+          "t": 165.53924417495728,
           "dur": null,
           "score": null
         },
@@ -773,15 +759,15 @@
           "group": "inference",
           "replica_id": "inference_3",
           "event": "finish",
-          "t": 241.65305471420288,
-          "dur": 108.27126789093018,
+          "t": 193.9743688106537,
+          "dur": 107.31265020370483,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_4",
           "event": "start",
-          "t": 241.65557026863098,
+          "t": 193.97609519958496,
           "dur": null,
           "score": null
         },
@@ -789,7 +775,7 @@
           "group": "inference",
           "replica_id": "inference_6",
           "event": "start",
-          "t": 241.98164558410645,
+          "t": 194.00099301338196,
           "dur": null,
           "score": null
         },
@@ -797,23 +783,23 @@
           "group": "dummy",
           "replica_id": "dummy_3",
           "event": "finish",
-          "t": 243.43554401397705,
-          "dur": 38.12559151649475,
+          "t": 195.17302203178406,
+          "dur": 36.878862619400024,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_4",
           "event": "finish",
-          "t": 278.1616117954254,
-          "dur": 108.6681649684906,
+          "t": 229.75337600708008,
+          "dur": 107.33491563796997,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_5",
           "event": "start",
-          "t": 278.161940574646,
+          "t": 229.755122423172,
           "dur": null,
           "score": null
         },
@@ -821,7 +807,7 @@
           "group": "inference",
           "replica_id": "inference_7",
           "event": "start",
-          "t": 278.6030423641205,
+          "t": 229.7818546295166,
           "dur": null,
           "score": null
         },
@@ -829,23 +815,23 @@
           "group": "dummy",
           "replica_id": "dummy_4",
           "event": "finish",
-          "t": 279.78536105155945,
-          "dur": 38.12979078292847,
+          "t": 230.94880509376526,
+          "dur": 36.9727098941803,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_2",
+          "event": "finish",
+          "t": 237.02306842803955,
+          "dur": 71.48382425308228,
           "score": null
         },
         {
           "group": "md",
           "replica_id": "md_3",
-          "event": "finish",
-          "t": 285.9508900642395,
-          "dur": 73.16842746734619,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_0",
           "event": "start",
-          "t": 285.951379776001,
+          "t": 237.02347326278687,
           "dur": null,
           "score": null
         },
@@ -853,15 +839,15 @@
           "group": "inference",
           "replica_id": "inference_5",
           "event": "finish",
-          "t": 314.9957323074341,
-          "dur": 109.46049928665161,
+          "t": 265.55976009368896,
+          "dur": 107.19967746734619,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_6",
           "event": "start",
-          "t": 314.9973657131195,
+          "t": 265.56232714653015,
           "dur": null,
           "score": null
         },
@@ -869,7 +855,7 @@
           "group": "inference",
           "replica_id": "inference_8",
           "event": "start",
-          "t": 315.26844668388367,
+          "t": 265.6289801597595,
           "dur": null,
           "score": null
         },
@@ -877,23 +863,23 @@
           "group": "dummy",
           "replica_id": "dummy_5",
           "event": "finish",
-          "t": 316.4509787559509,
-          "dur": 38.28903818130493,
+          "t": 266.796035528183,
+          "dur": 37.040913105010986,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_6",
           "event": "finish",
-          "t": 351.19683170318604,
-          "dur": 109.21518611907959,
+          "t": 301.20380878448486,
+          "dur": 107.2028157711029,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_7",
           "event": "start",
-          "t": 351.1987261772156,
+          "t": 301.2054994106293,
           "dur": null,
           "score": null
         },
@@ -901,7 +887,7 @@
           "group": "inference",
           "replica_id": "inference_9",
           "event": "start",
-          "t": 351.2129096984863,
+          "t": 301.2330844402313,
           "dur": null,
           "score": null
         },
@@ -909,31 +895,23 @@
           "group": "dummy",
           "replica_id": "dummy_6",
           "event": "finish",
-          "t": 352.38158321380615,
-          "dur": 37.384217500686646,
+          "t": 302.4074923992157,
+          "dur": 36.84516525268555,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_3",
+          "event": "finish",
+          "t": 308.26494121551514,
+          "dur": 71.24146795272827,
           "score": null
         },
         {
           "group": "miniapps",
           "replica_id": "miniapps_0",
-          "event": "finish",
-          "t": 352.39635181427,
-          "dur": 66.44497203826904,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_8",
           "event": "start",
-          "t": 352.39656376838684,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_1",
-          "event": "start",
-          "t": 352.40786123275757,
+          "t": 308.2656717300415,
           "dur": null,
           "score": null
         },
@@ -941,15 +919,15 @@
           "group": "inference",
           "replica_id": "inference_7",
           "event": "finish",
-          "t": 387.49397826194763,
-          "dur": 108.89093589782715,
+          "t": 336.9904179573059,
+          "dur": 107.2085633277893,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_9",
+          "replica_id": "dummy_8",
           "event": "start",
-          "t": 387.49672842025757,
+          "t": 336.99210143089294,
           "dur": null,
           "score": null
         },
@@ -957,7 +935,7 @@
           "group": "inference",
           "replica_id": "inference_10",
           "event": "start",
-          "t": 387.50977897644043,
+          "t": 337.01924753189087,
           "dur": null,
           "score": null
         },
@@ -965,31 +943,23 @@
           "group": "dummy",
           "replica_id": "dummy_7",
           "event": "finish",
-          "t": 388.6850607395172,
-          "dur": 37.486334562301636,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_8",
-          "event": "finish",
-          "t": 388.8352324962616,
-          "dur": 36.438668727874756,
+          "t": 338.1810824871063,
+          "dur": 36.97558307647705,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_8",
           "event": "finish",
-          "t": 423.9192979335785,
-          "dur": 108.65085124969482,
+          "t": 373.1927411556244,
+          "dur": 107.56376099586487,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_10",
+          "replica_id": "dummy_9",
           "event": "start",
-          "t": 423.92122292518616,
+          "t": 373.1945230960846,
           "dur": null,
           "score": null
         },
@@ -997,7 +967,39 @@
           "group": "inference",
           "replica_id": "inference_11",
           "event": "start",
-          "t": 423.9342768192291,
+          "t": 373.2332320213318,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_8",
+          "event": "finish",
+          "t": 374.41665148735046,
+          "dur": 37.42455005645752,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_9",
+          "event": "finish",
+          "t": 409.0162847042084,
+          "dur": 107.78320026397705,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_10",
+          "event": "start",
+          "t": 409.0191080570221,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_12",
+          "event": "start",
+          "t": 409.04924607276917,
           "dur": null,
           "score": null
         },
@@ -1005,55 +1007,55 @@
           "group": "dummy",
           "replica_id": "dummy_9",
           "event": "finish",
-          "t": 425.0987169742584,
-          "dur": 37.601988554000854,
+          "t": 410.22329664230347,
+          "dur": 37.02877354621887,
           "score": null
         },
         {
-          "group": "miniapps",
-          "replica_id": "miniapps_1",
+          "group": "inference",
+          "replica_id": "inference_10",
           "event": "finish",
-          "t": 425.1153199672699,
-          "dur": 72.70745873451233,
+          "t": 445.27937054634094,
+          "dur": 108.26012301445007,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_11",
           "event": "start",
-          "t": 425.1157109737396,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_2",
-          "event": "start",
-          "t": 425.12857604026794,
+          "t": 445.2820131778717,
           "dur": null,
           "score": null
         },
         {
           "group": "inference",
-          "replica_id": "inference_9",
+          "replica_id": "inference_13",
+          "event": "start",
+          "t": 445.31236600875854,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_0",
           "event": "finish",
-          "t": 460.0845732688904,
-          "dur": 108.87166357040405,
+          "t": 446.33938360214233,
+          "dur": 138.07371187210083,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_12",
           "event": "start",
-          "t": 460.08637523651123,
+          "t": 446.33965516090393,
           "dur": null,
           "score": null
         },
         {
-          "group": "inference",
-          "replica_id": "inference_12",
+          "group": "miniapps",
+          "replica_id": "miniapps_1",
           "event": "start",
-          "t": 460.11496090888977,
+          "t": 446.3788847923279,
           "dur": null,
           "score": null
         },
@@ -1061,63 +1063,23 @@
           "group": "dummy",
           "replica_id": "dummy_10",
           "event": "finish",
-          "t": 461.2750897407532,
-          "dur": 37.35386681556702,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_11",
-          "event": "finish",
-          "t": 461.4202446937561,
-          "dur": 36.30453372001648,
-          "score": null
-        },
-        {
-          "group": "inference",
-          "replica_id": "inference_10",
-          "event": "finish",
-          "t": 495.9675953388214,
-          "dur": 108.45781636238098,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_13",
-          "event": "start",
-          "t": 495.9691963195801,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "inference",
-          "replica_id": "inference_13",
-          "event": "start",
-          "t": 495.98399567604065,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_12",
-          "event": "finish",
-          "t": 497.1554889678955,
-          "dur": 37.06911373138428,
+          "t": 446.5623948574066,
+          "dur": 37.54328680038452,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_11",
           "event": "finish",
-          "t": 531.8367853164673,
-          "dur": 107.90250849723816,
+          "t": 481.71711683273315,
+          "dur": 108.48388481140137,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_14",
+          "replica_id": "dummy_13",
           "event": "start",
-          "t": 531.8386368751526,
+          "t": 481.7188651561737,
           "dur": null,
           "score": null
         },
@@ -1125,7 +1087,47 @@
           "group": "inference",
           "replica_id": "inference_14",
           "event": "start",
-          "t": 531.851710319519,
+          "t": 482.1269519329071,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_11",
+          "event": "finish",
+          "t": 483.66845893859863,
+          "dur": 38.38644576072693,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_12",
+          "event": "finish",
+          "t": 484.2929000854492,
+          "dur": 37.95324492454529,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_12",
+          "event": "finish",
+          "t": 518.7150037288666,
+          "dur": 109.66575765609741,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_14",
+          "event": "start",
+          "t": 518.7166256904602,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_15",
+          "event": "start",
+          "t": 519.0251109600067,
           "dur": null,
           "score": null
         },
@@ -1133,47 +1135,47 @@
           "group": "dummy",
           "replica_id": "dummy_13",
           "event": "finish",
-          "t": 532.9995303153992,
-          "dur": 37.03033399581909,
+          "t": 520.5506520271301,
+          "dur": 38.83178687095642,
           "score": null
         },
         {
-          "group": "inference",
-          "replica_id": "inference_12",
+          "group": "miniapps",
+          "replica_id": "miniapps_1",
           "event": "finish",
-          "t": 567.9999639987946,
-          "dur": 107.88500308990479,
+          "t": 520.6783845424652,
+          "dur": 74.29949975013733,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_15",
           "event": "start",
-          "t": 568.0018956661224,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "inference",
-          "replica_id": "inference_15",
-          "event": "start",
-          "t": 568.2197120189667,
+          "t": 520.6786210536957,
           "dur": null,
           "score": null
         },
         {
           "group": "miniapps",
           "replica_id": "miniapps_2",
+          "event": "start",
+          "t": 521.2095966339111,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_13",
           "event": "finish",
-          "t": 569.2466304302216,
-          "dur": 144.1180543899536,
+          "t": 555.0785744190216,
+          "dur": 109.76620841026306,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_16",
           "event": "start",
-          "t": 569.2469527721405,
+          "t": 555.0802402496338,
           "dur": null,
           "score": null
         },
@@ -1181,7 +1183,7 @@
           "group": "miniapps",
           "replica_id": "miniapps_3",
           "event": "start",
-          "t": 569.2591309547424,
+          "t": 555.9106905460358,
           "dur": null,
           "score": null
         },
@@ -1189,63 +1191,63 @@
           "group": "dummy",
           "replica_id": "dummy_14",
           "event": "finish",
-          "t": 569.4205770492554,
-          "dur": 37.58194017410278,
-          "score": null
-        },
-        {
-          "group": "inference",
-          "replica_id": "inference_13",
-          "event": "finish",
-          "t": 604.5708906650543,
-          "dur": 108.58689498901367,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_17",
-          "event": "start",
-          "t": 604.5743989944458,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_4",
-          "event": "start",
-          "t": 604.5874016284943,
-          "dur": null,
+          "t": 558.1878869533539,
+          "dur": 39.47126126289368,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_15",
           "event": "finish",
-          "t": 605.7466297149658,
-          "dur": 37.744734048843384,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_16",
-          "event": "finish",
-          "t": 605.8932926654816,
-          "dur": 36.646339893341064,
+          "t": 559.1066753864288,
+          "dur": 38.428054332733154,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_14",
           "event": "finish",
-          "t": 640.7766239643097,
-          "dur": 108.92491364479065,
+          "t": 592.5391013622284,
+          "dur": 110.41214942932129,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_17",
+          "event": "start",
+          "t": 592.5415682792664,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_4",
+          "event": "start",
+          "t": 593.3595650196075,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_16",
+          "event": "finish",
+          "t": 595.71799659729,
+          "dur": 40.63775634765625,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_15",
+          "event": "finish",
+          "t": 631.0957796573639,
+          "dur": 112.07066869735718,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_18",
           "event": "start",
-          "t": 640.7787449359894,
+          "t": 631.0961027145386,
           "dur": null,
           "score": null
         },
@@ -1253,39 +1255,23 @@
           "group": "dummy",
           "replica_id": "dummy_17",
           "event": "finish",
-          "t": 641.9600067138672,
-          "dur": 37.38560771942139,
+          "t": 632.3976285457611,
+          "dur": 39.85606026649475,
           "score": null
         },
         {
           "group": "miniapps",
-          "replica_id": "miniapps_3",
+          "replica_id": "miniapps_2",
           "event": "finish",
-          "t": 641.9756953716278,
-          "dur": 72.71656441688538,
+          "t": 655.0917365550995,
+          "dur": 133.88213992118835,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_19",
           "event": "start",
-          "t": 641.9758183956146,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "inference",
-          "replica_id": "inference_15",
-          "event": "finish",
-          "t": 678.6585819721222,
-          "dur": 110.43886995315552,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_20",
-          "event": "start",
-          "t": 678.6590883731842,
+          "t": 655.0918967723846,
           "dur": null,
           "score": null
         },
@@ -1293,48 +1279,64 @@
           "group": "dummy",
           "replica_id": "dummy_18",
           "event": "finish",
-          "t": 679.9178440570831,
-          "dur": 39.13909912109375,
+          "t": 655.2835974693298,
+          "dur": 24.18749475479126,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_3",
+          "event": "finish",
+          "t": 676.9541563987732,
+          "dur": 121.04346585273743,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_20",
+          "event": "start",
+          "t": 676.9543414115906,
+          "dur": null,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_19",
           "event": "finish",
-          "t": 680.1458761692047,
-          "dur": 38.17005777359009,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_20",
-          "event": "finish",
-          "t": 702.7843351364136,
-          "dur": 24.12524676322937,
+          "t": 678.0542743206024,
+          "dur": 22.962377548217773,
           "score": null
         },
         {
           "group": "miniapps",
           "replica_id": "miniapps_4",
           "event": "finish",
-          "t": 724.3738729953766,
-          "dur": 119.78647136688232,
+          "t": 699.6466598510742,
+          "dur": 106.28709483146667,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_21",
           "event": "start",
-          "t": 724.3741228580475,
+          "t": 699.6468753814697,
           "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_20",
+          "event": "finish",
+          "t": 699.8463115692139,
+          "dur": 22.89197015762329,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_21",
           "event": "finish",
-          "t": 736.0230996608734,
-          "dur": 11.648976802825928,
+          "t": 711.594126701355,
+          "dur": 11.947251319885254,
           "score": null
         }
       ],
@@ -1342,57 +1344,57 @@
       "policy": "none",
       "dnf": false,
       "telemetry_dir": "telemetry-results-gpu-none-gpu-none-run0",
-      "miniapps_started": 5,
-      "miniapps_finished": 5,
-      "inference_started": 16,
-      "inference_finished": 16,
       "dummy_started": 22,
       "dummy_finished": 22,
+      "miniapps_started": 5,
+      "miniapps_finished": 5,
       "md_started": 4,
       "md_finished": 4,
-      "time_to_first_miniapps_s": 352.39635181427,
-      "time_to_first_md_s": 68.06746292114258
+      "inference_started": 16,
+      "inference_finished": 16,
+      "time_to_first_miniapps_s": 446.33938360214233,
+      "time_to_first_md_s": 96.90977573394775
     }
   ],
   "rule": [
     {
-      "wall_time_s": 722.4799058437347,
+      "wall_time_s": 718.9397876262665,
       "group_stats": {
-        "miniapps": {
-          "n_started": 5,
-          "n_finished": 5,
-          "first_start": 217.96149015426636,
-          "last_finish": 705.5637230873108,
-          "span_s": 487.60223293304443,
-          "mean_dur_s": 97.43227338790894,
-          "throughput_rps": 0.01025425985013194
-        },
-        "inference": {
-          "n_started": 16,
-          "n_finished": 16,
-          "first_start": 0.2966635227203369,
-          "last_finish": 682.9812433719635,
-          "span_s": 682.6845798492432,
-          "mean_dur_s": 120.99631869792938,
-          "throughput_rps": 0.023436885015819853
-        },
         "dummy": {
           "n_started": 22,
           "n_finished": 22,
-          "first_start": 0.49137306213378906,
-          "last_finish": 717.2981028556824,
-          "span_s": 716.8067297935486,
-          "mean_dur_s": 34.68433876471086,
-          "throughput_rps": 0.030691676131914022
+          "first_start": 0.7956619262695312,
+          "last_finish": 713.0148191452026,
+          "span_s": 712.2191572189331,
+          "mean_dur_s": 34.00454550439661,
+          "throughput_rps": 0.03088936849986653
+        },
+        "miniapps": {
+          "n_started": 5,
+          "n_finished": 5,
+          "first_start": 241.43856644630432,
+          "last_finish": 699.4849467277527,
+          "span_s": 458.04638028144836,
+          "mean_dur_s": 115.8011860370636,
+          "throughput_rps": 0.010915925144802434
         },
         "md": {
           "n_started": 4,
           "n_finished": 4,
-          "first_start": 0.36186861991882324,
-          "last_finish": 217.9608154296875,
-          "span_s": 217.59894680976868,
-          "mean_dur_s": 54.399415612220764,
-          "throughput_rps": 0.018382441912721738
+          "first_start": 0.6747574806213379,
+          "last_finish": 241.43814611434937,
+          "span_s": 240.76338863372803,
+          "mean_dur_s": 60.19054597616196,
+          "throughput_rps": 0.016613821655771664
+        },
+        "inference": {
+          "n_started": 16,
+          "n_finished": 16,
+          "first_start": 0.6617765426635742,
+          "last_finish": 630.5599229335785,
+          "span_s": 629.8981463909149,
+          "mean_dur_s": 111.1908300369978,
+          "throughput_rps": 0.025400932026350808
         }
       },
       "bp_fractions": {},
@@ -1414,7 +1416,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 0.29617738723754883
+          "timestamp": 0.6614232063293457
         },
         {
           "chosen": [
@@ -1427,7 +1429,34 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 43.38735389709473
+          "timestamp": 43.30878782272339
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 90.5457079410553
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 90.54593467712402
         },
         {
           "chosen": [
@@ -1440,7 +1469,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 85.13352417945862
+          "timestamp": 98.71616744995117
         },
         {
           "chosen": [
@@ -1454,7 +1483,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 139.0026454925537
+          "timestamp": 125.99239349365234
         },
         {
           "chosen": [
@@ -1467,7 +1496,34 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 139.0028738975525
+          "timestamp": 125.99261379241943
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 161.71368789672852
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 161.71390533447266
         },
         {
           "chosen": [
@@ -1480,7 +1536,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 146.17177414894104
+          "timestamp": 169.8659107685089
         },
         {
           "chosen": [
@@ -1493,7 +1549,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 175.29785084724426
+          "timestamp": 197.38053059577942
         },
         {
           "chosen": [
@@ -1505,7 +1561,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 175.29816675186157
+          "timestamp": 197.38074135780334
         },
         {
           "chosen": [
@@ -1518,7 +1574,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 210.95644164085388
+          "timestamp": 233.25679874420166
         },
         {
           "chosen": [
@@ -1530,7 +1586,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 210.95676970481873
+          "timestamp": 233.25709557533264
         },
         {
           "chosen": [
@@ -1542,7 +1598,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 217.96116638183594
+          "timestamp": 241.43834018707275
         },
         {
           "chosen": [
@@ -1555,7 +1611,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 246.91123700141907
+          "timestamp": 269.0288691520691
         },
         {
           "chosen": [
@@ -1567,7 +1623,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 246.91152930259705
+          "timestamp": 269.0290410518646
         },
         {
           "chosen": [
@@ -1580,7 +1636,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 282.83365511894226
+          "timestamp": 305.0140266418457
         },
         {
           "chosen": [
@@ -1592,7 +1648,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 282.833931684494
+          "timestamp": 305.01423501968384
         },
         {
           "chosen": [
@@ -1605,7 +1661,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 318.9256274700165
+          "timestamp": 341.08113622665405
         },
         {
           "chosen": [
@@ -1617,7 +1673,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 318.92585802078247
+          "timestamp": 341.0813453197479
         },
         {
           "chosen": [
@@ -1630,7 +1686,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 354.8746449947357
+          "timestamp": 377.01831889152527
         },
         {
           "chosen": [
@@ -1642,7 +1698,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 354.8748836517334
+          "timestamp": 377.01855731010437
         },
         {
           "chosen": [
@@ -1655,7 +1711,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 355.7748680114746
+          "timestamp": 378.07398796081543
         },
         {
           "chosen": [
@@ -1667,7 +1723,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 355.7751085758209
+          "timestamp": 378.07417845726013
         },
         {
           "chosen": [
@@ -1680,7 +1736,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 391.10104751586914
+          "timestamp": 412.99722242355347
         },
         {
           "chosen": [
@@ -1692,7 +1748,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 391.1012783050537
+          "timestamp": 412.99744272232056
         },
         {
           "chosen": [
@@ -1705,7 +1761,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 427.3186082839966
+          "timestamp": 449.33812165260315
         },
         {
           "chosen": [
@@ -1717,7 +1773,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 427.31886982917786
+          "timestamp": 449.33833265304565
         },
         {
           "chosen": [
@@ -1730,32 +1786,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 429.46831130981445
-        },
-        {
-          "chosen": [
-            "miniapps"
-          ],
-          "eligible": [
-            "inference",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 429.46860671043396
-        },
-        {
-          "chosen": [
-            "dummy"
-          ],
-          "eligible": [
-            "inference",
-            "dummy",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 463.7331449985504
+          "timestamp": 485.3716492652893
         },
         {
           "chosen": [
@@ -1767,7 +1798,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 463.73347783088684
+          "timestamp": 485.3719024658203
         },
         {
           "chosen": [
@@ -1780,7 +1811,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 500.421422958374
+          "timestamp": 521.5420081615448
         },
         {
           "chosen": [
@@ -1792,82 +1823,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 500.42170429229736
-        },
-        {
-          "chosen": [
-            "dummy"
-          ],
-          "eligible": [
-            "inference",
-            "dummy",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 501.6132073402405
-        },
-        {
-          "chosen": [
-            "miniapps"
-          ],
-          "eligible": [
-            "inference",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 501.6133933067322
-        },
-        {
-          "chosen": [
-            "dummy"
-          ],
-          "eligible": [
-            "inference",
-            "dummy",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 536.7504613399506
-        },
-        {
-          "chosen": [
-            "inference"
-          ],
-          "eligible": [
-            "inference",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 536.7507002353668
-        },
-        {
-          "chosen": [
-            "dummy"
-          ],
-          "eligible": [
-            "inference",
-            "dummy",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 573.1967239379883
-        },
-        {
-          "chosen": [
-            "inference"
-          ],
-          "eligible": [
-            "inference",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 573.1969449520111
+          "timestamp": 521.5422041416168
         },
         {
           "chosen": [
@@ -1879,7 +1835,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 574.3703508377075
+          "timestamp": 522.4091205596924
         },
         {
           "chosen": [
@@ -1890,7 +1846,53 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 574.3705189228058
+          "timestamp": 522.4093689918518
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 557.4293873310089
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 557.4296243190765
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 593.678147315979
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 593.6783554553986
         },
         {
           "chosen": [
@@ -1901,7 +1903,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 609.4213383197784
+          "timestamp": 594.948787689209
         },
         {
           "chosen": [
@@ -1912,7 +1914,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 645.8725452423096
+          "timestamp": 629.7306005954742
         },
         {
           "chosen": [
@@ -1923,7 +1925,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 682.1301264762878
+          "timestamp": 677.4338231086731
         },
         {
           "chosen": [
@@ -1934,7 +1936,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 705.5636229515076
+          "timestamp": 699.4848132133484
         }
       ],
       "replica_events": [
@@ -1942,7 +1944,7 @@
           "group": "inference",
           "replica_id": "inference_0",
           "event": "start",
-          "t": 0.2966635227203369,
+          "t": 0.6617765426635742,
           "dur": null,
           "score": null
         },
@@ -1950,7 +1952,7 @@
           "group": "inference",
           "replica_id": "inference_1",
           "event": "start",
-          "t": 0.3617990016937256,
+          "t": 0.6746988296508789,
           "dur": null,
           "score": null
         },
@@ -1958,7 +1960,7 @@
           "group": "md",
           "replica_id": "md_0",
           "event": "start",
-          "t": 0.36186861991882324,
+          "t": 0.6747574806213379,
           "dur": null,
           "score": null
         },
@@ -1966,7 +1968,7 @@
           "group": "inference",
           "replica_id": "inference_2",
           "event": "start",
-          "t": 0.4913158416748047,
+          "t": 0.7955935001373291,
           "dur": null,
           "score": null
         },
@@ -1974,7 +1976,7 @@
           "group": "dummy",
           "replica_id": "dummy_0",
           "event": "start",
-          "t": 0.49137306213378906,
+          "t": 0.7956619262695312,
           "dur": null,
           "score": null
         },
@@ -1982,39 +1984,23 @@
           "group": "dummy",
           "replica_id": "dummy_0",
           "event": "finish",
-          "t": 18.118037462234497,
-          "dur": 17.626664400100708,
+          "t": 17.51497507095337,
+          "dur": 16.719313144683838,
           "score": null
         },
         {
           "group": "md",
           "replica_id": "md_0",
           "event": "finish",
-          "t": 43.38715147972107,
-          "dur": 43.025282859802246,
+          "t": 43.30862760543823,
+          "dur": 42.633870124816895,
           "score": null
         },
         {
           "group": "md",
           "replica_id": "md_1",
           "event": "start",
-          "t": 43.38761329650879,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "md",
-          "replica_id": "md_1",
-          "event": "finish",
-          "t": 85.13334631919861,
-          "dur": 41.74573302268982,
-          "score": null
-        },
-        {
-          "group": "md",
-          "replica_id": "md_2",
-          "event": "start",
-          "t": 85.13373613357544,
+          "t": 43.309004068374634,
           "dur": null,
           "score": null
         },
@@ -2022,15 +2008,15 @@
           "group": "inference",
           "replica_id": "inference_0",
           "event": "finish",
-          "t": 139.00274872779846,
-          "dur": 138.70608520507812,
+          "t": 90.54581189155579,
+          "dur": 89.88403534889221,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_1",
           "event": "start",
-          "t": 139.00569319725037,
+          "t": 90.54780125617981,
           "dur": null,
           "score": null
         },
@@ -2038,23 +2024,23 @@
           "group": "inference",
           "replica_id": "inference_3",
           "event": "start",
-          "t": 139.01862144470215,
+          "t": 90.5770800113678,
           "dur": null,
           "score": null
         },
         {
           "group": "md",
-          "replica_id": "md_2",
+          "replica_id": "md_1",
           "event": "finish",
-          "t": 146.17159962654114,
-          "dur": 61.0378634929657,
+          "t": 98.71596932411194,
+          "dur": 55.406965255737305,
           "score": null
         },
         {
           "group": "md",
-          "replica_id": "md_3",
+          "replica_id": "md_2",
           "event": "start",
-          "t": 146.1720323562622,
+          "t": 98.71641278266907,
           "dur": null,
           "score": null
         },
@@ -2062,15 +2048,15 @@
           "group": "inference",
           "replica_id": "inference_1",
           "event": "finish",
-          "t": 175.2979884147644,
-          "dur": 174.93618941307068,
+          "t": 125.9924886226654,
+          "dur": 125.31778979301453,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_2",
           "event": "start",
-          "t": 175.29974007606506,
+          "t": 125.99414992332458,
           "dur": null,
           "score": null
         },
@@ -2078,7 +2064,7 @@
           "group": "inference",
           "replica_id": "inference_4",
           "event": "start",
-          "t": 175.31559872627258,
+          "t": 126.021737575531,
           "dur": null,
           "score": null
         },
@@ -2086,23 +2072,23 @@
           "group": "dummy",
           "replica_id": "dummy_1",
           "event": "finish",
-          "t": 176.49253606796265,
-          "dur": 37.48684287071228,
+          "t": 127.18657183647156,
+          "dur": 36.63877058029175,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_2",
           "event": "finish",
-          "t": 210.95660138130188,
-          "dur": 210.46528553962708,
+          "t": 161.71378469467163,
+          "dur": 160.9181911945343,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_3",
           "event": "start",
-          "t": 210.9583613872528,
+          "t": 161.71636152267456,
           "dur": null,
           "score": null
         },
@@ -2110,7 +2096,7 @@
           "group": "inference",
           "replica_id": "inference_5",
           "event": "start",
-          "t": 210.97145795822144,
+          "t": 161.74347233772278,
           "dur": null,
           "score": null
         },
@@ -2118,23 +2104,23 @@
           "group": "dummy",
           "replica_id": "dummy_2",
           "event": "finish",
-          "t": 212.11429286003113,
-          "dur": 36.814552783966064,
+          "t": 162.9029004573822,
+          "dur": 36.90875053405762,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_2",
+          "event": "finish",
+          "t": 169.86573767662048,
+          "dur": 71.14932489395142,
           "score": null
         },
         {
           "group": "md",
           "replica_id": "md_3",
-          "event": "finish",
-          "t": 217.9608154296875,
-          "dur": 71.7887830734253,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_0",
           "event": "start",
-          "t": 217.96149015426636,
+          "t": 169.86612248420715,
           "dur": null,
           "score": null
         },
@@ -2142,15 +2128,15 @@
           "group": "inference",
           "replica_id": "inference_3",
           "event": "finish",
-          "t": 246.9113597869873,
-          "dur": 107.89273834228516,
+          "t": 197.38062620162964,
+          "dur": 106.80354619026184,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_4",
           "event": "start",
-          "t": 246.91174125671387,
+          "t": 197.3824577331543,
           "dur": null,
           "score": null
         },
@@ -2158,7 +2144,7 @@
           "group": "inference",
           "replica_id": "inference_6",
           "event": "start",
-          "t": 246.9226884841919,
+          "t": 197.42378044128418,
           "dur": null,
           "score": null
         },
@@ -2166,23 +2152,23 @@
           "group": "dummy",
           "replica_id": "dummy_3",
           "event": "finish",
-          "t": 248.4894585609436,
-          "dur": 37.531097173690796,
+          "t": 198.59235453605652,
+          "dur": 36.87599301338196,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_4",
           "event": "finish",
-          "t": 282.83377504348755,
-          "dur": 107.51817631721497,
+          "t": 233.25696420669556,
+          "dur": 107.23522663116455,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_5",
           "event": "start",
-          "t": 282.83640813827515,
+          "t": 233.25888347625732,
           "dur": null,
           "score": null
         },
@@ -2190,7 +2176,7 @@
           "group": "inference",
           "replica_id": "inference_7",
           "event": "start",
-          "t": 282.84979581832886,
+          "t": 233.29543232917786,
           "dur": null,
           "score": null
         },
@@ -2198,23 +2184,39 @@
           "group": "dummy",
           "replica_id": "dummy_4",
           "event": "finish",
-          "t": 284.1558187007904,
-          "dur": 37.24407744407654,
+          "t": 234.46367692947388,
+          "dur": 37.08121919631958,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_3",
+          "event": "finish",
+          "t": 241.43814611434937,
+          "dur": 71.57202363014221,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_0",
+          "event": "start",
+          "t": 241.43856644630432,
+          "dur": null,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_5",
           "event": "finish",
-          "t": 318.9257273674011,
-          "dur": 107.95426940917969,
+          "t": 269.02895069122314,
+          "dur": 107.28547835350037,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_6",
           "event": "start",
-          "t": 318.9284014701843,
+          "t": 269.030725479126,
           "dur": null,
           "score": null
         },
@@ -2222,7 +2224,7 @@
           "group": "inference",
           "replica_id": "inference_8",
           "event": "start",
-          "t": 318.94069719314575,
+          "t": 269.06101393699646,
           "dur": null,
           "score": null
         },
@@ -2230,23 +2232,23 @@
           "group": "dummy",
           "replica_id": "dummy_5",
           "event": "finish",
-          "t": 320.0935070514679,
-          "dur": 37.25709891319275,
+          "t": 270.2253029346466,
+          "dur": 36.96641945838928,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_6",
           "event": "finish",
-          "t": 354.8747527599335,
-          "dur": 107.95206427574158,
+          "t": 305.01411962509155,
+          "dur": 107.59033918380737,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_7",
           "event": "start",
-          "t": 354.8774230480194,
+          "t": 305.01571226119995,
           "dur": null,
           "score": null
         },
@@ -2254,31 +2256,7 @@
           "group": "inference",
           "replica_id": "inference_9",
           "event": "start",
-          "t": 355.01152515411377,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_0",
-          "event": "finish",
-          "t": 355.7749590873718,
-          "dur": 137.81346893310547,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_8",
-          "event": "start",
-          "t": 355.7752432823181,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_1",
-          "event": "start",
-          "t": 355.8841972351074,
+          "t": 305.04746413230896,
           "dur": null,
           "score": null
         },
@@ -2286,23 +2264,23 @@
           "group": "dummy",
           "replica_id": "dummy_6",
           "event": "finish",
-          "t": 356.46804213523865,
-          "dur": 37.53964066505432,
+          "t": 306.22259855270386,
+          "dur": 37.19187307357788,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_7",
           "event": "finish",
-          "t": 391.1011531352997,
-          "dur": 108.25135731697083,
+          "t": 341.0812337398529,
+          "dur": 107.78580141067505,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_9",
+          "replica_id": "dummy_8",
           "event": "start",
-          "t": 391.10277009010315,
+          "t": 341.0828926563263,
           "dur": null,
           "score": null
         },
@@ -2310,7 +2288,7 @@
           "group": "inference",
           "replica_id": "inference_10",
           "event": "start",
-          "t": 391.2722988128662,
+          "t": 341.11021304130554,
           "dur": null,
           "score": null
         },
@@ -2318,31 +2296,23 @@
           "group": "dummy",
           "replica_id": "dummy_7",
           "event": "finish",
-          "t": 392.64850902557373,
-          "dur": 37.77108597755432,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_8",
-          "event": "finish",
-          "t": 393.0132076740265,
-          "dur": 37.237964391708374,
+          "t": 342.2736277580261,
+          "dur": 37.25791549682617,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_8",
           "event": "finish",
-          "t": 427.3187186717987,
-          "dur": 108.37802147865295,
+          "t": 377.01842284202576,
+          "dur": 107.9574089050293,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_10",
+          "replica_id": "dummy_9",
           "event": "start",
-          "t": 427.32055950164795,
+          "t": 377.0210394859314,
           "dur": null,
           "score": null
         },
@@ -2350,39 +2320,39 @@
           "group": "inference",
           "replica_id": "inference_11",
           "event": "start",
-          "t": 427.6990373134613,
+          "t": 377.04643845558167,
           "dur": null,
           "score": null
         },
         {
-          "group": "dummy",
-          "replica_id": "dummy_9",
+          "group": "miniapps",
+          "replica_id": "miniapps_0",
           "event": "finish",
-          "t": 429.37558245658875,
-          "dur": 38.272812366485596,
+          "t": 378.074063539505,
+          "dur": 136.63549709320068,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_8",
+          "event": "finish",
+          "t": 378.2261154651642,
+          "dur": 37.14322280883789,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_10",
+          "event": "start",
+          "t": 378.2262408733368,
+          "dur": null,
           "score": null
         },
         {
           "group": "miniapps",
           "replica_id": "miniapps_1",
-          "event": "finish",
-          "t": 429.46844720840454,
-          "dur": 73.58424997329712,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_11",
           "event": "start",
-          "t": 429.4687430858612,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_2",
-          "event": "start",
-          "t": 429.76662826538086,
+          "t": 378.2532970905304,
           "dur": null,
           "score": null
         },
@@ -2390,15 +2360,15 @@
           "group": "inference",
           "replica_id": "inference_9",
           "event": "finish",
-          "t": 463.73329305648804,
-          "dur": 108.72176790237427,
+          "t": 412.99732518196106,
+          "dur": 107.9498610496521,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_12",
+          "replica_id": "dummy_11",
           "event": "start",
-          "t": 463.73509764671326,
+          "t": 412.9989125728607,
           "dur": null,
           "score": null
         },
@@ -2406,39 +2376,39 @@
           "group": "inference",
           "replica_id": "inference_12",
           "event": "start",
-          "t": 464.08481192588806,
+          "t": 413.0260663032532,
           "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_9",
+          "event": "finish",
+          "t": 414.2030580043793,
+          "dur": 37.182018518447876,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_10",
           "event": "finish",
-          "t": 465.7284700870514,
-          "dur": 38.40791058540344,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_11",
-          "event": "finish",
-          "t": 466.5698711872101,
-          "dur": 37.10112810134888,
+          "t": 414.36891436576843,
+          "dur": 36.14267349243164,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_10",
           "event": "finish",
-          "t": 500.421546459198,
-          "dur": 109.14924764633179,
+          "t": 449.3382225036621,
+          "dur": 108.22800946235657,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_13",
+          "replica_id": "dummy_12",
           "event": "start",
-          "t": 500.42405128479004,
+          "t": 449.3397705554962,
           "dur": null,
           "score": null
         },
@@ -2446,7 +2416,39 @@
           "group": "inference",
           "replica_id": "inference_13",
           "event": "start",
-          "t": 500.4448871612549,
+          "t": 449.3674774169922,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_11",
+          "event": "finish",
+          "t": 450.53225350379944,
+          "dur": 37.53334093093872,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_11",
+          "event": "finish",
+          "t": 485.3717575073242,
+          "dur": 108.32531905174255,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_13",
+          "event": "start",
+          "t": 485.3734173774719,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_14",
+          "event": "start",
+          "t": 485.4486587047577,
           "dur": null,
           "score": null
         },
@@ -2454,55 +2456,55 @@
           "group": "dummy",
           "replica_id": "dummy_12",
           "event": "finish",
-          "t": 501.5971586704254,
-          "dur": 37.86206102371216,
+          "t": 486.6221606731415,
+          "dur": 37.282390117645264,
           "score": null
         },
         {
-          "group": "miniapps",
-          "replica_id": "miniapps_2",
+          "group": "inference",
+          "replica_id": "inference_12",
           "event": "finish",
-          "t": 501.61328125,
-          "dur": 71.84665298461914,
+          "t": 521.5421006679535,
+          "dur": 108.51603436470032,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_14",
           "event": "start",
-          "t": 501.6134989261627,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_3",
-          "event": "start",
-          "t": 501.63321685791016,
+          "t": 521.5436444282532,
           "dur": null,
           "score": null
         },
         {
           "group": "inference",
-          "replica_id": "inference_11",
+          "replica_id": "inference_15",
+          "event": "start",
+          "t": 521.5952744483948,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_1",
           "event": "finish",
-          "t": 536.750572681427,
-          "dur": 109.0515353679657,
+          "t": 522.4092311859131,
+          "dur": 144.1559340953827,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_15",
           "event": "start",
-          "t": 536.7524800300598,
+          "t": 522.4094746112823,
           "dur": null,
           "score": null
         },
         {
-          "group": "inference",
-          "replica_id": "inference_14",
+          "group": "miniapps",
+          "replica_id": "miniapps_2",
           "event": "start",
-          "t": 536.7655253410339,
+          "t": 522.4641561508179,
           "dur": null,
           "score": null
         },
@@ -2510,87 +2512,71 @@
           "group": "dummy",
           "replica_id": "dummy_13",
           "event": "finish",
-          "t": 537.9352478981018,
-          "dur": 37.51119661331177,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_14",
-          "event": "finish",
-          "t": 538.0929431915283,
-          "dur": 36.4794442653656,
-          "score": null
-        },
-        {
-          "group": "inference",
-          "replica_id": "inference_12",
-          "event": "finish",
-          "t": 573.1968250274658,
-          "dur": 109.11201310157776,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_16",
-          "event": "start",
-          "t": 573.198522567749,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "inference",
-          "replica_id": "inference_15",
-          "event": "start",
-          "t": 573.2125821113586,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_15",
-          "event": "finish",
-          "t": 574.3546733856201,
-          "dur": 37.6021933555603,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_3",
-          "event": "finish",
-          "t": 574.3704266548157,
-          "dur": 72.73720979690552,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_17",
-          "event": "start",
-          "t": 574.370623588562,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_4",
-          "event": "start",
-          "t": 574.3839378356934,
-          "dur": null,
+          "t": 522.6385252475739,
+          "dur": 37.26510787010193,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_13",
           "event": "finish",
-          "t": 609.4214396476746,
-          "dur": 108.97655248641968,
+          "t": 557.429488658905,
+          "dur": 108.06201124191284,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_18",
+          "replica_id": "dummy_16",
           "event": "start",
-          "t": 609.423333644867,
+          "t": 557.4310677051544,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_3",
+          "event": "start",
+          "t": 557.4622390270233,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_14",
+          "event": "finish",
+          "t": 558.6598110198975,
+          "dur": 37.11616659164429,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_15",
+          "event": "finish",
+          "t": 558.8217024803162,
+          "dur": 36.41222786903381,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_14",
+          "event": "finish",
+          "t": 593.6782386302948,
+          "dur": 108.22957992553711,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_17",
+          "event": "start",
+          "t": 593.6805331707001,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_4",
+          "event": "start",
+          "t": 593.7269418239594,
           "dur": null,
           "score": null
         },
@@ -2598,79 +2584,95 @@
           "group": "dummy",
           "replica_id": "dummy_16",
           "event": "finish",
-          "t": 610.629932641983,
-          "dur": 37.43141007423401,
+          "t": 594.9262993335724,
+          "dur": 37.49523162841797,
           "score": null
         },
         {
-          "group": "dummy",
-          "replica_id": "dummy_17",
+          "group": "miniapps",
+          "replica_id": "miniapps_2",
           "event": "finish",
-          "t": 610.7733869552612,
-          "dur": 36.40276336669922,
-          "score": null
-        },
-        {
-          "group": "inference",
-          "replica_id": "inference_14",
-          "event": "finish",
-          "t": 645.872659444809,
-          "dur": 109.10713410377502,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_19",
-          "event": "start",
-          "t": 645.8742301464081,
-          "dur": null,
+          "t": 594.9488787651062,
+          "dur": 72.48472261428833,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_18",
-          "event": "finish",
-          "t": 647.0335276126862,
-          "dur": 37.610193967819214,
+          "event": "start",
+          "t": 594.9490013122559,
+          "dur": null,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_15",
           "event": "finish",
-          "t": 682.9812433719635,
-          "dur": 109.76866126060486,
+          "t": 630.5599229335785,
+          "dur": 108.96464848518372,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_20",
+          "replica_id": "dummy_19",
           "event": "start",
-          "t": 682.9814665317535,
+          "t": 630.5601027011871,
           "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_17",
+          "event": "finish",
+          "t": 632.3527407646179,
+          "dur": 38.67220759391785,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_18",
+          "event": "finish",
+          "t": 632.8735818862915,
+          "dur": 37.924580574035645,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_19",
           "event": "finish",
-          "t": 683.2641546726227,
-          "dur": 37.3899245262146,
+          "t": 656.185540676117,
+          "dur": 25.62543797492981,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_3",
+          "event": "finish",
+          "t": 677.4340105056763,
+          "dur": 119.97177147865295,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_20",
+          "event": "start",
+          "t": 677.4342014789581,
+          "dur": null,
           "score": null
         },
         {
           "group": "miniapps",
           "replica_id": "miniapps_4",
           "event": "finish",
-          "t": 705.5637230873108,
-          "dur": 131.17978525161743,
+          "t": 699.4849467277527,
+          "dur": 105.75800490379333,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_21",
           "event": "start",
-          "t": 705.5639052391052,
+          "t": 699.4851644039154,
           "dur": null,
           "score": null
         },
@@ -2678,75 +2680,75 @@
           "group": "dummy",
           "replica_id": "dummy_20",
           "event": "finish",
-          "t": 705.7226588726044,
-          "dur": 22.74119234085083,
+          "t": 700.5696873664856,
+          "dur": 23.135485887527466,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_21",
           "event": "finish",
-          "t": 717.2981028556824,
-          "dur": 11.734197616577148,
+          "t": 713.0148191452026,
+          "dur": 13.529654741287231,
           "score": null
         }
       ],
       "budget_events": [],
       "policy": "rule",
       "dnf": false,
-      "decision_log": "/scratch/bblj/mgoliyad1/SPHERICAL/workflows/run_campaign/esm2_ddsim_campaign/adr-logs/gpu-rule-run0.jsonl",
+      "decision_log": "/scratch/bblj/mgoliyad1/campaign_manager/workflows/esm2_ddsim_campaign/adr-logs/gpu-rule-run0.jsonl",
       "telemetry_dir": "telemetry-results-gpu-rule-gpu-rule-run0",
-      "miniapps_started": 5,
-      "miniapps_finished": 5,
-      "inference_started": 16,
-      "inference_finished": 16,
       "dummy_started": 22,
       "dummy_finished": 22,
+      "miniapps_started": 5,
+      "miniapps_finished": 5,
       "md_started": 4,
       "md_finished": 4,
-      "time_to_first_miniapps_s": 355.7749590873718,
-      "time_to_first_md_s": 43.38715147972107
+      "inference_started": 16,
+      "inference_finished": 16,
+      "time_to_first_miniapps_s": 378.074063539505,
+      "time_to_first_md_s": 43.30862760543823
     }
   ],
   "bandit": [
     {
-      "wall_time_s": 748.5374176502228,
+      "wall_time_s": 764.5384304523468,
       "group_stats": {
-        "miniapps": {
-          "n_started": 5,
-          "n_finished": 5,
-          "first_start": 234.16230702400208,
-          "last_finish": 731.2888131141663,
-          "span_s": 497.1265060901642,
-          "mean_dur_s": 131.2590576171875,
-          "throughput_rps": 0.010057802065965774
-        },
-        "inference": {
-          "n_started": 16,
-          "n_finished": 16,
-          "first_start": 0.039911508560180664,
-          "last_finish": 663.6330003738403,
-          "span_s": 663.5930888652802,
-          "mean_dur_s": 117.26023542881012,
-          "throughput_rps": 0.02411116129518379
-        },
         "dummy": {
           "n_started": 22,
           "n_finished": 22,
-          "first_start": 0.2873406410217285,
-          "last_finish": 743.0767297744751,
-          "span_s": 742.7893891334534,
-          "mean_dur_s": 33.46872371977026,
-          "throughput_rps": 0.029618085990250148
+          "first_start": 0.5491225719451904,
+          "last_finish": 758.7919805049896,
+          "span_s": 758.2428579330444,
+          "mean_dur_s": 35.09745799411427,
+          "throughput_rps": 0.029014450673457814
+        },
+        "miniapps": {
+          "n_started": 5,
+          "n_finished": 5,
+          "first_start": 171.4571762084961,
+          "last_finish": 602.5821793079376,
+          "span_s": 431.1250030994415,
+          "mean_dur_s": 86.20357537269592,
+          "throughput_rps": 0.011597564428075448
         },
         "md": {
           "n_started": 4,
           "n_finished": 4,
-          "first_start": 0.15067076683044434,
-          "last_finish": 234.1618537902832,
-          "span_s": 234.01118302345276,
-          "mean_dur_s": 58.50245904922485,
-          "throughput_rps": 0.017093200198039754
+          "first_start": 0.05426287651062012,
+          "last_finish": 171.45669388771057,
+          "span_s": 171.40243101119995,
+          "mean_dur_s": 42.85029411315918,
+          "throughput_rps": 0.02333689187721397
+        },
+        "inference": {
+          "n_started": 16,
+          "n_finished": 16,
+          "first_start": 0.01880788803100586,
+          "last_finish": 747.0761749744415,
+          "span_s": 747.0573670864105,
+          "mean_dur_s": 133.13775734603405,
+          "throughput_rps": 0.021417364589283696
         }
       },
       "bp_fractions": {},
@@ -2768,7 +2770,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 0.03966045379638672
+          "timestamp": 0.01833653450012207
         },
         {
           "chosen": [
@@ -2781,7 +2783,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 43.37963509559631
+          "timestamp": 45.9704053401947
         },
         {
           "chosen": [
@@ -2794,61 +2796,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 85.59583759307861
-        },
-        {
-          "chosen": [
-            "dummy"
-          ],
-          "eligible": [
-            "inference",
-            "dummy",
-            "md",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 120.63201379776001
-        },
-        {
-          "chosen": [
-            "inference"
-          ],
-          "eligible": [
-            "inference",
-            "md",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 120.63227033615112
-        },
-        {
-          "chosen": [
-            "dummy"
-          ],
-          "eligible": [
-            "inference",
-            "dummy",
-            "md",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 156.27676010131836
-        },
-        {
-          "chosen": [
-            "inference"
-          ],
-          "eligible": [
-            "inference",
-            "md",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 156.27699542045593
+          "timestamp": 87.35751128196716
         },
         {
           "chosen": [
@@ -2861,7 +2809,19 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 162.9969413280487
+          "timestamp": 129.92615604400635
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 171.4568989276886
         },
         {
           "chosen": [
@@ -2874,7 +2834,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 191.66945505142212
+          "timestamp": 204.88651609420776
         },
         {
           "chosen": [
@@ -2886,7 +2846,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 191.66969084739685
+          "timestamp": 204.8867564201355
         },
         {
           "chosen": [
@@ -2899,7 +2859,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 227.521080493927
+          "timestamp": 241.00688076019287
         },
         {
           "chosen": [
@@ -2911,19 +2871,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 227.52132058143616
-        },
-        {
-          "chosen": [
-            "miniapps"
-          ],
-          "eligible": [
-            "inference",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 234.16204857826233
+          "timestamp": 241.00708866119385
         },
         {
           "chosen": [
@@ -2936,7 +2884,32 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 263.24368238449097
+          "timestamp": 242.22166347503662
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 242.22188663482666
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 276.74104499816895
         },
         {
           "chosen": [
@@ -2948,7 +2921,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 263.24390840530396
+          "timestamp": 276.7413537502289
         },
         {
           "chosen": [
@@ -2961,7 +2934,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 298.87636518478394
+          "timestamp": 312.51593470573425
         },
         {
           "chosen": [
@@ -2973,7 +2946,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 298.87658309936523
+          "timestamp": 312.51628136634827
         },
         {
           "chosen": [
@@ -2986,7 +2959,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 334.84842467308044
+          "timestamp": 347.98404002189636
         },
         {
           "chosen": [
@@ -2998,7 +2971,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 334.8486521244049
+          "timestamp": 347.984281539917
         },
         {
           "chosen": [
@@ -3011,7 +2984,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 370.7458174228668
+          "timestamp": 383.7968375682831
         },
         {
           "chosen": [
@@ -3023,7 +2996,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 370.7460482120514
+          "timestamp": 383.7970414161682
         },
         {
           "chosen": [
@@ -3036,7 +3009,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 371.7912976741791
+          "timestamp": 384.85684871673584
         },
         {
           "chosen": [
@@ -3048,7 +3021,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 371.7915244102478
+          "timestamp": 384.85703682899475
         },
         {
           "chosen": [
@@ -3061,7 +3034,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 406.95287227630615
+          "timestamp": 419.47714591026306
         },
         {
           "chosen": [
@@ -3073,7 +3046,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 406.9531021118164
+          "timestamp": 419.47734928131104
         },
         {
           "chosen": [
@@ -3086,7 +3059,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 442.96681118011475
+          "timestamp": 455.5084853172302
         },
         {
           "chosen": [
@@ -3098,7 +3071,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 442.96705079078674
+          "timestamp": 455.5087013244629
         },
         {
           "chosen": [
@@ -3111,7 +3084,32 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 478.92392683029175
+          "timestamp": 456.7117688655853
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 456.71195220947266
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 491.81821966171265
         },
         {
           "chosen": [
@@ -3123,7 +3121,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 478.9241724014282
+          "timestamp": 491.81847500801086
         },
         {
           "chosen": [
@@ -3136,7 +3134,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 515.0150792598724
+          "timestamp": 528.3032841682434
         },
         {
           "chosen": [
@@ -3148,7 +3146,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 515.0153243541718
+          "timestamp": 528.3034918308258
         },
         {
           "chosen": [
@@ -3161,7 +3159,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 516.3216633796692
+          "timestamp": 529.5202295780182
         },
         {
           "chosen": [
@@ -3173,7 +3171,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 516.3218948841095
+          "timestamp": 529.520402431488
         },
         {
           "chosen": [
@@ -3181,81 +3179,80 @@
           ],
           "eligible": [
             "inference",
-            "dummy",
-            "miniapps"
+            "dummy"
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 551.5213477611542
+          "timestamp": 564.5098469257355
         },
         {
           "chosen": [
             "inference"
           ],
           "eligible": [
+            "inference"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 564.5100889205933
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
             "inference",
-            "miniapps"
+            "dummy"
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 551.5215637683868
+          "timestamp": 601.3605034351349
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 601.3607804775238
         },
         {
           "chosen": [
             "dummy"
           ],
           "eligible": [
-            "dummy",
-            "miniapps"
+            "inference",
+            "dummy"
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 588.3652031421661
-        },
-        {
-          "chosen": [
-            "miniapps"
-          ],
-          "eligible": [
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 588.365644454956
+          "timestamp": 602.5821044445038
         },
         {
           "chosen": [
             "dummy"
           ],
           "eligible": [
-            "dummy",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 625.4593577384949
-        },
-        {
-          "chosen": [
-            "miniapps"
-          ],
-          "eligible": [
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 625.4596409797668
-        },
-        {
-          "chosen": [
-            "dummy"
-          ],
-          "eligible": [
+            "inference",
             "dummy"
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 662.7230594158173
+          "timestamp": 637.8693869113922
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 637.8695931434631
         },
         {
           "chosen": [
@@ -3266,7 +3263,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 664.6674046516418
+          "timestamp": 674.147118806839
         },
         {
           "chosen": [
@@ -3277,7 +3274,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 709.097127199173
+          "timestamp": 709.9861710071564
         },
         {
           "chosen": [
@@ -3288,7 +3285,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 731.2886333465576
+          "timestamp": 746.2284557819366
         }
       ],
       "replica_events": [
@@ -3296,7 +3293,7 @@
           "group": "inference",
           "replica_id": "inference_0",
           "event": "start",
-          "t": 0.039911508560180664,
+          "t": 0.01880788803100586,
           "dur": null,
           "score": null
         },
@@ -3304,7 +3301,7 @@
           "group": "inference",
           "replica_id": "inference_1",
           "event": "start",
-          "t": 0.1505746841430664,
+          "t": 0.05418658256530762,
           "dur": null,
           "score": null
         },
@@ -3312,7 +3309,7 @@
           "group": "md",
           "replica_id": "md_0",
           "event": "start",
-          "t": 0.15067076683044434,
+          "t": 0.05426287651062012,
           "dur": null,
           "score": null
         },
@@ -3320,7 +3317,7 @@
           "group": "inference",
           "replica_id": "inference_2",
           "event": "start",
-          "t": 0.28727006912231445,
+          "t": 0.549058198928833,
           "dur": null,
           "score": null
         },
@@ -3328,7 +3325,7 @@
           "group": "dummy",
           "replica_id": "dummy_0",
           "event": "start",
-          "t": 0.2873406410217285,
+          "t": 0.5491225719451904,
           "dur": null,
           "score": null
         },
@@ -3336,23 +3333,23 @@
           "group": "dummy",
           "replica_id": "dummy_0",
           "event": "finish",
-          "t": 18.03723454475403,
-          "dur": 17.7498939037323,
+          "t": 19.466259479522705,
+          "dur": 18.917136907577515,
           "score": null
         },
         {
           "group": "md",
           "replica_id": "md_0",
           "event": "finish",
-          "t": 43.37945103645325,
-          "dur": 43.2287802696228,
+          "t": 45.970189809799194,
+          "dur": 45.915926933288574,
           "score": null
         },
         {
           "group": "md",
           "replica_id": "md_1",
           "event": "start",
-          "t": 43.37989521026611,
+          "t": 45.97064924240112,
           "dur": null,
           "score": null
         },
@@ -3360,15 +3357,47 @@
           "group": "md",
           "replica_id": "md_1",
           "event": "finish",
-          "t": 85.59563326835632,
-          "dur": 42.21573805809021,
+          "t": 87.3573100566864,
+          "dur": 41.38666081428528,
           "score": null
         },
         {
           "group": "md",
           "replica_id": "md_2",
           "event": "start",
-          "t": 85.59608745574951,
+          "t": 87.35771203041077,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_2",
+          "event": "finish",
+          "t": 129.92597150802612,
+          "dur": 42.568259477615356,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_3",
+          "event": "start",
+          "t": 129.92636466026306,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_3",
+          "event": "finish",
+          "t": 171.45669388771057,
+          "dur": 41.53032922744751,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_0",
+          "event": "start",
+          "t": 171.4571762084961,
           "dur": null,
           "score": null
         },
@@ -3376,15 +3405,15 @@
           "group": "inference",
           "replica_id": "inference_0",
           "event": "finish",
-          "t": 120.6321268081665,
-          "dur": 120.59221529960632,
+          "t": 204.88661861419678,
+          "dur": 204.86781072616577,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_1",
           "event": "start",
-          "t": 120.63512992858887,
+          "t": 204.8891201019287,
           "dur": null,
           "score": null
         },
@@ -3392,7 +3421,7 @@
           "group": "inference",
           "replica_id": "inference_3",
           "event": "start",
-          "t": 120.64860558509827,
+          "t": 204.92176699638367,
           "dur": null,
           "score": null
         },
@@ -3400,15 +3429,15 @@
           "group": "inference",
           "replica_id": "inference_1",
           "event": "finish",
-          "t": 156.2768657207489,
-          "dur": 156.12629103660583,
+          "t": 241.0069727897644,
+          "dur": 240.9527862071991,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_2",
           "event": "start",
-          "t": 156.27991557121277,
+          "t": 241.0085666179657,
           "dur": null,
           "score": null
         },
@@ -3416,7 +3445,7 @@
           "group": "inference",
           "replica_id": "inference_4",
           "event": "start",
-          "t": 156.29946565628052,
+          "t": 241.0364191532135,
           "dur": null,
           "score": null
         },
@@ -3424,23 +3453,31 @@
           "group": "dummy",
           "replica_id": "dummy_1",
           "event": "finish",
-          "t": 157.44686818122864,
-          "dur": 36.81173825263977,
+          "t": 242.2001588344574,
+          "dur": 37.31103873252869,
           "score": null
         },
         {
-          "group": "md",
-          "replica_id": "md_2",
+          "group": "miniapps",
+          "replica_id": "miniapps_0",
           "event": "finish",
-          "t": 162.99677729606628,
-          "dur": 77.40068984031677,
+          "t": 242.2217607498169,
+          "dur": 70.7645845413208,
           "score": null
         },
         {
-          "group": "md",
-          "replica_id": "md_3",
+          "group": "dummy",
+          "replica_id": "dummy_3",
           "event": "start",
-          "t": 162.99722576141357,
+          "t": 242.22198820114136,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_1",
+          "event": "start",
+          "t": 242.25048756599426,
           "dur": null,
           "score": null
         },
@@ -3448,15 +3485,15 @@
           "group": "inference",
           "replica_id": "inference_2",
           "event": "finish",
-          "t": 191.6695580482483,
-          "dur": 191.38228797912598,
+          "t": 276.74118065834045,
+          "dur": 276.1921224594116,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_3",
+          "replica_id": "dummy_4",
           "event": "start",
-          "t": 191.671236038208,
+          "t": 276.74303698539734,
           "dur": null,
           "score": null
         },
@@ -3464,7 +3501,7 @@
           "group": "inference",
           "replica_id": "inference_5",
           "event": "start",
-          "t": 191.6967933177948,
+          "t": 276.76477885246277,
           "dur": null,
           "score": null
         },
@@ -3472,79 +3509,39 @@
           "group": "dummy",
           "replica_id": "dummy_2",
           "event": "finish",
-          "t": 192.84507036209106,
-          "dur": 36.565154790878296,
-          "score": null
-        },
-        {
-          "group": "inference",
-          "replica_id": "inference_3",
-          "event": "finish",
-          "t": 227.52118968963623,
-          "dur": 106.87258410453796,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_4",
-          "event": "start",
-          "t": 227.52285027503967,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "inference",
-          "replica_id": "inference_6",
-          "event": "start",
-          "t": 227.53619050979614,
-          "dur": null,
+          "t": 277.93482661247253,
+          "dur": 36.926259994506836,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_3",
           "event": "finish",
-          "t": 228.71059703826904,
-          "dur": 37.039361000061035,
-          "score": null
-        },
-        {
-          "group": "md",
-          "replica_id": "md_3",
-          "event": "finish",
-          "t": 234.1618537902832,
-          "dur": 71.16462802886963,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_0",
-          "event": "start",
-          "t": 234.16230702400208,
-          "dur": null,
+          "t": 278.0919117927551,
+          "dur": 35.86992359161377,
           "score": null
         },
         {
           "group": "inference",
-          "replica_id": "inference_4",
+          "replica_id": "inference_3",
           "event": "finish",
-          "t": 263.2437834739685,
-          "dur": 106.94431781768799,
+          "t": 312.5160882472992,
+          "dur": 107.59432125091553,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_5",
           "event": "start",
-          "t": 263.2464773654938,
+          "t": 312.5180068016052,
           "dur": null,
           "score": null
         },
         {
           "group": "inference",
-          "replica_id": "inference_7",
+          "replica_id": "inference_6",
           "event": "start",
-          "t": 263.258585691452,
+          "t": 312.54673171043396,
           "dur": null,
           "score": null
         },
@@ -3552,31 +3549,31 @@
           "group": "dummy",
           "replica_id": "dummy_4",
           "event": "finish",
-          "t": 264.425329208374,
-          "dur": 36.90247893333435,
+          "t": 313.70680713653564,
+          "dur": 36.963770151138306,
           "score": null
         },
         {
           "group": "inference",
-          "replica_id": "inference_5",
+          "replica_id": "inference_4",
           "event": "finish",
-          "t": 298.87645983695984,
-          "dur": 107.17966651916504,
+          "t": 347.9841501712799,
+          "dur": 106.9477310180664,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_6",
           "event": "start",
-          "t": 298.87805700302124,
+          "t": 347.98592495918274,
           "dur": null,
           "score": null
         },
         {
           "group": "inference",
-          "replica_id": "inference_8",
+          "replica_id": "inference_7",
           "event": "start",
-          "t": 298.88995575904846,
+          "t": 348.0111107826233,
           "dur": null,
           "score": null
         },
@@ -3584,31 +3581,55 @@
           "group": "dummy",
           "replica_id": "dummy_5",
           "event": "finish",
-          "t": 300.05691480636597,
-          "dur": 36.81043744087219,
+          "t": 349.1898260116577,
+          "dur": 36.67181921005249,
           "score": null
         },
         {
           "group": "inference",
-          "replica_id": "inference_6",
+          "replica_id": "inference_5",
           "event": "finish",
-          "t": 334.8485252857208,
-          "dur": 107.31233477592468,
+          "t": 383.7969300746918,
+          "dur": 107.032151222229,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_7",
           "event": "start",
-          "t": 334.8501389026642,
+          "t": 383.7992925643921,
           "dur": null,
           "score": null
         },
         {
           "group": "inference",
-          "replica_id": "inference_9",
+          "replica_id": "inference_8",
           "event": "start",
-          "t": 334.8634235858917,
+          "t": 383.8261082172394,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_1",
+          "event": "finish",
+          "t": 384.85691833496094,
+          "dur": 142.60643076896667,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_8",
+          "event": "start",
+          "t": 384.8571424484253,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_2",
+          "event": "start",
+          "t": 384.88361859321594,
           "dur": null,
           "score": null
         },
@@ -3616,23 +3637,63 @@
           "group": "dummy",
           "replica_id": "dummy_6",
           "event": "finish",
-          "t": 336.012229681015,
-          "dur": 37.134172677993774,
+          "t": 385.05004358291626,
+          "dur": 37.06411862373352,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_6",
+          "event": "finish",
+          "t": 419.4772391319275,
+          "dur": 106.93050742149353,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_9",
+          "event": "start",
+          "t": 419.4788098335266,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_9",
+          "event": "start",
+          "t": 419.5063922405243,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_7",
+          "event": "finish",
+          "t": 420.69410133361816,
+          "dur": 36.894808769226074,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_8",
+          "event": "finish",
+          "t": 420.85273456573486,
+          "dur": 35.99559211730957,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_7",
           "event": "finish",
-          "t": 370.74591970443726,
-          "dur": 107.48733401298523,
+          "t": 455.50857973098755,
+          "dur": 107.49746894836426,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_8",
+          "replica_id": "dummy_10",
           "event": "start",
-          "t": 370.7478303909302,
+          "t": 455.51017141342163,
           "dur": null,
           "score": null
         },
@@ -3640,39 +3701,39 @@
           "group": "inference",
           "replica_id": "inference_10",
           "event": "start",
-          "t": 370.7655680179596,
+          "t": 455.53471302986145,
           "dur": null,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_0",
-          "event": "finish",
-          "t": 371.79139852523804,
-          "dur": 137.62909150123596,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_7",
-          "event": "finish",
-          "t": 371.9309129714966,
-          "dur": 37.0807740688324,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_9",
+          "event": "finish",
+          "t": 456.69414162635803,
+          "dur": 37.21533179283142,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_2",
+          "event": "finish",
+          "t": 456.7118377685547,
+          "dur": 71.82821917533875,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_11",
           "event": "start",
-          "t": 371.93101358413696,
+          "t": 456.71205019950867,
           "dur": null,
           "score": null
         },
         {
           "group": "miniapps",
-          "replica_id": "miniapps_1",
+          "replica_id": "miniapps_3",
           "event": "start",
-          "t": 371.94773054122925,
+          "t": 456.7374589443207,
           "dur": null,
           "score": null
         },
@@ -3680,15 +3741,15 @@
           "group": "inference",
           "replica_id": "inference_8",
           "event": "finish",
-          "t": 406.95296835899353,
-          "dur": 108.06301259994507,
+          "t": 491.8183310031891,
+          "dur": 107.9922227859497,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_10",
+          "replica_id": "dummy_12",
           "event": "start",
-          "t": 406.9545969963074,
+          "t": 491.8201193809509,
           "dur": null,
           "score": null
         },
@@ -3696,39 +3757,39 @@
           "group": "inference",
           "replica_id": "inference_11",
           "event": "start",
-          "t": 406.9823739528656,
+          "t": 491.8473172187805,
           "dur": null,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_8",
+          "replica_id": "dummy_10",
           "event": "finish",
-          "t": 408.1362564563751,
-          "dur": 37.388426065444946,
+          "t": 493.0133934020996,
+          "dur": 37.50322198867798,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_9",
+          "replica_id": "dummy_11",
           "event": "finish",
-          "t": 408.2783217430115,
-          "dur": 36.34730815887451,
+          "t": 493.1725323200226,
+          "dur": 36.460482120513916,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_9",
           "event": "finish",
-          "t": 442.96691370010376,
-          "dur": 108.10349011421204,
+          "t": 528.3033792972565,
+          "dur": 108.79698705673218,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_11",
+          "replica_id": "dummy_13",
           "event": "start",
-          "t": 442.9689311981201,
+          "t": 528.305046081543,
           "dur": null,
           "score": null
         },
@@ -3736,31 +3797,55 @@
           "group": "inference",
           "replica_id": "inference_12",
           "event": "start",
-          "t": 442.9838252067566,
+          "t": 528.3349015712738,
           "dur": null,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_10",
+          "replica_id": "dummy_12",
           "event": "finish",
-          "t": 444.1593527793884,
-          "dur": 37.204755783081055,
+          "t": 529.5028903484344,
+          "dur": 37.68277096748352,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_3",
+          "event": "finish",
+          "t": 529.5203113555908,
+          "dur": 72.78285241127014,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_14",
+          "event": "start",
+          "t": 529.5205504894257,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_4",
+          "event": "start",
+          "t": 529.5463893413544,
+          "dur": null,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_10",
           "event": "finish",
-          "t": 478.92403197288513,
-          "dur": 108.15846395492554,
+          "t": 564.5099561214447,
+          "dur": 108.97524309158325,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_12",
+          "replica_id": "dummy_15",
           "event": "start",
-          "t": 478.92569160461426,
+          "t": 564.5116546154022,
           "dur": null,
           "score": null
         },
@@ -3768,31 +3853,39 @@
           "group": "inference",
           "replica_id": "inference_13",
           "event": "start",
-          "t": 478.940101146698,
+          "t": 564.5386226177216,
           "dur": null,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_11",
+          "replica_id": "dummy_13",
           "event": "finish",
-          "t": 480.0957851409912,
-          "dur": 37.126853942871094,
+          "t": 565.7066442966461,
+          "dur": 37.40159821510315,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_14",
+          "event": "finish",
+          "t": 565.8637614250183,
+          "dur": 36.34321093559265,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_11",
           "event": "finish",
-          "t": 515.0151913166046,
-          "dur": 108.03281736373901,
+          "t": 601.3606321811676,
+          "dur": 109.51331496238708,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_13",
+          "replica_id": "dummy_16",
           "event": "start",
-          "t": 515.0177345275879,
+          "t": 601.3639168739319,
           "dur": null,
           "score": null
         },
@@ -3800,55 +3893,47 @@
           "group": "inference",
           "replica_id": "inference_14",
           "event": "start",
-          "t": 515.2587523460388,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_1",
-          "event": "finish",
-          "t": 516.3217449188232,
-          "dur": 144.374014377594,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_14",
-          "event": "start",
-          "t": 516.322016954422,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_2",
-          "event": "start",
-          "t": 516.438086271286,
+          "t": 601.3930711746216,
           "dur": null,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_12",
+          "replica_id": "dummy_15",
           "event": "finish",
-          "t": 517.0398633480072,
-          "dur": 38.114171743392944,
+          "t": 602.5630192756653,
+          "dur": 38.05136466026306,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_4",
+          "event": "finish",
+          "t": 602.5821793079376,
+          "dur": 73.03578996658325,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_17",
+          "event": "start",
+          "t": 602.5823063850403,
+          "dur": null,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_12",
           "event": "finish",
-          "t": 551.5214409828186,
-          "dur": 108.53761577606201,
+          "t": 637.869482755661,
+          "dur": 109.5345811843872,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_15",
+          "replica_id": "dummy_18",
           "event": "start",
-          "t": 551.7205958366394,
+          "t": 637.8714284896851,
           "dur": null,
           "score": null
         },
@@ -3856,175 +3941,87 @@
           "group": "inference",
           "replica_id": "inference_15",
           "event": "start",
-          "t": 551.8876738548279,
+          "t": 637.9011862277985,
           "dur": null,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_13",
+          "replica_id": "dummy_16",
           "event": "finish",
-          "t": 553.3257160186768,
-          "dur": 38.30798149108887,
+          "t": 639.0685799121857,
+          "dur": 37.704663038253784,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_14",
+          "replica_id": "dummy_17",
           "event": "finish",
-          "t": 553.7142236232758,
-          "dur": 37.39220666885376,
+          "t": 639.222665309906,
+          "dur": 36.64035892486572,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_13",
           "event": "finish",
-          "t": 588.365394115448,
-          "dur": 109.42529296875,
+          "t": 674.147278547287,
+          "dur": 109.60865592956543,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_16",
+          "replica_id": "dummy_19",
           "event": "start",
-          "t": 588.3672862052917,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_3",
-          "event": "start",
-          "t": 588.5446169376373,
+          "t": 674.1490154266357,
           "dur": null,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_15",
+          "replica_id": "dummy_18",
           "event": "finish",
-          "t": 590.1571071147919,
-          "dur": 38.436511278152466,
+          "t": 675.336339712143,
+          "dur": 37.464911222457886,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_14",
           "event": "finish",
-          "t": 625.4594683647156,
-          "dur": 110.20071601867676,
+          "t": 709.9862957000732,
+          "dur": 108.59322452545166,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_17",
+          "replica_id": "dummy_20",
           "event": "start",
-          "t": 625.4615294933319,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_4",
-          "event": "start",
-          "t": 625.7787318229675,
+          "t": 709.9881916046143,
           "dur": null,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_16",
+          "replica_id": "dummy_19",
           "event": "finish",
-          "t": 627.9258875846863,
-          "dur": 39.55860137939453,
+          "t": 711.1991896629333,
+          "dur": 37.05017423629761,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_15",
           "event": "finish",
-          "t": 663.6330003738403,
-          "dur": 111.74532651901245,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_18",
-          "event": "start",
-          "t": 663.6332855224609,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_2",
-          "event": "finish",
-          "t": 664.667496919632,
-          "dur": 148.22941064834595,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_19",
-          "event": "start",
-          "t": 664.6677107810974,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_17",
-          "event": "finish",
-          "t": 664.8302187919617,
-          "dur": 39.36868929862976,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_18",
-          "event": "finish",
-          "t": 687.4975514411926,
-          "dur": 23.86426591873169,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_19",
-          "event": "finish",
-          "t": 687.6427688598633,
-          "dur": 22.97505807876587,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_3",
-          "event": "finish",
-          "t": 709.0973072052002,
-          "dur": 120.55269026756287,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_20",
-          "event": "start",
-          "t": 709.0975992679596,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_4",
-          "event": "finish",
-          "t": 731.2888131141663,
-          "dur": 105.51008129119873,
+          "t": 747.0761749744415,
+          "dur": 109.17498874664307,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_21",
           "event": "start",
-          "t": 731.289088010788,
+          "t": 747.0763583183289,
           "dur": null,
           "score": null
         },
@@ -4032,75 +4029,75 @@
           "group": "dummy",
           "replica_id": "dummy_20",
           "event": "finish",
-          "t": 731.4430384635925,
-          "dur": 22.345439195632935,
+          "t": 748.2840890884399,
+          "dur": 38.295897483825684,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_21",
           "event": "finish",
-          "t": 743.0767297744751,
-          "dur": 11.787641763687134,
+          "t": 758.7919805049896,
+          "dur": 11.715622186660767,
           "score": null
         }
       ],
       "budget_events": [],
       "policy": "bandit",
       "dnf": false,
-      "decision_log": "/scratch/bblj/mgoliyad1/SPHERICAL/workflows/run_campaign/esm2_ddsim_campaign/adr-logs/gpu-bandit-run0.jsonl",
+      "decision_log": "/scratch/bblj/mgoliyad1/campaign_manager/workflows/esm2_ddsim_campaign/adr-logs/gpu-bandit-run0.jsonl",
       "telemetry_dir": "telemetry-results-gpu-bandit-gpu-bandit-run0",
-      "miniapps_started": 5,
-      "miniapps_finished": 5,
-      "inference_started": 16,
-      "inference_finished": 16,
       "dummy_started": 22,
       "dummy_finished": 22,
+      "miniapps_started": 5,
+      "miniapps_finished": 5,
       "md_started": 4,
       "md_finished": 4,
-      "time_to_first_miniapps_s": 371.79139852523804,
-      "time_to_first_md_s": 43.37945103645325
+      "inference_started": 16,
+      "inference_finished": 16,
+      "time_to_first_miniapps_s": 242.2217607498169,
+      "time_to_first_md_s": 45.970189809799194
     }
   ],
   "llm": [
     {
-      "wall_time_s": 684.7155249118805,
+      "wall_time_s": 695.4015007019043,
       "group_stats": {
-        "miniapps": {
-          "n_started": 5,
-          "n_finished": 5,
-          "first_start": 234.84482979774475,
-          "last_finish": 666.0879101753235,
-          "span_s": 431.24308037757874,
-          "mean_dur_s": 101.20305562019348,
-          "throughput_rps": 0.01159438893633309
-        },
-        "inference": {
-          "n_started": 16,
-          "n_finished": 16,
-          "first_start": 2.7354159355163574,
-          "last_finish": 665.3819670677185,
-          "span_s": 662.6465511322021,
-          "mean_dur_s": 117.1490269601345,
-          "throughput_rps": 0.024145602165531983
-        },
         "dummy": {
           "n_started": 22,
           "n_finished": 22,
-          "first_start": 2.8703737258911133,
-          "last_finish": 679.1305088996887,
-          "span_s": 676.2601351737976,
-          "mean_dur_s": 33.14742296392267,
-          "throughput_rps": 0.03253185993929102
+          "first_start": 3.374155044555664,
+          "last_finish": 690.0267684459686,
+          "span_s": 686.652613401413,
+          "mean_dur_s": 34.6638729355552,
+          "throughput_rps": 0.03203949066911791
+        },
+        "miniapps": {
+          "n_started": 5,
+          "n_finished": 5,
+          "first_start": 242.00885796546936,
+          "last_finish": 678.2760455608368,
+          "span_s": 436.26718759536743,
+          "mean_dur_s": 94.70358362197877,
+          "throughput_rps": 0.011460866510633478
         },
         "md": {
           "n_started": 4,
           "n_finished": 4,
-          "first_start": 2.752023935317993,
-          "last_finish": 234.84437203407288,
-          "span_s": 232.09234809875488,
-          "mean_dur_s": 58.0226873755455,
-          "throughput_rps": 0.017234519072976965
+          "first_start": 3.294672966003418,
+          "last_finish": 242.0081822872162,
+          "span_s": 238.71350932121277,
+          "mean_dur_s": 59.67802447080612,
+          "throughput_rps": 0.016756487772200616
+        },
+        "inference": {
+          "n_started": 16,
+          "n_finished": 16,
+          "first_start": 3.279689311981201,
+          "last_finish": 632.3093402385712,
+          "span_s": 629.02965092659,
+          "mean_dur_s": 110.88738118112087,
+          "throughput_rps": 0.025436002860010264
         }
       },
       "bp_fractions": {},
@@ -4122,7 +4119,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 2.7344229221343994
+          "timestamp": 3.279162883758545
         },
         {
           "chosen": [
@@ -4135,7 +4132,34 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 45.84321427345276
+          "timestamp": 46.73699951171875
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 89.41957592964172
+        },
+        {
+          "chosen": [
+            "inference"
+          ],
+          "eligible": [
+            "inference",
+            "md",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 89.41986799240112
         },
         {
           "chosen": [
@@ -4148,7 +4172,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 86.61471819877625
+          "timestamp": 97.72805666923523
         },
         {
           "chosen": [
@@ -4162,7 +4186,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 119.47268271446228
+          "timestamp": 125.82538151741028
         },
         {
           "chosen": [
@@ -4175,7 +4199,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 119.47293162345886
+          "timestamp": 125.82562279701233
         },
         {
           "chosen": [
@@ -4189,7 +4213,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 155.33794593811035
+          "timestamp": 161.90718936920166
         },
         {
           "chosen": [
@@ -4202,7 +4226,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 155.33820176124573
+          "timestamp": 161.9074273109436
         },
         {
           "chosen": [
@@ -4215,7 +4239,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 161.9760925769806
+          "timestamp": 171.52166986465454
         },
         {
           "chosen": [
@@ -4228,7 +4252,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 191.2616572380066
+          "timestamp": 198.18215322494507
         },
         {
           "chosen": [
@@ -4240,7 +4264,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 191.26189661026
+          "timestamp": 198.1823799610138
         },
         {
           "chosen": [
@@ -4253,7 +4277,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 227.87658071517944
+          "timestamp": 234.1896550655365
         },
         {
           "chosen": [
@@ -4265,7 +4289,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 227.87681794166565
+          "timestamp": 234.18995666503906
         },
         {
           "chosen": [
@@ -4277,7 +4301,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 234.84459328651428
+          "timestamp": 242.0084583759308
         },
         {
           "chosen": [
@@ -4290,7 +4314,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 263.73831844329834
+          "timestamp": 270.0440893173218
         },
         {
           "chosen": [
@@ -4302,7 +4326,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 263.73854804039
+          "timestamp": 270.0442645549774
         },
         {
           "chosen": [
@@ -4315,7 +4339,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 299.8093318939209
+          "timestamp": 306.1337265968323
         },
         {
           "chosen": [
@@ -4327,7 +4351,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 299.8095808029175
+          "timestamp": 306.1339211463928
         },
         {
           "chosen": [
@@ -4340,7 +4364,32 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 336.09963750839233
+          "timestamp": 307.0354480743408
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "inference",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 307.0356583595276
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "inference",
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 341.70672392845154
         },
         {
           "chosen": [
@@ -4352,7 +4401,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 336.09987211227417
+          "timestamp": 341.70694303512573
         },
         {
           "chosen": [
@@ -4365,7 +4414,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 372.6304512023926
+          "timestamp": 377.648232460022
         },
         {
           "chosen": [
@@ -4377,7 +4426,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 372.6307866573334
+          "timestamp": 377.64857268333435
         },
         {
           "chosen": [
@@ -4390,7 +4439,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 373.6823616027832
+          "timestamp": 378.8919219970703
         },
         {
           "chosen": [
@@ -4402,7 +4451,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 373.6827304363251
+          "timestamp": 378.8921663761139
         },
         {
           "chosen": [
@@ -4415,7 +4464,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 408.7675733566284
+          "timestamp": 413.6473391056061
         },
         {
           "chosen": [
@@ -4427,7 +4476,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 408.76787638664246
+          "timestamp": 413.64762330055237
         },
         {
           "chosen": [
@@ -4440,7 +4489,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 445.1116542816162
+          "timestamp": 449.77589750289917
         },
         {
           "chosen": [
@@ -4452,7 +4501,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 445.1118998527527
+          "timestamp": 449.77611231803894
         },
         {
           "chosen": [
@@ -4465,32 +4514,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 446.3109347820282
-        },
-        {
-          "chosen": [
-            "miniapps"
-          ],
-          "eligible": [
-            "inference",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 446.3111276626587
-        },
-        {
-          "chosen": [
-            "dummy"
-          ],
-          "eligible": [
-            "inference",
-            "dummy",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 481.46534538269043
+          "timestamp": 486.0933291912079
         },
         {
           "chosen": [
@@ -4502,7 +4526,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 481.46563482284546
+          "timestamp": 486.0935904979706
         },
         {
           "chosen": [
@@ -4515,7 +4539,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 517.7791376113892
+          "timestamp": 522.4594078063965
         },
         {
           "chosen": [
@@ -4527,57 +4551,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 517.7793741226196
-        },
-        {
-          "chosen": [
-            "dummy"
-          ],
-          "eligible": [
-            "inference",
-            "dummy",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 518.969057559967
-        },
-        {
-          "chosen": [
-            "miniapps"
-          ],
-          "eligible": [
-            "inference",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 518.9693264961243
-        },
-        {
-          "chosen": [
-            "dummy"
-          ],
-          "eligible": [
-            "inference",
-            "dummy",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 554.2187595367432
-        },
-        {
-          "chosen": [
-            "inference"
-          ],
-          "eligible": [
-            "inference",
-            "miniapps"
-          ],
-          "bandit": {},
-          "bandit_means": {},
-          "timestamp": 554.2189791202545
+          "timestamp": 522.4596371650696
         },
         {
           "chosen": [
@@ -4589,7 +4563,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 590.6849858760834
+          "timestamp": 523.5138580799103
         },
         {
           "chosen": [
@@ -4600,7 +4574,30 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 590.6852238178253
+          "timestamp": 523.5140268802643
+        },
+        {
+          "chosen": [
+            "dummy"
+          ],
+          "eligible": [
+            "dummy",
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 558.8768255710602
+        },
+        {
+          "chosen": [
+            "miniapps"
+          ],
+          "eligible": [
+            "miniapps"
+          ],
+          "bandit": {},
+          "bandit_means": {},
+          "timestamp": 558.8770470619202
         },
         {
           "chosen": [
@@ -4611,7 +4608,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 627.0959107875824
+          "timestamp": 595.0517361164093
         },
         {
           "chosen": [
@@ -4622,7 +4619,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 663.6845042705536
+          "timestamp": 596.2674548625946
         },
         {
           "chosen": [
@@ -4633,7 +4630,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 665.6695327758789
+          "timestamp": 631.387136220932
         },
         {
           "chosen": [
@@ -4644,7 +4641,7 @@
           ],
           "bandit": {},
           "bandit_means": {},
-          "timestamp": 666.0878298282623
+          "timestamp": 678.2759518623352
         }
       ],
       "replica_events": [
@@ -4652,7 +4649,7 @@
           "group": "inference",
           "replica_id": "inference_0",
           "event": "start",
-          "t": 2.7354159355163574,
+          "t": 3.279689311981201,
           "dur": null,
           "score": null
         },
@@ -4660,7 +4657,7 @@
           "group": "inference",
           "replica_id": "inference_1",
           "event": "start",
-          "t": 2.751972198486328,
+          "t": 3.294613838195801,
           "dur": null,
           "score": null
         },
@@ -4668,7 +4665,7 @@
           "group": "md",
           "replica_id": "md_0",
           "event": "start",
-          "t": 2.752023935317993,
+          "t": 3.294672966003418,
           "dur": null,
           "score": null
         },
@@ -4676,7 +4673,7 @@
           "group": "inference",
           "replica_id": "inference_2",
           "event": "start",
-          "t": 2.87031888961792,
+          "t": 3.374114990234375,
           "dur": null,
           "score": null
         },
@@ -4684,7 +4681,7 @@
           "group": "dummy",
           "replica_id": "dummy_0",
           "event": "start",
-          "t": 2.8703737258911133,
+          "t": 3.374155044555664,
           "dur": null,
           "score": null
         },
@@ -4692,39 +4689,23 @@
           "group": "dummy",
           "replica_id": "dummy_0",
           "event": "finish",
-          "t": 20.97128391265869,
-          "dur": 18.100910186767578,
+          "t": 20.547295331954956,
+          "dur": 17.173140287399292,
           "score": null
         },
         {
           "group": "md",
           "replica_id": "md_0",
           "event": "finish",
-          "t": 45.84292483329773,
-          "dur": 43.090900897979736,
+          "t": 46.73675298690796,
+          "dur": 43.44208002090454,
           "score": null
         },
         {
           "group": "md",
           "replica_id": "md_1",
           "event": "start",
-          "t": 45.84356951713562,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "md",
-          "replica_id": "md_1",
-          "event": "finish",
-          "t": 86.61446952819824,
-          "dur": 40.77090001106262,
-          "score": null
-        },
-        {
-          "group": "md",
-          "replica_id": "md_2",
-          "event": "start",
-          "t": 86.61503982543945,
+          "t": 46.73725914955139,
           "dur": null,
           "score": null
         },
@@ -4732,15 +4713,15 @@
           "group": "inference",
           "replica_id": "inference_0",
           "event": "finish",
-          "t": 119.47278165817261,
-          "dur": 116.73736572265625,
+          "t": 89.41971111297607,
+          "dur": 86.14002180099487,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_1",
           "event": "start",
-          "t": 119.47437810897827,
+          "t": 89.42004132270813,
           "dur": null,
           "score": null
         },
@@ -4748,7 +4729,23 @@
           "group": "inference",
           "replica_id": "inference_3",
           "event": "start",
-          "t": 119.48980116844177,
+          "t": 89.95859360694885,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_1",
+          "event": "finish",
+          "t": 97.7278106212616,
+          "dur": 50.990551471710205,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_2",
+          "event": "start",
+          "t": 97.72832345962524,
           "dur": null,
           "score": null
         },
@@ -4756,15 +4753,15 @@
           "group": "inference",
           "replica_id": "inference_1",
           "event": "finish",
-          "t": 155.33805394172668,
-          "dur": 152.58608174324036,
+          "t": 125.82549738883972,
+          "dur": 122.53088355064392,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_2",
           "event": "start",
-          "t": 155.34075140953064,
+          "t": 125.82707905769348,
           "dur": null,
           "score": null
         },
@@ -4772,7 +4769,7 @@
           "group": "inference",
           "replica_id": "inference_4",
           "event": "start",
-          "t": 155.3533158302307,
+          "t": 126.30097794532776,
           "dur": null,
           "score": null
         },
@@ -4780,39 +4777,23 @@
           "group": "dummy",
           "replica_id": "dummy_1",
           "event": "finish",
-          "t": 156.5092043876648,
-          "dur": 37.03482627868652,
-          "score": null
-        },
-        {
-          "group": "md",
-          "replica_id": "md_2",
-          "event": "finish",
-          "t": 161.97592902183533,
-          "dur": 75.36088919639587,
-          "score": null
-        },
-        {
-          "group": "md",
-          "replica_id": "md_3",
-          "event": "start",
-          "t": 161.9763126373291,
-          "dur": null,
+          "t": 127.86378383636475,
+          "dur": 38.443742513656616,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_2",
           "event": "finish",
-          "t": 191.26175713539124,
-          "dur": 188.39143824577332,
+          "t": 161.9072813987732,
+          "dur": 158.53316640853882,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_3",
           "event": "start",
-          "t": 191.26348114013672,
+          "t": 161.90891814231873,
           "dur": null,
           "score": null
         },
@@ -4820,7 +4801,7 @@
           "group": "inference",
           "replica_id": "inference_5",
           "event": "start",
-          "t": 191.2760832309723,
+          "t": 162.41229701042175,
           "dur": null,
           "score": null
         },
@@ -4828,23 +4809,39 @@
           "group": "dummy",
           "replica_id": "dummy_2",
           "event": "finish",
-          "t": 192.45679116249084,
-          "dur": 37.116039752960205,
+          "t": 164.2975878715515,
+          "dur": 38.47050881385803,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_2",
+          "event": "finish",
+          "t": 171.52151083946228,
+          "dur": 73.79318737983704,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_3",
+          "event": "start",
+          "t": 171.52190327644348,
+          "dur": null,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_3",
           "event": "finish",
-          "t": 227.87668132781982,
-          "dur": 108.38688015937805,
+          "t": 198.18225145339966,
+          "dur": 108.2236578464508,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_4",
           "event": "start",
-          "t": 227.87828946113586,
+          "t": 198.18382835388184,
           "dur": null,
           "score": null
         },
@@ -4852,7 +4849,7 @@
           "group": "inference",
           "replica_id": "inference_6",
           "event": "start",
-          "t": 227.89197421073914,
+          "t": 198.38784289360046,
           "dur": null,
           "score": null
         },
@@ -4860,39 +4857,23 @@
           "group": "dummy",
           "replica_id": "dummy_3",
           "event": "finish",
-          "t": 229.04092741012573,
-          "dur": 37.777446269989014,
-          "score": null
-        },
-        {
-          "group": "md",
-          "replica_id": "md_3",
-          "event": "finish",
-          "t": 234.84437203407288,
-          "dur": 72.86805939674377,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_0",
-          "event": "start",
-          "t": 234.84482979774475,
-          "dur": null,
+          "t": 199.8062822818756,
+          "dur": 37.897364139556885,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_4",
           "event": "finish",
-          "t": 263.73841762542725,
-          "dur": 108.38510179519653,
+          "t": 234.18977975845337,
+          "dur": 107.88880181312561,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_5",
           "event": "start",
-          "t": 263.7402534484863,
+          "t": 234.19153237342834,
           "dur": null,
           "score": null
         },
@@ -4900,7 +4881,7 @@
           "group": "inference",
           "replica_id": "inference_7",
           "event": "start",
-          "t": 263.76748275756836,
+          "t": 234.24032759666443,
           "dur": null,
           "score": null
         },
@@ -4908,23 +4889,39 @@
           "group": "dummy",
           "replica_id": "dummy_4",
           "event": "finish",
-          "t": 264.9122760295868,
-          "dur": 37.03398656845093,
+          "t": 235.40456104278564,
+          "dur": 37.22073268890381,
+          "score": null
+        },
+        {
+          "group": "md",
+          "replica_id": "md_3",
+          "event": "finish",
+          "t": 242.0081822872162,
+          "dur": 70.4862790107727,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_0",
+          "event": "start",
+          "t": 242.00885796546936,
+          "dur": null,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_5",
           "event": "finish",
-          "t": 299.80943059921265,
-          "dur": 108.53334736824036,
+          "t": 270.0441689491272,
+          "dur": 107.63187193870544,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_6",
           "event": "start",
-          "t": 299.8123462200165,
+          "t": 270.04596853256226,
           "dur": null,
           "score": null
         },
@@ -4932,7 +4929,7 @@
           "group": "inference",
           "replica_id": "inference_8",
           "event": "start",
-          "t": 299.8255383968353,
+          "t": 270.09271812438965,
           "dur": null,
           "score": null
         },
@@ -4940,23 +4937,23 @@
           "group": "dummy",
           "replica_id": "dummy_5",
           "event": "finish",
-          "t": 301.00079894065857,
-          "dur": 37.26054549217224,
+          "t": 271.2552399635315,
+          "dur": 37.06370759010315,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_6",
           "event": "finish",
-          "t": 336.09973645210266,
-          "dur": 108.20776224136353,
+          "t": 306.133816242218,
+          "dur": 107.74597334861755,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_7",
           "event": "start",
-          "t": 336.29245829582214,
+          "t": 306.1340138912201,
           "dur": null,
           "score": null
         },
@@ -4964,7 +4961,7 @@
           "group": "inference",
           "replica_id": "inference_9",
           "event": "start",
-          "t": 336.31468176841736,
+          "t": 306.15728735923767,
           "dur": null,
           "score": null
         },
@@ -4972,271 +4969,247 @@
           "group": "dummy",
           "replica_id": "dummy_6",
           "event": "finish",
-          "t": 337.468302488327,
-          "dur": 37.65595626831055,
-          "score": null
-        },
-        {
-          "group": "inference",
-          "replica_id": "inference_7",
-          "event": "finish",
-          "t": 372.63059639930725,
-          "dur": 108.86311364173889,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_8",
-          "event": "start",
-          "t": 372.6349427700043,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "inference",
-          "replica_id": "inference_10",
-          "event": "start",
-          "t": 372.6557958126068,
-          "dur": null,
+          "t": 307.0182902812958,
+          "dur": 36.97232174873352,
           "score": null
         },
         {
           "group": "miniapps",
           "replica_id": "miniapps_0",
           "event": "finish",
-          "t": 373.68246388435364,
-          "dur": 138.8376340866089,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_7",
-          "event": "finish",
-          "t": 373.8312077522278,
-          "dur": 37.53874945640564,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_9",
-          "event": "start",
-          "t": 373.8315351009369,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_1",
-          "event": "start",
-          "t": 373.84371542930603,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "inference",
-          "replica_id": "inference_8",
-          "event": "finish",
-          "t": 408.76769399642944,
-          "dur": 108.94215559959412,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_10",
-          "event": "start",
-          "t": 408.769659280777,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "inference",
-          "replica_id": "inference_11",
-          "event": "start",
-          "t": 408.78473258018494,
-          "dur": null,
+          "t": 307.03553080558777,
+          "dur": 65.02667284011841,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_8",
-          "event": "finish",
-          "t": 409.9628896713257,
-          "dur": 37.32794690132141,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_9",
-          "event": "finish",
-          "t": 410.10045433044434,
-          "dur": 36.268919229507446,
-          "score": null
-        },
-        {
-          "group": "inference",
-          "replica_id": "inference_9",
-          "event": "finish",
-          "t": 445.11175751686096,
-          "dur": 108.7970757484436,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_11",
           "event": "start",
-          "t": 445.11388421058655,
+          "t": 307.0357701778412,
           "dur": null,
-          "score": null
-        },
-        {
-          "group": "inference",
-          "replica_id": "inference_12",
-          "event": "start",
-          "t": 445.12771701812744,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_10",
-          "event": "finish",
-          "t": 446.2964963912964,
-          "dur": 37.52683711051941,
           "score": null
         },
         {
           "group": "miniapps",
           "replica_id": "miniapps_1",
-          "event": "finish",
-          "t": 446.3110089302063,
-          "dur": 72.46729350090027,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_12",
           "event": "start",
-          "t": 446.311238527298,
+          "t": 307.07424092292786,
           "dur": null,
           "score": null
         },
         {
-          "group": "miniapps",
-          "replica_id": "miniapps_2",
+          "group": "inference",
+          "replica_id": "inference_7",
+          "event": "finish",
+          "t": 341.7068226337433,
+          "dur": 107.46649503707886,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_9",
           "event": "start",
-          "t": 446.33728551864624,
+          "t": 341.7084004878998,
           "dur": null,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_10",
-          "event": "finish",
-          "t": 481.46546626091003,
-          "dur": 108.80967044830322,
+          "event": "start",
+          "t": 341.7416365146637,
+          "dur": null,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_13",
-          "event": "start",
-          "t": 481.4675250053406,
-          "dur": null,
+          "replica_id": "dummy_7",
+          "event": "finish",
+          "t": 342.9049916267395,
+          "dur": 36.77097773551941,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_8",
+          "event": "finish",
+          "t": 343.05745935440063,
+          "dur": 36.02168917655945,
           "score": null
         },
         {
           "group": "inference",
-          "replica_id": "inference_13",
+          "replica_id": "inference_8",
+          "event": "finish",
+          "t": 377.64838123321533,
+          "dur": 107.55566310882568,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_10",
           "event": "start",
-          "t": 481.4802951812744,
+          "t": 377.65126848220825,
           "dur": null,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_11",
-          "event": "finish",
-          "t": 482.66278982162476,
-          "dur": 37.54890561103821,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_12",
-          "event": "finish",
-          "t": 482.80972719192505,
-          "dur": 36.498488664627075,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_11",
-          "event": "finish",
-          "t": 517.7792410850525,
-          "dur": 108.99450850486755,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_14",
           "event": "start",
-          "t": 517.7824656963348,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "inference",
-          "replica_id": "inference_14",
-          "event": "start",
-          "t": 517.7961053848267,
+          "t": 377.70359659194946,
           "dur": null,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_13",
+          "replica_id": "dummy_9",
           "event": "finish",
-          "t": 518.9531970024109,
-          "dur": 37.48567199707031,
+          "t": 378.8708245754242,
+          "dur": 37.162424087524414,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_1",
+          "event": "finish",
+          "t": 378.89203572273254,
+          "dur": 71.81779479980469,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_11",
+          "event": "start",
+          "t": 378.8922622203827,
+          "dur": null,
           "score": null
         },
         {
           "group": "miniapps",
           "replica_id": "miniapps_2",
-          "event": "finish",
-          "t": 518.9691872596741,
-          "dur": 72.63190174102783,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_15",
           "event": "start",
-          "t": 518.9694938659668,
+          "t": 378.92661571502686,
           "dur": null,
           "score": null
         },
         {
-          "group": "miniapps",
-          "replica_id": "miniapps_3",
+          "group": "inference",
+          "replica_id": "inference_9",
+          "event": "finish",
+          "t": 413.64747309684753,
+          "dur": 107.49018573760986,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_12",
           "event": "start",
-          "t": 518.9799304008484,
+          "t": 413.6491332054138,
           "dur": null,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_12",
-          "event": "finish",
-          "t": 554.2188529968262,
-          "dur": 109.09113597869873,
+          "event": "start",
+          "t": 413.6915829181671,
+          "dur": null,
           "score": null
         },
         {
           "group": "dummy",
-          "replica_id": "dummy_16",
+          "replica_id": "dummy_10",
+          "event": "finish",
+          "t": 414.85272097587585,
+          "dur": 37.2014524936676,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_11",
+          "event": "finish",
+          "t": 415.0060350894928,
+          "dur": 36.11377286911011,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_10",
+          "event": "finish",
+          "t": 449.7759943008423,
+          "dur": 108.03435778617859,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_13",
           "event": "start",
-          "t": 554.2204616069794,
+          "t": 449.77760910987854,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_13",
+          "event": "start",
+          "t": 449.8193202018738,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_12",
+          "event": "finish",
+          "t": 450.97818303108215,
+          "dur": 37.329049825668335,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_11",
+          "event": "finish",
+          "t": 486.0934693813324,
+          "dur": 108.38987278938293,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_14",
+          "event": "start",
+          "t": 486.09525871276855,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_14",
+          "event": "start",
+          "t": 486.1324841976166,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_13",
+          "event": "finish",
+          "t": 487.29868721961975,
+          "dur": 37.52107810974121,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_12",
+          "event": "finish",
+          "t": 522.4595172405243,
+          "dur": 108.76793432235718,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_15",
+          "event": "start",
+          "t": 522.461238861084,
           "dur": null,
           "score": null
         },
@@ -5244,7 +5217,31 @@
           "group": "inference",
           "replica_id": "inference_15",
           "event": "start",
-          "t": 554.2278826236725,
+          "t": 522.4870893955231,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_2",
+          "event": "finish",
+          "t": 523.5139243602753,
+          "dur": 144.5873086452484,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_16",
+          "event": "start",
+          "t": 523.5141267776489,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_3",
+          "event": "start",
+          "t": 523.5450155735016,
           "dur": null,
           "score": null
         },
@@ -5252,31 +5249,23 @@
           "group": "dummy",
           "replica_id": "dummy_14",
           "event": "finish",
-          "t": 555.4085304737091,
-          "dur": 37.62606477737427,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_15",
-          "event": "finish",
-          "t": 555.5415275096893,
-          "dur": 36.572033643722534,
+          "t": 523.718245267868,
+          "dur": 37.62298655509949,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_13",
           "event": "finish",
-          "t": 590.6851027011871,
-          "dur": 109.20480751991272,
+          "t": 558.8769261837006,
+          "dur": 109.05760598182678,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_17",
           "event": "start",
-          "t": 590.6867563724518,
+          "t": 558.8786458969116,
           "dur": null,
           "score": null
         },
@@ -5284,31 +5273,39 @@
           "group": "miniapps",
           "replica_id": "miniapps_4",
           "event": "start",
-          "t": 590.699147939682,
+          "t": 558.9124338626862,
           "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_15",
+          "event": "finish",
+          "t": 560.0977227687836,
+          "dur": 37.636483907699585,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_16",
           "event": "finish",
-          "t": 591.869225025177,
-          "dur": 37.64876341819763,
+          "t": 560.2546489238739,
+          "dur": 36.740522146224976,
           "score": null
         },
         {
           "group": "inference",
           "replica_id": "inference_14",
           "event": "finish",
-          "t": 627.0960075855255,
-          "dur": 109.29990220069885,
+          "t": 595.0518407821655,
+          "dur": 108.91935658454895,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_18",
           "event": "start",
-          "t": 627.0978262424469,
+          "t": 595.0544373989105,
           "dur": null,
           "score": null
         },
@@ -5316,106 +5313,106 @@
           "group": "dummy",
           "replica_id": "dummy_17",
           "event": "finish",
-          "t": 628.2960793972015,
-          "dur": 37.609323024749756,
-          "score": null
-        },
-        {
-          "group": "inference",
-          "replica_id": "inference_15",
-          "event": "finish",
-          "t": 665.3819670677185,
-          "dur": 111.15408444404602,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_19",
-          "event": "start",
-          "t": 665.3822085857391,
-          "dur": null,
+          "t": 596.2482166290283,
+          "dur": 37.3695707321167,
           "score": null
         },
         {
           "group": "miniapps",
           "replica_id": "miniapps_3",
           "event": "finish",
-          "t": 665.6696169376373,
-          "dur": 146.68968653678894,
+          "t": 596.2675457000732,
+          "dur": 72.72253012657166,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_19",
+          "event": "start",
+          "t": 596.2676711082458,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "inference",
+          "replica_id": "inference_15",
+          "event": "finish",
+          "t": 632.3093402385712,
+          "dur": 109.8222508430481,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_20",
+          "event": "start",
+          "t": 632.3095326423645,
+          "dur": null,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_18",
           "event": "finish",
-          "t": 666.0190427303314,
-          "dur": 38.92121648788452,
-          "score": null
-        },
-        {
-          "group": "miniapps",
-          "replica_id": "miniapps_4",
-          "event": "finish",
-          "t": 666.0879101753235,
-          "dur": 75.38876223564148,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_20",
-          "event": "start",
-          "t": 666.0880801677704,
-          "dur": null,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_21",
-          "event": "start",
-          "t": 666.2538776397705,
-          "dur": null,
+          "t": 633.5076377391815,
+          "dur": 38.453200340270996,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_19",
           "event": "finish",
-          "t": 678.4643776416779,
-          "dur": 13.08216905593872,
-          "score": null
-        },
-        {
-          "group": "dummy",
-          "replica_id": "dummy_21",
-          "event": "finish",
-          "t": 678.819953918457,
-          "dur": 12.566076278686523,
+          "t": 633.6650454998016,
+          "dur": 37.397374391555786,
           "score": null
         },
         {
           "group": "dummy",
           "replica_id": "dummy_20",
           "event": "finish",
-          "t": 679.1305088996887,
-          "dur": 13.042428731918335,
+          "t": 656.5820660591125,
+          "dur": 24.272533416748047,
+          "score": null
+        },
+        {
+          "group": "miniapps",
+          "replica_id": "miniapps_4",
+          "event": "finish",
+          "t": 678.2760455608368,
+          "dur": 119.36361169815063,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_21",
+          "event": "start",
+          "t": 678.2761974334717,
+          "dur": null,
+          "score": null
+        },
+        {
+          "group": "dummy",
+          "replica_id": "dummy_21",
+          "event": "finish",
+          "t": 690.0267684459686,
+          "dur": 11.750571012496948,
           "score": null
         }
       ],
       "budget_events": [],
       "policy": "llm",
       "dnf": false,
-      "decision_log": "/scratch/bblj/mgoliyad1/SPHERICAL/workflows/run_campaign/esm2_ddsim_campaign/adr-logs/gpu-llm-run0.jsonl",
+      "decision_log": "/scratch/bblj/mgoliyad1/campaign_manager/workflows/esm2_ddsim_campaign/adr-logs/gpu-llm-run0.jsonl",
       "telemetry_dir": "telemetry-results-gpu-llm-gpu-llm-run0",
-      "miniapps_started": 5,
-      "miniapps_finished": 5,
-      "inference_started": 16,
-      "inference_finished": 16,
       "dummy_started": 22,
       "dummy_finished": 22,
+      "miniapps_started": 5,
+      "miniapps_finished": 5,
       "md_started": 4,
       "md_finished": 4,
-      "time_to_first_miniapps_s": 373.68246388435364,
-      "time_to_first_md_s": 45.84292483329773
+      "inference_started": 16,
+      "inference_finished": 16,
+      "time_to_first_miniapps_s": 307.03553080558777,
+      "time_to_first_md_s": 46.73675298690796
     }
   ]
 }

@@ -123,7 +123,7 @@ echo "── Step 6: SPHERICAL [dragon,dev,esm2] ──"
 # ── 7. Campaign requirements ──────────────────────────────────────────────────
 echo ""
 echo "── Step 7: esm2_ddsim_campaign requirements ──"
-CAMP_DIR="${SPHERICAL_DIR}/workflows/run_campaign/esm2_ddsim_campaign"
+CAMP_DIR="${SPHERICAL_DIR}/workflows/esm2_ddsim_campaign"
 if [ -f "${CAMP_DIR}/requirements.txt" ]; then
     "${PIP}" install -q -r "${CAMP_DIR}/requirements.txt"
 fi

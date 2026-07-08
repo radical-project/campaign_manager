@@ -71,7 +71,7 @@ cm:
   monitor_interval_s: 10
 
   adr:
-    policy:    rule      # override via --policies in benchmark_adr_gpu.py
+    policy:    rule      # override via --policies in benchmark.py
     tick_s:    2.0
     warmstart: true
     seed:      0
@@ -98,7 +98,7 @@ cm:
 
 # ── Workflow Registry ────────────────────────────────────────────────────────
 workflow_registry:
-  dummy:     dummy_workflow.DDSimWorkflow
+  dummy:     dummy_workflow.DummyWrapperWorkflow
   md:        ddmd_workflow.DDMdWrapperWorkflow
   miniapps:  miniapps_workflow.MiniAppsWrapperWorkflow
   inference: inference_workflow.InferenceWorkflow
@@ -113,7 +113,7 @@ workflows:
   # replicas=16: 16/3 × 114 s ≈ 608 s — inference is active throughout the
   # md→miniapps pipeline (last miniapps finishes ~370 s), creating real GPU
   # contention for the entire miniapps phase.
-  # stub_sleep_s=37: used only when benchmark_adr_gpu.py forces debug=True.
+  # stub_sleep_s=37: used only when benchmark.py forces debug=True.
   inference:
     priority:             9
     replicas:             16           # 16/3 × 114 s ≈ 608 s — inference stays active

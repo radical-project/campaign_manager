@@ -80,7 +80,7 @@ class MiniAppsWrapperWorkflow(BaseWorkflow):
 
         await workflow.start()
 
-    def _on_completion(self, replica_id: str, cm, final_state: str):
+    async def on_replica_done(self, replica_id: str, cm, final_state: str) -> None:
         """DAG edge: miniapps ──→ dummy.
 
         Each finished MiniApps replica (ML analysis complete) triggers one
@@ -88,5 +88,5 @@ class MiniAppsWrapperWorkflow(BaseWorkflow):
         not propagate downstream.
         """
         if final_state != "done":
-            return None
-        return {"name": "dummy", "replicas": 1}
+            return
+        await self._trigger_dependent("dummy", replicas=1)

@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-plot_adr_optimizations.py — outcome figures for the ADR policy benchmark.
+plot_benchmark.py — benchmark outcome figures for the Dreamer campaign.
 
-Reads benchmark_adr_results.json produced by benchmark.py (formerly benchmark_adr.py)
-and generates 4 PNG files comparing rule / bandit / llm / none scheduling policies:
+Reads benchmark_results.json produced by benchmark.py and generates 4 PNG
+files comparing rule / bandit / llm / none scheduling policies:
 
-  1_wall_time.png       wall time to target, per policy
-  2_pipeline_gantt.png  stage execution overlap, per policy
-  3_cascade_funnel.png  total instances launched per stage, per policy
-  7_time_to_target.png  cumulative terminal-stage completions over wall time
+  1_wall_time.png        wall time to target, per policy
+  2_pipeline_gantt.png   stage execution overlap, per policy
+  3_cascade_funnel.png   total instances launched per stage, per policy
+  4_time_to_target.png   cumulative terminal-stage completions over wall time
 
 Usage:
-    python plot_adr_optimizations.py [--results benchmark_adr_results.json] [--out-dir plots/adr]
+    python plot_benchmark.py [--results benchmark_results.json] [--out-dir plots]
 """
 
 from __future__ import annotations
@@ -142,18 +142,6 @@ def _repr_run(runs, key="wall_time_s"):
     return runs[idx]
 
 
-def _reconstruct_intervals(replica_events):
-    starts: dict[str, float] = {}
-    groups: dict[str, str] = {}
-    for e in replica_events:
-        rid = e["replica_id"]
-        if e["event"] == "start":
-            starts[rid] = e["t"]
-            groups[rid] = e["group"]
-        elif e["event"] == "finish" and rid in starts:
-            yield starts[rid], e["t"], groups[rid]
-
-
 # ── Plots ─────────────────────────────────────────────────────────────────────
 
 def plot_wall_time(results: dict, out_dir: Path) -> None:
@@ -188,7 +176,7 @@ def plot_wall_time(results: dict, out_dir: Path) -> None:
     ax.set_ylabel("Wall time to target (s)")
     base_note = f"; % vs {_cname(base_key)}" if have_base else ""
     ax.set_title("Campaign wall time by ADR policy\n"
-                 f"(time to find 5 high-quality candidates; lower is better{base_note})")
+                 f"(time to reach terminal stage target; lower is better{base_note})")
     plt.tight_layout()
     if WALL_CAPTION:
         _caption(fig, WALL_CAPTION)
@@ -371,17 +359,17 @@ def plot_time_to_target(
     ax.grid(linestyle="--", alpha=0.3)
     plt.tight_layout()
     _caption(fig, TTT_CAPTION)
-    plt.savefig(out_dir / "7_time_to_target.png", dpi=150, bbox_inches="tight")
+    plt.savefig(out_dir / "4_time_to_target.png", dpi=150, bbox_inches="tight")
     plt.close()
-    print("  7_time_to_target.png")
+    print("  4_time_to_target.png")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--results", default="benchmark_adr_results.json")
-    ap.add_argument("--out-dir", default="plots/adr")
+    ap.add_argument("--results", default="benchmark_results.json")
+    ap.add_argument("--out-dir", default="plots")
     args = ap.parse_args()
 
     with open(args.results) as f:
@@ -392,7 +380,6 @@ def main() -> None:
             f"No ADR policy keys {list(CFG_COLORS)} found in {args.results}. "
             "Did you run benchmark.py?")
 
-    # Use "none" as baseline if present, otherwise fall back to "rule"
     global BASELINE_KEY
     BASELINE_KEY = "none" if "none" in results else "rule"
 
@@ -404,7 +391,7 @@ def main() -> None:
     plot_gantt(results, out_dir)
     plot_cascade_funnel(results, out_dir)
     plot_time_to_target(results, out_dir)
-    print(f"\nADR outcome plots written to {out_dir}/")
+    print(f"\nPlots written to {out_dir}/")
 
 
 if __name__ == "__main__":

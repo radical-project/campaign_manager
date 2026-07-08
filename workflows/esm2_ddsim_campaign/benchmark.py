@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-GPU ADR policy benchmark for the ESM2/DDSim campaign.
+ADR policy benchmark for the ESM2/DDSim campaign.
 
-Runs ALL FOUR workflows (inference → dummy, md → miniapps) on real GPU hardware
-via the Dragon backend.  All four policies run the SAME config — same replicas,
+Runs all four workflows (inference → dummy, md → miniapps) on real GPU hardware
+via the Dragon backend.  All four policies run the same config — same replicas,
 same resource pool — so results are directly comparable.
 
 Design
@@ -25,17 +25,17 @@ Pass-2 (contested: 1 remaining GPU):
 Primary metric: time_to_first_miniapps_s — wall-clock from campaign start
 to the first miniapps replica completing (lower = better).
 
-All four policies complete all four workflows.  The difference is HOW FAST
+All four policies complete all four workflows.  The difference is how fast
 Pipeline B (md → miniapps) produces its first result.
 
 Usage
 -----
     # from esm2_ddsim_campaign/ — must be launched via Dragon:
-    dragon benchmark_adr_gpu.py --config config_stress_gpu.yaml \\
-        --policies none rule bandit llm --runs 1 --out benchmark_adr_gpu.json
+    dragon benchmark.py --config config_stress_gpu.yaml \\
+        --policies none rule bandit llm --runs 1 --out benchmark.json
 
     # longer timeout if MD takes > 20 min per replica:
-    dragon benchmark_adr_gpu.py --timeout 2400
+    dragon benchmark.py --timeout 2400
 
 Notes
 -----
@@ -336,7 +336,7 @@ async def run_benchmark(config_path: str, n_runs: int, out_path: str,
         logs = " ".join(
             f"adr-logs/gpu-{p}-run0.jsonl" for p in policies if p != "none")
         print(f"\nPer-cycle decision logs: {LOG_DIR}/gpu-*.jsonl")
-        print(f"Plot:  python ../dreamer_campaign/plot_policy_comparison.py {logs}")
+        print(f"Plot:  python ../plotting/plot_policy_comparison.py {logs}")
 
 
 if __name__ == "__main__":
@@ -352,8 +352,8 @@ if __name__ == "__main__":
         help="Runs per policy (default: 1)",
     )
     parser.add_argument(
-        "--out", default="benchmark_adr_gpu.json",
-        help="Output JSON path (default: benchmark_adr_gpu.json)",
+        "--out", default="benchmark_results.json",
+        help="Output JSON path (default: benchmark_results.json)",
     )
     parser.add_argument(
         "--policies", nargs="+", default=ALL_POLICIES, choices=ALL_POLICIES,

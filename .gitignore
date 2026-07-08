@@ -50,3 +50,12 @@ telemetry-results-*/
 
 # Local Claude Code settings
 .claude/settings.local.json
+
+# Plotting scripts kept locally but not committed
+workflows/plotting/make_presentation.py
+workflows/plotting/plot_policy_comparison.py
+workflows/plotting/plot_replica_timeline.py
+workflows/plotting/plot_deadline_yield.py
+
+# GPU sbatch script not used by dreamer campaign (CPU-only)
+workflows/dreamer_campaign/delta_gpu_sbatch.sh

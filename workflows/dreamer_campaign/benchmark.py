@@ -17,7 +17,7 @@ decision log to ``adr-logs/<policy>-run<idx>.jsonl`` (for plot_policy_comparison
 and the representative run's log path is recorded in the metrics.
 
 Submit all policies in one job:
-    python benchmark_adr.py --runs 5 --out benchmark_adr_results.json
+    python benchmark_adr.py --runs 5 --out benchmark_results.json
     # restrict / add policies:
     python benchmark_adr.py --policies none rule bandit --runs 5
 """
@@ -266,7 +266,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ADR scheduling-policy benchmark")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--runs", type=int, default=3)
-    parser.add_argument("--out", default="benchmark_adr_results.json")
+    parser.add_argument("--out", default="benchmark_results.json")
     parser.add_argument("--policies", nargs="+", default=ALL_POLICIES,
                         choices=ALL_POLICIES,
                         help="which policies to benchmark (default: all)")

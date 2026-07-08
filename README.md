@@ -1,6 +1,6 @@
 # Campaign Manager
 
-RADICAL asyncflow-native orchestrator for multi-workflow HPC campaigns. Runs concurrent replicas of heterogeneous workflows inside a single `asyncio` event loop, with priority-based scheduling, sliding-window concurrency caps, resource-pool gating, and data-driven dependency signalling.
+RADICAL asyncflow-native orchestrator for multi-workflow HPC campaigns. Runs concurrent instances of heterogeneous workflows inside a single `asyncio` event loop, with priority-based scheduling, sliding-window concurrency caps, resource-pool gating, and data-driven dependency signalling.
 
 Workflow groups form an arbitrary directed acyclic graph (DAG) wired entirely through config — linear chains, fan-out, fan-in joins, and diamonds all work without changing workflow code.
 
@@ -48,24 +48,47 @@ dragon -m workflows/esm2_ddsim_campaign/run_campaing.py \
 ```bash
 python workflows/dreamer_campaign/benchmark.py \
     --config workflows/dreamer_campaign/config.yaml \
-    --runs 5 --out benchmark_results.json
-
-# Compare ADR scheduling policies (rule / bandit / llm)
-python workflows/dreamer_campaign/benchmark.py \
-    --config workflows/dreamer_campaign/config.yaml \
-    --out benchmark_adr_results.json
+    --runs 5 --policies none rule bandit --out benchmark_results.json
 ```
 
 ### 3. Visualize results
 
 ```bash
-python workflows/plotting/plot_cm_timeline.py slurm-XXXXXX.out \
+python workflows/plotting/plot_dep_timeline.py slurm-XXXXXX.out \
     --config workflows/dreamer_campaign/config.yaml
 
-python workflows/plotting/plot_adr_optimizations.py --results benchmark_adr_results.json
-
-# See workflows/plotting/README.md for all plotting tools
+# Per-campaign benchmark plots (run from the campaign directory):
+python workflows/dreamer_campaign/plot_benchmark.py --results benchmark_results.json
+python workflows/dummy_campaign/plot_benchmark.py   --results benchmark_results.json
 ```
+
+---
+
+## Designing a Campaign
+
+A campaign is a DAG of **steps**, each mapped to a **workflow group** — a pool of instances that all run the same workflow class. Dependencies between groups control when each step becomes eligible to start.
+
+**Define a separate step when:**
+- The computation has different resource requirements from its neighbor (e.g. CPU screening → GPU refinement)
+- You want a gate between them — drop low-value results before spending expensive compute
+- You need independent concurrency caps or scheduling priorities
+
+**Domain logic lives in the workflow, not the CM.** The CM has no concept of what a "good result" means. All scoring, gating, and downstream routing lives in `on_replica_done()`:
+
+```python
+async def on_replica_done(self, replica_id, cm, final_state):
+    if final_state != "done":
+        return
+    score = compute_score(replica_id, self.config)
+    if score > self.config["threshold"]:
+        await self._trigger_dependent("next_stage", replicas=1)
+```
+
+`campaign_target: N` sets an early-stop threshold on a group; the campaign ends once that group has N finished instances. Set to 0 to run until all instances are exhausted.
+
+### Scheduling policy
+
+The `cm.adr.policy` key selects how the CM adjusts group priorities at runtime. If the optimal priority ordering is fixed and known, `none` (static config priorities) is sufficient. Otherwise `rule` is a good default — it keeps the DAG flowing by boosting groups with pending work. `bandit` learns the best ordering from observed throughput when the bottleneck shifts across runs. `llm` hands decisions to an OpenAI-compatible model when they require external context or a human-readable rationale, with automatic fallback to `rule` on error.
 
 ---
 
@@ -73,13 +96,15 @@ python workflows/plotting/plot_adr_optimizations.py --results benchmark_adr_resu
 
 ### Step 1 — Write a workflow class
 
-All user workflows subclass `BaseWorkflow`. Define **either** `async def run()` or `def start()` — not both.
+All user workflows subclass `BaseWorkflow`. Define **either** entry point — not both:
+- `async def run()` — awaited directly in the event loop; use for async-native code
+- `def start()` — dispatched via `asyncio.to_thread()`; use for blocking or synchronous code (subprocess calls, HPC job submission, etc.)
 
 ```python
 from src.campaign import BaseWorkflow
 
 class SimWorkflow(BaseWorkflow):
-    workflow_id = "sim"   # used as prefix for replica IDs
+    workflow_id = "sim"   # used as prefix for instance IDs
 
     async def run(self, replica_id: str) -> None:
         # self.config     — dict from the group's YAML section (CM keys stripped)
@@ -88,8 +113,8 @@ class SimWorkflow(BaseWorkflow):
 
         result = await do_simulation(self.asyncflow, self.config)
 
-        # Notify the CM that this replica produced output.
-        # The CM routes +1 replica to every downstream group listed in config.
+        # Notify the CM that this instance produced output.
+        # The CM routes +1 instance to every downstream group listed in config.
         await self._signal_done()
 
     async def on_replica_done(self, replica_id, cm, final_state):
@@ -110,16 +135,16 @@ class SimWorkflow(BaseWorkflow):
 | `self.engine_dragon` | backend | Dragon backend handle (`None` on concurrent) |
 
 When `required_gpus > 0` the CM also injects into `self.config`:
-- `assigned_gpu_ids` — GPU IDs assigned to this replica
+- `assigned_gpu_ids` — GPU IDs assigned to this instance
 - `group_gpu_ids` — all GPUs held by the group right now
 
 **Signalling downstream groups:**
 
 ```python
-# Broadcast: CM routes +1 replica to every group listing this group in dependencies.
+# Broadcast: CM routes +1 instance to every group listing this group in dependencies.
 await self._signal_done()
 
-# Explicit: queue a specific number of replicas for a named group.
+# Explicit: queue a specific number of instances for a named group.
 await self._trigger_dependent("analysis", replicas=1)
 ```
 
@@ -146,19 +171,19 @@ workflow_registry:
 # ── Workflow groups ───────────────────────────────────────────────────────────
 #
 # Independent group (replicas: N) — starts immediately on cm.start().
-# Dependent group  (no replicas)  — starts at 0; upstream signals add replicas.
+# Dependent group  (no replicas)  — starts at 0; upstream signals add instances.
 #
 workflows:
   sim:
     replicas:          8     # independent: starts immediately
-    concurrency_floor: 2     # minimum guaranteed concurrent replicas (Pass 1)
-    concurrency_cap:   4     # maximum concurrent replicas (Pass 2)
+    concurrency_floor: 2     # minimum guaranteed concurrent instances (Pass 1)
+    concurrency_cap:   4     # maximum concurrent instances (Pass 2)
     priority:          10    # higher priority scheduled first
     required_cpus:     4
     required_gpus:     1
 
   analysis:
-    # No "replicas:" → starts at 0; sim's _signal_done() adds replicas at runtime.
+    # No "replicas:" → starts at 0; sim's _signal_done() adds instances at runtime.
     dependencies: [sim]
     concurrency_floor: 1
     concurrency_cap:   4
@@ -241,25 +266,27 @@ Groups and their `dependencies` form a directed acyclic graph. Any shape works:
 |----------|--------|---------------|
 | **Chain** `a → b → c` | each group lists its single upstream | `_signal_done()` |
 | **Fan-out** `a → {b, c, d}` | `b`, `c`, `d` each list `a` | `_signal_done()` routes +1 to all |
-| **Fan-in / join** `{a, b} → c` | `c: dependencies: [a, b]` | `c` eligible only when **all** upstreams are ready |
-| **Diamond** `a → {b, c} → d` | `d: dependencies: [b, c]` | combines fan-out + join |
+| **Fan-in / join** `{a, b} → c` | `c: dependencies: [a, b]` | both `a` and `b` call `_signal_done()`; `c` starts only when all upstreams are ready |
+| **Diamond** `a → {b, c} → d` | `d: dependencies: [b, c]` | `a` calls `_signal_done()`; `d` waits for both `b` and `c` |
 
-For explicit control (e.g. quality filter decides how many to spawn):
+Use `_trigger_dependent()` instead of `_signal_done()` when the workflow needs to decide at runtime which group to trigger and how many instances to spawn — for example, when only a subset of results should proceed, or when the count depends on output:
 
 ```python
-# In the upstream workflow's run():
+# Trigger one downstream instance per result that passes a threshold.
 for result in results:
-    if result.score > THRESHOLD:
+    if result.passes_gate:
         await self._trigger_dependent("downstream", replicas=1)
 ```
+
+`_signal_done()` is simpler and sufficient when the DAG structure alone determines routing — it always triggers exactly one instance in every group that lists this group under `dependencies`.
 
 ---
 
 ## Scheduling
 
-The CM runs a **two-pass greedy scheduler** on every state change (replica start, finish, or signal):
+The CM runs a **two-pass greedy scheduler** on every state change (instance start, finish, or signal):
 
-1. **Pass 1** — guarantee `concurrency_floor` slots for all eligible groups, highest `priority` first.
+1. **Pass 1** — guarantee `concurrency_floor` slots for all eligible groups, highest `priority` first. Set `concurrency_floor: 0` to skip this pass for a group.
 2. **Pass 2** — fill remaining capacity up to `concurrency_cap`, highest `priority` first.
 
 Both passes gate on `ResourcePool.can_fit()`. A group is **eligible** when every dependency is **ready** — either an upstream called `_signal_done()`, or `dep.finished_replicas >= dependency_threshold` (default 1, count-based fallback).
@@ -279,15 +306,15 @@ cm:
   monitor_interval_s: 30
 ```
 
-| Feature | File | What it does |
-|---------|------|-------------|
-| `BackpressureNegotiator` | `backpressure.py` | Per-edge HOLD → THROTTLE → WIDEN hysteresis; throttles dispatch when a downstream queue floods |
-| `Sharder` | `sharder.py` | Buffers upstream trigger signals and batch-dispatches downstream, ranked by surrogate score; `stratify: soft\|strict\|off` |
-| `Monitor` / `DriftEvent` | `monitor.py` | Periodic health table, stall detection, budget-burn and pass-through drift alerts |
-| `Triage` | `triage.py` | Per-candidate RUN / DISCARD / ADVANCE gate using a surrogate model |
-| `Surrogate` | `surrogate.py` | Cheap score predictor (`Null`/`Random`/`Correlated`) + `RecallTracker` |
-| `BudgetController` | `budget_controller.py` | Proportional feedback loop that nudges Triage cutoffs to keep spend on plan |
-| `ReplanningController` | `replanning.py` | Reacts to drift events and requests a replan |
+| Feature                  | File                   | What it does |
+|--------------------------|------------------------|--------------|
+| `BackpressureNegotiator` | `backpressure.py`      | Per-edge HOLD → THROTTLE → WIDEN hysteresis; throttles dispatch when a downstream queue floods |
+| `Sharder`                | `sharder.py`           | Buffers upstream trigger signals and batch-dispatches downstream, ranked by surrogate score; `stratify: soft\|strict\|off` |
+| `Monitor` / `DriftEvent` | `monitor.py`           | Periodic health table, stall detection, budget-burn and pass-through drift alerts  |
+| `Triage`                 | `triage.py`            | Per-candidate RUN / DISCARD / ADVANCE gate using a surrogate model |
+| `Surrogate`              | `surrogate.py`         | Cheap score predictor (`Null`/`Random`/`Correlated`) + `RecallTracker` |
+| `BudgetController`       | `budget_controller.py` | Proportional feedback loop that nudges Triage cutoffs to keep spend on plan |
+| `ReplanningController`   | `replanning.py`        | Reacts to drift events and requests a replan |
 
 Per-group keys for optional features (forwarded to the relevant component):
 
@@ -330,12 +357,12 @@ cm:
     system_prompt_file: prompts/scheduling_system_prompt.txt   # optional
 ```
 
-| Policy | Behaviour |
-|--------|-----------|
-| `none` | Static `group.priority` from config only |
-| `rule` | Deterministic depth-ordered priorities each cycle (strong baseline) |
-| `bandit` | Thompson-sampling bandit; learns stage value from backpressure reward |
-| `llm` | LLM-driven via OpenAI-compatible endpoint; falls back to `rule` on error |
+| Policy   | Behaviour |
+|----------|-----------|
+| `none`   | Static `group.priority` from config; no dynamic adjustment |
+| `rule`   | `DownstreamFirstPolicy` — terminal stages get highest priority each tick |
+| `bandit` | `BanditSchedulingPolicy` — Thompson-sampling; learns from backpressure reward |
+| `llm`    | `LLMSchedulingPolicy` — OpenAI-compatible endpoint; falls back to `rule` on error |
 
 Requires `pip install -e ".[adr]"` (`llm` policy also needs `".[llm]"`).
 
@@ -362,24 +389,32 @@ telemetry:
   resource_poll_interval: 0.5
 ```
 
-Campaign timelines and benchmark comparisons are in [`workflows/plotting/`](workflows/plotting/README.md):
+Campaign timelines and benchmark comparisons live in two places:
+
+- **`workflows/plotting/`** — generic timeline tool usable with any campaign ([README](workflows/plotting/README.md))
+- **`workflows/<campaign>/plot_benchmark.py`** — campaign-specific benchmark plots
 
 ```bash
-# Gantt chart from SLURM log
-python workflows/plotting/plot_cm_timeline.py slurm-XXXXXX.out
+# Gantt chart with dependency arrows (short campaigns)
+python workflows/plotting/plot_dep_timeline.py slurm-XXXXXX.out
 
-# ADR policy comparison (4 plots)
-python workflows/plotting/plot_adr_optimizations.py --results benchmark_adr_results.json
+# Gantt chart with simulation stats (long/Dreamer campaigns)
+python workflows/plotting/plot_timeline.py slurm-XXXXXX.out
+
+# ADR policy comparison — run from inside the campaign directory
+cd workflows/dreamer_campaign
+python plot_benchmark.py --results benchmark_results.json
 ```
 
 ---
 
 ## Campaign Examples
 
-| Campaign | Location | Description |
-|----------|----------|-------------|
-| Dreamer emulation | `workflows/dreamer_campaign/` | Simulates a 5-stage drug-discovery pipeline locally using `radical.dreamer`; no HPC required |
-| ESM2 / DDSim | `workflows/esm2_ddsim_campaign/` | Real multi-workflow campaign: DDMd MD simulation + ESM2 protein embedding inference on GPU nodes via Dragon |
+| Campaign             | Location                         | Description |
+|----------------------|----------------------------------|-------------|
+| Dummy minimization   | `workflows/dummy_campaign/`      | Minimal two-stage search → refine example; no external dependencies — good starting point for new campaigns |
+| Dreamer emulation    | `workflows/dreamer_campaign/`    | Multi-stage emulation campaign using `radical.dreamer`; runs locally, no HPC required |
+| ESM2 / DDSim         | `workflows/esm2_ddsim_campaign/` | Real campaign: DDMd MD simulation + ESM2 protein embedding inference on GPU nodes via Dragon |
 
 ---
 
@@ -391,7 +426,7 @@ src/campaign/
 ├── base_workflow.py      # BaseWorkflow — user workflow base class
 ├── types.py              # _WorkflowInfo, ResourcePool, WorkflowStats, CampaignState
 ├── scheduler.py          # SchedulerMixin — two-pass greedy scheduling
-├── executor.py           # ExecutorMixin — replica launch/completion/GPU assignment
+├── executor.py           # ExecutorMixin — instance launch/completion/GPU assignment
 ├── monitor_mixin.py      # MonitorMixin — periodic health checks
 ├── gpu.py                # detect_gpus(), find_gpus()
 ├── sync_wrapper.py       # CampaignManager — synchronous wrapper
@@ -426,9 +461,10 @@ src/utils/
 └── logger.py             # Colored structured logging
 
 workflows/
-├── dreamer_campaign/     # Dreamer emulation campaign (local, no HPC)
+├── dreamer_campaign/     # Dreamer emulation campaign; plot_benchmark.py + plot_timeline.py
+├── dummy_campaign/       # Minimal two-stage example; plot_benchmark.py
 ├── esm2_ddsim_campaign/  # ESM2 + DDSim campaign (Dragon/GPU)
-└── plotting/             # All visualization scripts + README
+└── plotting/             # Timeline tools: plot_dep_timeline.py (deps) + plot_timeline.py (long)
 ```
 
 ---
@@ -437,28 +473,28 @@ workflows/
 
 ### `AsyncCampaignManager`
 
-| Method | Description |
-|--------|-------------|
+| Method                                                              | Description |
+|---------------------------------------------------------------------|-------------|
 | `from_config(config, registry, asyncflow=None, engine_dragon=None)` | Build from YAML config dict + `{name: cls}` registry |
-| `register_workflow(name, cls, replicas, ...)` | Register a workflow group manually |
-| `start()` | Schedule all groups with `replicas > 0`; creates asyncflow engine if not pre-built |
-| `wait(timeout=None)` | Async-block until all triggered groups finish; returns `True` on success |
-| `close()` | Release CM resources (does NOT shut down asyncflow) |
-| `add_replicas(group_name, n)` | Dynamically extend a group's replica count at runtime |
-| `status()` | Snapshot dict: all group states + `"resources"` key |
-| `stats()` | Per-group `WorkflowStats(replicas_started, replicas_finished)` |
+| `register_workflow(name, cls, replicas, ...)`                       | Register a workflow group manually |
+| `start()`                                                           | Schedule all groups with `replicas > 0`; creates asyncflow engine if not pre-built |
+| `wait(timeout=None)`                                                | Async-block until all triggered groups finish; returns `True` on success |
+| `close()`                                                           | Release CM resources (does NOT shut down asyncflow) |
+| `add_replicas(group_name, n)`                                       | Dynamically extend a group's instance count at runtime |
+| `status()`                                                          | Snapshot dict: all group states + `"resources"` key |
+| `stats()`                                                           | Per-group `WorkflowStats(replicas_started, replicas_finished)` |
 
 `register_workflow` parameters:
 
-| Parameter | Default | Meaning |
-|-----------|---------|---------|
-| `replicas` | `1` | Total replicas (0 for dependent groups) |
-| `concurrency_floor` | `0` | Guaranteed concurrent minimum |
-| `concurrency_cap` | `0` | Sliding-window cap (0 → equals `replicas`) |
-| `priority` | `0` | Scheduling priority (higher = first) |
-| `required_cpus` | `0` | CPU cores reserved per running replica |
-| `required_gpus` | `0` | GPU slots reserved per running replica |
-| `dep_threshold` | `1` | Finished-replica count fallback for dependency readiness |
+| Parameter           | Default | Meaning |
+|---------------------|---------|---------|
+| `replicas`          | `1`     | Total instances to run (0 for dependent groups) |
+| `concurrency_floor` | `0`     | Guaranteed concurrent minimum |
+| `concurrency_cap`   | `0`     | Sliding-window cap (0 → equals `replicas`) |
+| `priority`          | `0`     | Scheduling priority (higher = first) |
+| `required_cpus`     | `0`     | CPU cores reserved per running instance |
+| `required_gpus`     | `0`     | GPU slots reserved per running instance |
+| `dep_threshold`     | `1`     | Finished-instance count fallback for dependency readiness |
 
 ### `CampaignManager` (sync wrapper)
 

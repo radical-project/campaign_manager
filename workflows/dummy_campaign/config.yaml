@@ -1,0 +1,83 @@
+# =============================================================================
+# Dummy Minimization Campaign
+# =============================================================================
+#
+# Two-stage pipeline: search → refine.
+#
+#   search:  50 independent replicas each generate a random score in [0, 1]
+#            (simulates blind candidate screening).  Candidates scoring below
+#            refine_threshold (0.35) trigger a refine replica.
+#
+#   refine:  triggered at runtime by search via _trigger_dependent.  Each
+#            replica improves its upstream score (score_decay × init_score +
+#            noise), accumulating toward the campaign target.  The campaign
+#            stops early when campaign_target refine replicas finish.
+#
+# Objective: minimise the score.  After the run, DummyWorkflow._best_score
+#            and _n_evaluated report the outcome.
+#
+# No GPUs required — runs on the concurrent (asyncio) backend for fast local
+# iteration.  Switch to engine: dragon for HPC deployment.
+#
+# Run:
+#   python run_campaign.py --config config.yaml
+#   python run_campaign.py --config config.yaml --policy rule
+# =============================================================================
+
+engine: concurrent
+
+resources:
+  total_cpus: 0   # 0 = unlimited (concurrent backend ignores CPU tracking)
+  total_gpus: 0
+
+# ── Workflow groups ───────────────────────────────────────────────────────────
+
+workflows:
+
+  search:
+    replicas:          50
+    concurrency_cap:   10
+    concurrency_floor: 2
+    priority:          10
+    required_cpus:     0
+    required_gpus:     0
+    # Workflow config
+    duration:          0.1    # seconds per replica (fast simulated screening)
+    jitter:            0.05
+    refine_threshold:  0.35   # candidates below this score trigger refine
+    trigger_refine:    refine
+
+  refine:
+    # No replicas at start — triggered dynamically by search._trigger_dependent.
+    concurrency_cap:   5
+    concurrency_floor: 1
+    priority:          8
+    required_cpus:     0
+    required_gpus:     0
+    campaign_target:   10     # stop the whole campaign when 10 refines finish
+    # Workflow config
+    duration:          0.2    # seconds per replica (slower refinement)
+    jitter:            0.05
+    score_decay:       0.6    # refine multiplier (improvements the score)
+    score_noise:       0.03   # Gaussian noise added to refined score
+
+# ── Campaign manager ──────────────────────────────────────────────────────────
+
+cm:
+  features:
+    backpressure: false
+    sharder:      false
+    monitor:      false
+
+  adr:
+    policy:    rule    # none | rule | bandit | llm
+    tick_s:    0.5
+    warmstart: true
+    seed:      0
+    terminal:  refine  # stage whose finished-replica count = "hits"
+
+# ── Workflow registry ─────────────────────────────────────────────────────────
+
+workflow_registry:
+  search: dummy_workflow.DummyWorkflow
+  refine: dummy_workflow.DummyWorkflow

@@ -661,7 +661,7 @@ Plots asyncflow native JSONL telemetry to workflow dashboard PNG.
 ### Campaign Timeline Visualization
 
 ```bash
-python workflows/run_campaign/plot_cm_timeline.py \
+python workflows/plotting/plot_dep_timeline.py \
   slurm-17715157.out \
   --config workflows/run_campaign/config.yaml \
   --out replica_timeline.png

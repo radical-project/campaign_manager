@@ -1,5 +1,5 @@
 """
-DDSimWorkflow — wraps DummyWorkflow from DeepDriveSim in-process.
+DummyWrapperWorkflow — wraps DummyWorkflow from DeepDriveSim in-process.
 """
 
 import importlib.util
@@ -34,7 +34,7 @@ def _get_workflow_class():
 _get_workflow_class()
 
 
-class DDSimWorkflow(BaseWorkflow):
+class DummyWrapperWorkflow(BaseWorkflow):
     """Async wrapper that runs one replica of the DummyWorkflow pipeline."""
 
     workflow_id = "dummy"

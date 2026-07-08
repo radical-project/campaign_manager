@@ -1,7 +1,7 @@
 """
 DDMdWrapperWorkflow — wraps the real DDMdWorkflow from DeepDriveSim.
 
-DAG routing via _on_completion:
+DAG routing via on_replica_done:
   md (done) ──→ miniapps
 Each finished MD replica triggers one MiniApps replica for ML analysis of the
 produced trajectories.  Routing lives here, not in config dependencies.
@@ -108,7 +108,7 @@ class DDMdWrapperWorkflow(BaseWorkflow):
         finally:
             Path(replica_config_path).unlink(missing_ok=True)
 
-    def _on_completion(self, replica_id: str, cm, final_state: str):
+    async def on_replica_done(self, replica_id: str, cm, final_state: str) -> None:
         """DAG edge: md ──→ miniapps.
 
         Triggers one MiniApps replica per completed MD replica so ML analysis
@@ -116,8 +116,8 @@ class DDMdWrapperWorkflow(BaseWorkflow):
         replicas do not propagate downstream.
         """
         if final_state != "done":
-            return None
-        return {"name": "miniapps", "replicas": 1}
+            return
+        await self._trigger_dependent("miniapps", replicas=1)
 
     @staticmethod
     def _make_replica_config(

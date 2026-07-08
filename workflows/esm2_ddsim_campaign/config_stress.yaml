@@ -77,7 +77,7 @@ cm:
 
 # ── Workflow Registry ────────────────────────────────────────────────────────
 workflow_registry:
-  dummy:     dummy_workflow.DDSimWorkflow
+  dummy:     dummy_workflow.DummyWrapperWorkflow
   md:        ddmd_workflow.DDMdWrapperWorkflow
   miniapps:  miniapps_workflow.MiniAppsWrapperWorkflow
   inference: inference_workflow.InferenceWorkflow
@@ -138,7 +138,7 @@ workflows:
     backpressure_low:     3
 
   # ── DDMd / MiniApps (disabled in CPU benchmark) ──────────────────────────
-  # Kept for completeness; benchmark_adr.py forces replicas=0 for these.
+  # Kept for completeness; benchmark.py forces replicas=0 for these.
   md:
     priority:      10
     replicas:      2
