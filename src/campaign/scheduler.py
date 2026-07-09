@@ -22,7 +22,6 @@ from .types import _WorkflowInfo
 
 
 class SchedulerMixin:
-
     # ------------------------------------------------------------------
     # Dependency and resource checks (must be called under self._lock)
     # ------------------------------------------------------------------
@@ -76,9 +75,7 @@ class SchedulerMixin:
         idx = group.started_count
         group.started_count += 1
         group._consecutive_stalls = 0
-        self._resources.allocate(
-            group.required_cpus, group.required_gpus, group.required_memory_gb
-        )
+        self._resources.allocate(group.required_cpus, group.required_gpus, group.required_memory_gb)
         self._stats[group.name].replicas_started = group.started_count
         replica_id = f"{group.name}_{idx}"
         # Assign the next pending candidate ID to this replica (FIFO from shard dispatch).
@@ -89,9 +86,7 @@ class SchedulerMixin:
             # can compute diversity against the actual set of running scaffolds.
             self._running_candidates[replica_id] = cand_id
         gpu_ids = [
-            self._free_gpu_ids.pop(0)
-            for _ in range(group.required_gpus)
-            if self._free_gpu_ids
+            self._free_gpu_ids.pop(0) for _ in range(group.required_gpus) if self._free_gpu_ids
         ]
         self._replica_gpu_assignments[replica_id] = gpu_ids
         group.running_gpu_ids.extend(gpu_ids)
@@ -119,8 +114,8 @@ class SchedulerMixin:
             g = self._workflows.get(name)
             if g is None:
                 continue
-            bp        = self._bp.get(name)
-            cap       = g.concurrency_cap if g.concurrency_cap > 0 else max(g.replicas, 1)
+            bp = self._bp.get(name)
+            cap = g.concurrency_cap if g.concurrency_cap > 0 else max(g.replicas, 1)
             occupancy = min(1.0, g.running_count / cap)
             # Collect scaffold classes of currently-running replicas for diversity scoring.
             # Read from _running_candidates (lifetime = full replica run), not
@@ -251,7 +246,7 @@ class SchedulerMixin:
         # replicas complete in sleep(0) the scheduler fires thousands of times
         # per second and emitting a WARNING each time floods the log and
         # serialises the event loop on stdout flushes (measured: 265 s → ~30 s).
-        _STALL_WARN_EVERY = 100
+        _stall_warn_every = 100
         for g in eligible:
             if (
                 g.started_count < g.replicas
@@ -262,7 +257,7 @@ class SchedulerMixin:
                 )
             ):
                 g._consecutive_stalls += 1
-                if g._consecutive_stalls == 1 or g._consecutive_stalls % _STALL_WARN_EVERY == 0:
+                if g._consecutive_stalls == 1 or g._consecutive_stalls % _stall_warn_every == 0:
                     self._log.warning(
                         f"Workflow {g.name!r} stalled — waiting for resources "
                         f"(needs cpus={g.required_cpus} gpus={g.required_gpus} "
@@ -307,9 +302,7 @@ class SchedulerMixin:
             )
             res_line = f"  {self._resources.usage_str()}"
             self._log.info(
-                f"Scheduling: [{summary}]  viz=[{viz}]\n"
-                + group_lines + "\n"
-                + res_line
+                f"Scheduling: [{summary}]  viz=[{viz}]\n" + group_lines + "\n" + res_line
             )
 
         return to_start

@@ -22,13 +22,11 @@ dispatches — a false positive in the reactive path.
 """
 
 import asyncio
-from typing import Optional
 
 from .executor import _campaign_complete
 
 
 class MonitorMixin:
-
     def _start_monitor_loop(self, interval_s: float) -> "asyncio.Task":
         """Spawn the background monitor loop; return the Task."""
         self._monitor_interval_s: float = interval_s
@@ -62,9 +60,7 @@ class MonitorMixin:
                 if g.replicas > 0 and g.finished_replicas >= g.replicas and g.running_count == 0:
                     continue  # group fully finished — skip to avoid log spam
 
-                completion_pct = (
-                    g.finished_replicas / g.replicas * 100 if g.replicas else 0
-                )
+                completion_pct = g.finished_replicas / g.replicas * 100 if g.replicas else 0
                 sharder = self._sharders.get(name)
                 extra = ""
                 if sharder and sharder.buffered:
@@ -83,16 +79,18 @@ class MonitorMixin:
                 # Skip until enough upstream completions for a stable ratio.
                 # Uses the shared helper on ExecutorMixin so the periodic path
                 # agrees with the reactive path in executor.py.
-                _MIN_PASSTHROUGH_SAMPLE = 10
-                trigger_name  = grp_cfg.get("trigger_downstream")
+                _min_passthrough_sample = 10
+                trigger_name = grp_cfg.get("trigger_downstream")
                 expected_frac = float(grp_cfg.get("trigger_fraction", 1.0))
-                if (trigger_name and trigger_name in self._workflows and expected_frac < 1.0
-                        and g.finished_replicas >= _MIN_PASSTHROUGH_SAMPLE):
+                if (
+                    trigger_name
+                    and trigger_name in self._workflows
+                    and expected_frac < 1.0
+                    and g.finished_replicas >= _min_passthrough_sample
+                ):
                     observed_frac = self._compute_passthrough(name, trigger_name)
                     if observed_frac is not None:
-                        ev = self._monitor.check_passthrough(
-                            name, observed_frac, expected_frac
-                        )
+                        ev = self._monitor.check_passthrough(name, observed_frac, expected_frac)
                         if ev:
                             tag = " [ESCALATING]" if self._monitor.is_escalating(ev) else ""
                             self._log.warning(
@@ -104,10 +102,10 @@ class MonitorMixin:
                 # ── Budget burn ───────────────────────────────────────────────
                 budget = float(grp_cfg.get("budget_node_hours") or 0)
                 if budget > 0 and g.replicas > 0:
-                    pilot           = grp_cfg.get("pilot", {})
-                    nodes           = int(pilot.get("nodes", 1))
-                    walltime_h      = float(pilot.get("walltime_h", 1))
-                    spent_actual    = nodes * walltime_h * g.finished_replicas / g.replicas
+                    pilot = grp_cfg.get("pilot", {})
+                    nodes = int(pilot.get("nodes", 1))
+                    walltime_h = float(pilot.get("walltime_h", 1))
+                    spent_actual = nodes * walltime_h * g.finished_replicas / g.replicas
                     expected_so_far = budget * g.finished_replicas / g.replicas
                     ev = self._monitor.check_budget(name, spent_actual, expected_so_far)
                     if ev:

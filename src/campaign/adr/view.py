@@ -124,7 +124,9 @@ class CampaignView:
             sharder = sharders.get(name)
             queue_depth = len(sharder) if sharder is not None and hasattr(sharder, "__len__") else 0
             bp_neg = bp.get(name)
-            bp_state = bp_neg.state.name if bp_neg is not None and hasattr(bp_neg, "state") else "HOLD"
+            bp_state = (
+                bp_neg.state.name if bp_neg is not None and hasattr(bp_neg, "state") else "HOLD"
+            )
             running = w.started_count - w.finished_replicas
             # backlog: replicas triggered but not yet started (capped/resource
             # starved). This is the TRUE bottleneck signal — unlike queue_depth
@@ -132,13 +134,13 @@ class CampaignView:
             pending = max(0, w.replicas - w.started_count)
             cap = w.concurrency_cap
             stages[name] = {
-                "status":        w.status,
-                "priority":      w.priority,
-                "started":       w.started_count,
-                "running":       running,
-                "finished":      w.finished_replicas,
-                "cap":           cap,
-                "pending":       pending,
+                "status": w.status,
+                "priority": w.priority,
+                "started": w.started_count,
+                "running": running,
+                "finished": w.finished_replicas,
+                "cap": cap,
+                "pending": pending,
                 # RESOURCE-STARVED: has work waiting but is running BELOW cap —
                 # i.e. it wants more slots and can't get them (resource-contended).
                 # This is the signal a priority boost can actually fix: raising its
@@ -148,29 +150,28 @@ class CampaignView:
                 # w.dependencies is [] for all groups, making starved always False.
                 # Campaigns using _on_completion must recompute starved in the
                 # operator's extract() after injecting logical topology.
-                "starved":       bool(pending > 0 and (cap == 0 or running < cap)
-                                      and w.dependencies),
+                "starved": bool(pending > 0 and (cap == 0 or running < cap) and w.dependencies),
                 # source stage (no upstream deps): its `pending` is the raw input
                 # library, NOT a pipeline stall — must not be treated as a bottleneck.
-                "is_source":     not w.dependencies,
-                "ready":         w.ready,
-                "deps":          list(w.dependencies),
-                "queue_depth":   queue_depth,
-                "bp_state":      bp_state,
+                "is_source": not w.dependencies,
+                "ready": w.ready,
+                "deps": list(w.dependencies),
+                "queue_depth": queue_depth,
+                "bp_state": bp_state,
                 # Whether this stage requires GPU slots.  Policies use this to skip
                 # GPU-utilisation-based batch adjustments for CPU-only stages.
-                "requires_gpu":  (getattr(w, "required_gpus", 0) or 0) > 0,
+                "requires_gpu": (getattr(w, "required_gpus", 0) or 0) > 0,
             }
 
         hits = wfs[self._terminal].finished_replicas if self._terminal in wfs else 0
         obs = {
-            "cycle":     0,  # the Operator overwrites this with snapshot.cycle
-            "terminal":  self._terminal,
-            "hits":      hits,
-            "target":    self._target,
+            "cycle": 0,  # the Operator overwrites this with snapshot.cycle
+            "terminal": self._terminal,
+            "hits": hits,
+            "target": self._target,
             "free_cpus": getattr(res, "available_cpus", 0),
             "free_gpus": getattr(res, "available_gpus", 0),
-            "stages":    stages,
+            "stages": stages,
         }
         if self._telemetry is not None:
             obs.update(self._telemetry.snapshot())

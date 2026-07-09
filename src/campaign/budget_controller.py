@@ -43,7 +43,7 @@ becomes unreliable (cutoffs are operating on a degenerate surrogate).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from .plan import StageSpec
@@ -68,43 +68,45 @@ class BudgetEvent:
     consecutive_hits:   how many consecutive ticks hit a bound
     frozen:             True when controller is paused (surrogate drift)
     """
-    stage_id:           str
-    kind:               str
-    burn_ratio:         float
-    progress:           float
-    score_cutoff:       float
+
+    stage_id: str
+    kind: str
+    burn_ratio: float
+    progress: float
+    score_cutoff: float
     uncertainty_cutoff: float
-    score_at_bound:     bool = False
-    unc_at_bound:       bool = False
-    consecutive_hits:   int  = 0
-    frozen:             bool = False
+    score_at_bound: bool = False
+    unc_at_bound: bool = False
+    consecutive_hits: int = 0
+    frozen: bool = False
 
 
 @dataclass
 class BudgetController:
     """Per-stage budget feedback loop."""
-    stage_id:                       str
-    triage:                         "Triage"
-    budget_node_hours:              float
-    pilot_nodes:                    int
-    pilot_walltime_h:               float
-    downstream_target:              int
+
+    stage_id: str
+    triage: Triage
+    budget_node_hours: float
+    pilot_nodes: int
+    pilot_walltime_h: float
+    downstream_target: int
 
     # Tunable parameters (Plan can override, otherwise defaults apply)
-    burn_rate_band:                 float = 0.15
-    kp:                             float = 0.05
+    burn_rate_band: float = 0.15
+    kp: float = 0.05
     # warmup_min_finished defaults to 3 so stages with small targets
     # (e.g., terminal s5 with target=5 in a benchmark cascade) still
     # engage the controller — the previous default of 10 effectively
     # disabled the controller for any stage whose target wasn't deep
     # into double digits.
-    warmup_min_finished:            int   = 3
-    warmup_progress:                float = 0.10
-    consecutive_bound_threshold:    int   = 3
+    warmup_min_finished: int = 3
+    warmup_progress: float = 0.10
+    consecutive_bound_threshold: int = 3
 
     # Runtime state
-    _consecutive_bound_hits:        int   = field(default=0, init=False)
-    _frozen:                        bool  = field(default=False, init=False)
+    _consecutive_bound_hits: int = field(default=0, init=False)
+    _frozen: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
         if self.budget_node_hours < 0:
@@ -114,13 +116,10 @@ class BudgetController:
         if self.kp <= 0:
             raise ValueError(f"kp must be > 0, got {self.kp}")
         if self.warmup_min_finished < 1:
-            raise ValueError(
-                f"warmup_min_finished must be ≥ 1, got {self.warmup_min_finished}"
-            )
+            raise ValueError(f"warmup_min_finished must be ≥ 1, got {self.warmup_min_finished}")
         if self.consecutive_bound_threshold < 1:
             raise ValueError(
-                f"consecutive_bound_threshold must be ≥ 1, "
-                f"got {self.consecutive_bound_threshold}"
+                f"consecutive_bound_threshold must be ≥ 1, got {self.consecutive_bound_threshold}"
             )
 
     # ── Factory ───────────────────────────────────────────────────────────
@@ -128,12 +127,12 @@ class BudgetController:
     @classmethod
     def from_stage_spec(
         cls,
-        spec: "StageSpec",
-        triage: "Triage",
+        spec: StageSpec,
+        triage: Triage,
         kp: float = 0.05,
         consecutive_bound_threshold: int = 3,
         warmup_min_finished: int = 3,
-    ) -> "BudgetController":
+    ) -> BudgetController:
         """Build a controller from a plan-side StageSpec + an attached Triage."""
         return cls(
             stage_id=spec.id,
@@ -228,12 +227,13 @@ class BudgetController:
 
         # Out-of-band: nudge
         # Sign convention: error > 0 means over-budget → tighten.
-        error       = burn_ratio - 1.0
+        error = burn_ratio - 1.0
         score_delta = +self.kp * error
-        unc_delta   = -self.kp * error
+        unc_delta = -self.kp * error
 
         score_at_bound, unc_at_bound = self.triage.nudge_cutoffs(
-            score_delta, unc_delta,
+            score_delta,
+            unc_delta,
         )
         if score_at_bound or unc_at_bound:
             self._consecutive_bound_hits += 1
@@ -261,12 +261,12 @@ class BudgetController:
     def state(self) -> dict:
         """Snapshot of controller + attached Triage state — for status()."""
         return {
-            "stage_id":                 self.stage_id,
-            "budget_node_hours":        self.budget_node_hours,
-            "burn_rate_band":           self.burn_rate_band,
-            "kp":                       self.kp,
-            "downstream_target":        self.downstream_target,
-            "consecutive_bound_hits":   self._consecutive_bound_hits,
-            "frozen":                   self._frozen,
-            "triage":                   self.triage.state(),
+            "stage_id": self.stage_id,
+            "budget_node_hours": self.budget_node_hours,
+            "burn_rate_band": self.burn_rate_band,
+            "kp": self.kp,
+            "downstream_target": self.downstream_target,
+            "consecutive_bound_hits": self._consecutive_bound_hits,
+            "frozen": self._frozen,
+            "triage": self.triage.state(),
         }

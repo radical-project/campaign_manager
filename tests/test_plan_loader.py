@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.campaign import CampaignPlan, StageSpec, load_plan, plan_to_workflows_dict
+from src.campaign import CampaignPlan, load_plan, plan_to_workflows_dict
 
 
 class TestStructuredLoad:
@@ -12,8 +12,14 @@ class TestStructuredLoad:
             "plan_version": 2,
             "stages": [
                 {"id": "s1", "concurrency_cap": 4, "priority": 10},
-                {"id": "s2", "upstream": "s1", "downstream": None,
-                 "campaign_target": 5, "budget_kp": 0.002, "budget_warmup_min": 20},
+                {
+                    "id": "s2",
+                    "upstream": "s1",
+                    "downstream": None,
+                    "campaign_target": 5,
+                    "budget_kp": 0.002,
+                    "budget_warmup_min": 20,
+                },
             ],
         }
         plan = load_plan(cfg)
@@ -26,8 +32,13 @@ class TestStructuredLoad:
         cfg = {
             "plan_id": "p",
             "stages": [
-                {"id": "s2", "campaign_target": 5, "budget_kp": 0.002,
-                 "budget_warmup_min": 20, "downstream_input_target": 200},
+                {
+                    "id": "s2",
+                    "campaign_target": 5,
+                    "budget_kp": 0.002,
+                    "budget_warmup_min": 20,
+                    "downstream_input_target": 200,
+                },
             ],
         }
         plan = load_plan(cfg)
@@ -38,10 +49,13 @@ class TestStructuredLoad:
         assert s2.downstream_input_target == 200
 
     def test_dependency_derived_from_upstream(self):
-        cfg = {"plan_id": "p", "stages": [
-            {"id": "s1"},
-            {"id": "s2", "upstream": "s1"},
-        ]}
+        cfg = {
+            "plan_id": "p",
+            "stages": [
+                {"id": "s1"},
+                {"id": "s2", "upstream": "s1"},
+            ],
+        }
         plan = load_plan(cfg)
         s2 = next(s for s in plan.stages if s.id == "s2")
         assert "s1" in s2.dependencies
@@ -56,10 +70,12 @@ class TestStructuredLoad:
 
 class TestLegacyLoad:
     def test_loads_legacy_workflows_dict(self):
-        cfg = {"workflows": {
-            "s1": {"replicas": 8, "concurrency_cap": 4, "priority": 10},
-            "s2": {"dependencies": ["s1"], "concurrency_cap": 2},
-        }}
+        cfg = {
+            "workflows": {
+                "s1": {"replicas": 8, "concurrency_cap": 4, "priority": 10},
+                "s2": {"dependencies": ["s1"], "concurrency_cap": 2},
+            }
+        }
         plan = load_plan(cfg)
         assert isinstance(plan, CampaignPlan)
         assert {s.id for s in plan.stages} == {"s1", "s2"}
@@ -71,10 +87,13 @@ class TestLegacyLoad:
 
 class TestRoundTrip:
     def test_plan_to_workflows_dict_preserves_stages(self):
-        cfg = {"plan_id": "p", "stages": [
-            {"id": "s1", "concurrency_cap": 4, "priority": 10, "replicas": 8},
-            {"id": "s2", "upstream": "s1", "concurrency_cap": 2},
-        ]}
+        cfg = {
+            "plan_id": "p",
+            "stages": [
+                {"id": "s1", "concurrency_cap": 4, "priority": 10, "replicas": 8},
+                {"id": "s2", "upstream": "s1", "concurrency_cap": 2},
+            ],
+        }
         plan = load_plan(cfg)
         out = plan_to_workflows_dict(plan)
         wfs = out["workflows"]

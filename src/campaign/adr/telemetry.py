@@ -123,10 +123,10 @@ class TelemetrySubscriber:
         durs = list(self._task_durations)
         avg_dur: float | None = sum(durs) / len(durs) if durs else None
         return {
-            "gpu_util":             self._gpu_util,
-            "cpu_util":             self._cpu_util,
-            "mem_util":             self._mem_util,
+            "gpu_util": self._gpu_util,
+            "cpu_util": self._cpu_util,
+            "mem_util": self._mem_util,
             "gpu_utils_per_device": dict(self._per_gpu),
-            "task_fail_rate":       fail_rate,
-            "avg_task_duration_s":  avg_dur,
+            "task_fail_rate": fail_rate,
+            "avg_task_duration_s": avg_dur,
         }

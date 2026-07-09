@@ -64,7 +64,7 @@ class TestControlLaw:
         ev = c.evaluate(finished_replicas=50)
         assert ev.kind in ("nudged", "bound_locked")
         assert ev.burn_ratio > 1.0
-        assert c.triage.score_cutoff > before   # raised the bar
+        assert c.triage.score_cutoff > before  # raised the bar
 
     def test_under_budget_loosens_score_cutoff(self):
         # actual << expected: walltime 0.25h → actual=12.5, expected=50 → ratio 0.25
@@ -72,7 +72,7 @@ class TestControlLaw:
         before = c.triage.score_cutoff
         ev = c.evaluate(finished_replicas=50)
         assert ev.burn_ratio < 1.0
-        assert c.triage.score_cutoff < before   # lowered the bar
+        assert c.triage.score_cutoff < before  # lowered the bar
 
 
 class TestEscalation:

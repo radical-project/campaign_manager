@@ -302,8 +302,7 @@ class TestAsyncCampaignManager:
 
         acm.register_workflow("a", Rec, replicas=1)
         acm.register_workflow("b", Rec, replicas=1)
-        acm.register_workflow("join", Rec, replicas=1,
-                              dependencies=["a", "b"], dep_threshold=1)
+        acm.register_workflow("join", Rec, replicas=1, dependencies=["a", "b"], dep_threshold=1)
         await acm.start()
         assert await acm.wait(timeout=3.0)
 
@@ -315,10 +314,12 @@ class TestAsyncCampaignManager:
     async def test_dag_fanout_signal_done_activates_all_dependents(self, acm):
         """Fan-out: one upstream _signal_done() routes +1 replica to every dependent."""
         acm.register_workflow("root", SignalDoneWorkflow, replicas=1)
-        acm.register_workflow("left",  NullWorkflow, replicas=0,
-                              dependencies=["root"], dep_threshold=999)
-        acm.register_workflow("right", NullWorkflow, replicas=0,
-                              dependencies=["root"], dep_threshold=999)
+        acm.register_workflow(
+            "left", NullWorkflow, replicas=0, dependencies=["root"], dep_threshold=999
+        )
+        acm.register_workflow(
+            "right", NullWorkflow, replicas=0, dependencies=["root"], dep_threshold=999
+        )
         await acm.start()
         assert await acm.wait(timeout=3.0)
 
@@ -562,9 +563,12 @@ class TestResourcePool:
         rp = ResourcePool(total_cpus=8, total_gpus=2)
         d = rp.as_dict()
         assert set(d) == {
-            "total_cpus", "available_cpus",
-            "total_gpus", "available_gpus",
-            "total_memory_gb", "available_memory_gb",
+            "total_cpus",
+            "available_cpus",
+            "total_gpus",
+            "available_gpus",
+            "total_memory_gb",
+            "available_memory_gb",
         }
 
     def test_usage_str_tracks_used(self):
@@ -711,7 +715,9 @@ class TestCampaignManagerResources:
         assert max(peak) <= 2
 
     def test_resources_released_after_replica(self, rcm):
-        rcm.register_workflow("g", SyncRecordingWorkflow, replicas=2, required_cpus=2, required_gpus=1)
+        rcm.register_workflow(
+            "g", SyncRecordingWorkflow, replicas=2, required_cpus=2, required_gpus=1
+        )
         rcm.start()
         assert rcm.wait(timeout=3.0)
         s = rcm.status()["resources"]
@@ -719,7 +725,9 @@ class TestCampaignManagerResources:
         assert s["available_gpus"] == 2
 
     def test_status_includes_resource_snapshot(self, rcm):
-        rcm.register_workflow("g", SyncRecordingWorkflow, replicas=1, required_cpus=1, required_gpus=0)
+        rcm.register_workflow(
+            "g", SyncRecordingWorkflow, replicas=1, required_cpus=1, required_gpus=0
+        )
         s = rcm.status()
         assert "resources" in s
         assert s["resources"]["total_cpus"] == 4

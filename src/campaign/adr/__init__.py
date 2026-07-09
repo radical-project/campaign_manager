@@ -22,10 +22,7 @@ Requires ``radical.adr`` (pip install -e ../radical.adr). The LLM policy
 additionally needs ``openai`` + ``instructor`` (imported lazily).
 """
 
-from .view import CampaignView, CampaignViewProtocol
 from .operator import CampaignOperator, run_supervised
-from .recorder import PolicyRecorder
-from .telemetry import TelemetrySubscriber
 from .policies import (
     DEFAULT_SCHEDULING_PROMPT,
     BanditSchedulingPolicy,
@@ -35,6 +32,9 @@ from .policies import (
     make_scheduling_policy,
     resolve_system_prompt,
 )
+from .recorder import PolicyRecorder
+from .telemetry import TelemetrySubscriber
+from .view import CampaignView, CampaignViewProtocol
 
 __all__ = [
     "CampaignView",

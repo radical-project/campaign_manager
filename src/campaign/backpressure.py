@@ -16,19 +16,19 @@ from enum import Enum
 
 
 class BPState(Enum):
-    HOLD     = "hold"      # normal — neither throttling nor widening
+    HOLD = "hold"  # normal — neither throttling nor widening
     THROTTLE = "throttle"  # queue too deep — block new starts
-    WIDEN    = "widen"     # queue drained — allow new starts freely
+    WIDEN = "widen"  # queue drained — allow new starts freely
 
 
 @dataclass
 class BackpressureNegotiator:
     """Hysteresis state machine for one downstream stage queue."""
 
-    edge_name:  str
+    edge_name: str
     high_water: int
-    low_water:  int
-    state:      BPState = BPState.HOLD
+    low_water: int
+    state: BPState = BPState.HOLD
 
     def __post_init__(self) -> None:
         if self.low_water >= self.high_water:
@@ -58,5 +58,7 @@ class BackpressureNegotiator:
         return self.state
 
     def __repr__(self) -> str:
-        return (f"BackpressureNegotiator({self.edge_name!r}, "
-                f"hi={self.high_water}, lo={self.low_water}, state={self.state.value})")
+        return (
+            f"BackpressureNegotiator({self.edge_name!r}, "
+            f"hi={self.high_water}, lo={self.low_water}, state={self.state.value})"
+        )

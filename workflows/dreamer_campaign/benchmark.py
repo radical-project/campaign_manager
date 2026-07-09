@@ -38,9 +38,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 # Per-run wall-time cap (same rationale as benchmark.py).
 RUN_TIMEOUT_S = 120
-TICK_S        = 1.0
-TARGET_STAGE  = "s5_fep_ranking"
-TARGET_N      = 5
+TICK_S = 1.0
+TARGET_STAGE = "s5_fep_ranking"
+TARGET_N = 5
 
 # Benchmark objective:
 #   "time-to-target" — wall-clock until the TARGET_N-th terminal lead (lower=better).
@@ -53,11 +53,11 @@ TARGET_N      = 5
 #                      beats one that starves it to greedily drain the leading edge
 #                      (rule). Early-stop (campaign_target) is disabled in this mode so
 #                      the campaign runs the full window.
-MODE          = "time-to-target"
-DEADLINE_S    = 60.0
+MODE = "time-to-target"
+DEADLINE_S = 60.0
 
 ALL_POLICIES = ["none", "rule", "bandit", "llm"]
-LOG_DIR      = Path(__file__).parent / "adr-logs"
+LOG_DIR = Path(__file__).parent / "adr-logs"
 
 
 def _llm_available(config: dict) -> bool:
@@ -72,6 +72,7 @@ def _llm_available(config: dict) -> bool:
 
 async def _drive_with_timeout(cm, operator, timeout: float) -> bool:
     """Run the operator loop alongside cm.wait(timeout). Returns finished flag."""
+
     async def _loop():
         async for _snap in operator.run():
             await asyncio.sleep(TICK_S)
@@ -90,17 +91,18 @@ async def _drive_with_timeout(cm, operator, timeout: float) -> bool:
     return finished
 
 
-async def _run_once(config: dict, seed_offset: int, policy_kind: str,
-                    log_path: Path) -> dict:
+async def _run_once(config: dict, seed_offset: int, policy_kind: str, log_path: Path) -> dict:
     """Run one campaign under the given policy and return its metrics dict."""
     import random as _random
-    _random.seed(seed_offset + 1337)   # identical score-cascade across policies
 
-    from src.campaign import AsyncCampaignManager as CampaignManager
-    from run_campaign import _build_from_plan, _build_registry
+    _random.seed(seed_offset + 1337)  # identical score-cascade across policies
 
     # Reset DreamerWorkflow class-level state between runs.
     from dreamer_workflow import DreamerWorkflow
+    from run_campaign import _build_from_plan, _build_registry
+
+    from src.campaign import AsyncCampaignManager as CampaignManager
+
     DreamerWorkflow._group_state = {}
 
     # Deadline-yield mode: disable early-stop so the campaign runs the full window
@@ -124,7 +126,8 @@ async def _run_once(config: dict, seed_offset: int, policy_kind: str,
 
     from radical.asyncflow import WorkflowEngine
     from rhapsody.backends import ConcurrentExecutionBackend
-    backend   = await ConcurrentExecutionBackend()
+
+    backend = await ConcurrentExecutionBackend()
     asyncflow = await WorkflowEngine.create(backend)
 
     registry = _build_registry(config)
@@ -136,9 +139,13 @@ async def _run_once(config: dict, seed_offset: int, policy_kind: str,
     final_summary: dict = {}
     if policy_kind != "none":
         from src.campaign.adr import (
-            CampaignView, CampaignOperator, PolicyRecorder, make_scheduling_policy,
+            CampaignOperator,
+            CampaignView,
+            PolicyRecorder,
+            make_scheduling_policy,
             resolve_system_prompt,
         )
+
         adr_cfg = config.get("cm", {}).get("adr", {})
         view = CampaignView(cm)
         recorder = PolicyRecorder(log_path, policy_kind=policy_kind)
@@ -146,8 +153,7 @@ async def _run_once(config: dict, seed_offset: int, policy_kind: str,
         api_key = None
         kw = {}
         if policy_kind == "bandit":
-            kw = {"warmstart": bool(adr_cfg.get("warmstart", True)),
-                  "seed": seed_offset}
+            kw = {"warmstart": bool(adr_cfg.get("warmstart", True)), "seed": seed_offset}
         elif policy_kind == "llm":
             # Mirror run_campaign._build_adr_operator: honour base_url / timeout
             # and supply a placeholder key for local (Ollama/llama.cpp) endpoints.
@@ -162,12 +168,16 @@ async def _run_once(config: dict, seed_offset: int, policy_kind: str,
                 kw["instructor_retries"] = int(adr_cfg["llm_max_retries"])
             if not api_key and ("localhost" in base_url or "127.0.0.1" in base_url):
                 api_key = "sk-noauth"
-            prompt = resolve_system_prompt(adr_cfg)   # cwd-relative for file paths
+            prompt = resolve_system_prompt(adr_cfg)  # cwd-relative for file paths
             if prompt:
                 kw["system_prompt"] = prompt
         operator.policy = make_scheduling_policy(
-            operator, kind=policy_kind, llm_api_key=api_key,
-            model=adr_cfg.get("model", "openai/gpt-4o-mini"), **kw)
+            operator,
+            kind=policy_kind,
+            llm_api_key=api_key,
+            model=adr_cfg.get("model", "openai/gpt-4o-mini"),
+            **kw,
+        )
         recorder.bind(view=view, policy=operator.policy)
 
     # In deadline-yield mode the run is cut off at DEADLINE_S by design (the
@@ -202,11 +212,11 @@ async def _run_once(config: dict, seed_offset: int, policy_kind: str,
             m["final_posteriors"] = final_summary
 
     s5_finishes = sorted(
-        e["t"] for e in m.get("replica_events", [])
+        e["t"]
+        for e in m.get("replica_events", [])
         if e["group"] == TARGET_STAGE and e["event"] == "finish"
     )
-    m["time_to_target_s"] = (
-        s5_finishes[TARGET_N - 1] if len(s5_finishes) >= TARGET_N else None)
+    m["time_to_target_s"] = s5_finishes[TARGET_N - 1] if len(s5_finishes) >= TARGET_N else None
     if MODE == "deadline-yield":
         # Primary metric for this mode: terminal leads produced within the window.
         m["deadline_s"] = DEADLINE_S
@@ -214,8 +224,7 @@ async def _run_once(config: dict, seed_offset: int, policy_kind: str,
     return m
 
 
-async def run_benchmark(config_path: str, n_runs: int, out_path: str,
-                        policies: list[str]) -> None:
+async def run_benchmark(config_path: str, n_runs: int, out_path: str, policies: list[str]) -> None:
     with open(config_path) as f:
         base_config = yaml.safe_load(f)
 
@@ -226,7 +235,7 @@ async def run_benchmark(config_path: str, n_runs: int, out_path: str,
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     results: dict = {}
     for policy in policies:
-        print(f"\n{'='*60}\nPolicy: {policy}\n{'='*60}")
+        print(f"\n{'=' * 60}\nPolicy: {policy}\n{'=' * 60}")
         cfg_results = []
         for run_idx in range(n_runs):
             print(f"  Run {run_idx + 1}/{n_runs}...", end=" ", flush=True)
@@ -238,28 +247,33 @@ async def run_benchmark(config_path: str, n_runs: int, out_path: str,
                 elapsed = time.time() - t0
                 if MODE == "deadline-yield":
                     m["wall_time_s"] = elapsed
-                    print(f"{m.get('leads_by_deadline', 0)} leads in "
-                          f"{DEADLINE_S:.0f}s window  ({elapsed:.0f}s wall)")
+                    print(
+                        f"{m.get('leads_by_deadline', 0)} leads in "
+                        f"{DEADLINE_S:.0f}s window  ({elapsed:.0f}s wall)"
+                    )
                 elif m.get("dnf"):
                     m["wall_time_s"] = elapsed
                     print(f"DNF ({elapsed:.0f}s, hit {RUN_TIMEOUT_S}s limit)")
                 else:
-                    print(f"done in {elapsed:.1f}s  "
-                          f"(wall={m.get('wall_time_s', 0):.1f}s  "
-                          f"ttt={m.get('time_to_target_s')})")
+                    print(
+                        f"done in {elapsed:.1f}s  "
+                        f"(wall={m.get('wall_time_s', 0):.1f}s  "
+                        f"ttt={m.get('time_to_target_s')})"
+                    )
                 cfg_results.append(m)
             except Exception as exc:
                 print(f"FAILED: {exc}")
-                cfg_results.append({"error": str(exc), "wall_time_s": None,
-                                    "policy": policy})
+                cfg_results.append({"error": str(exc), "wall_time_s": None, "policy": policy})
         results[policy] = cfg_results
 
     with open(out_path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"\nResults written to {out_path}")
     print(f"Per-cycle decision logs under {LOG_DIR}/")
-    print("Plot:  python plot_policy_comparison.py "
-          + " ".join(f"adr-logs/{p}-run0.jsonl" for p in policies if p != "none"))
+    print(
+        "Plot:  python plot_policy_comparison.py "
+        + " ".join(f"adr-logs/{p}-run0.jsonl" for p in policies if p != "none")
+    )
 
 
 if __name__ == "__main__":
@@ -267,19 +281,38 @@ if __name__ == "__main__":
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--out", default="benchmark_results.json")
-    parser.add_argument("--policies", nargs="+", default=ALL_POLICIES,
-                        choices=ALL_POLICIES,
-                        help="which policies to benchmark (default: all)")
-    parser.add_argument("--timeout", type=int, default=RUN_TIMEOUT_S,
-                        help="per-run wall-time cap (seconds, time-to-target mode)")
-    parser.add_argument("--tick", type=float, default=TICK_S,
-                        help="operator decision cadence in seconds (lower = more responsive)")
-    parser.add_argument("--mode", default="time-to-target",
-                        choices=["time-to-target", "deadline-yield"],
-                        help="objective: time-to-target (wall-clock to Nth lead, lower=better) "
-                             "or deadline-yield (leads within a fixed window, higher=better)")
-    parser.add_argument("--deadline", type=float, default=DEADLINE_S,
-                        help="fixed wall-clock window in seconds (deadline-yield mode)")
+    parser.add_argument(
+        "--policies",
+        nargs="+",
+        default=ALL_POLICIES,
+        choices=ALL_POLICIES,
+        help="which policies to benchmark (default: all)",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=RUN_TIMEOUT_S,
+        help="per-run wall-time cap (seconds, time-to-target mode)",
+    )
+    parser.add_argument(
+        "--tick",
+        type=float,
+        default=TICK_S,
+        help="operator decision cadence in seconds (lower = more responsive)",
+    )
+    parser.add_argument(
+        "--mode",
+        default="time-to-target",
+        choices=["time-to-target", "deadline-yield"],
+        help="objective: time-to-target (wall-clock to Nth lead, lower=better) "
+        "or deadline-yield (leads within a fixed window, higher=better)",
+    )
+    parser.add_argument(
+        "--deadline",
+        type=float,
+        default=DEADLINE_S,
+        help="fixed wall-clock window in seconds (deadline-yield mode)",
+    )
     args = parser.parse_args()
     RUN_TIMEOUT_S = args.timeout
     TICK_S = args.tick

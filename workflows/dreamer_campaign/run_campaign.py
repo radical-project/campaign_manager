@@ -43,44 +43,43 @@ Usage:
     python run_campaign.py [--config config.yaml]
 """
 
-import argparse
-import asyncio
-import sys
-from pathlib import Path
+import argparse  # noqa: E402
+import asyncio  # noqa: E402
+import sys  # noqa: E402
+from pathlib import Path  # noqa: E402
 
-import yaml
+import yaml  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.campaign import AsyncCampaignManager as CampaignManager  # noqa: E402
 from src.utils.workflow import _expand_env, load_config  # noqa: E402
 
-
 # ── Plan format translation tables ───────────────────────────────────────────
 
 # pilot.partition → CM resource requirements
 _PILOT_RESOURCES: dict[str, dict] = {
-    "cpu":      {"required_cpus": 16, "required_gpus": 0},
-    "gpu":      {"required_cpus":  4, "required_gpus": 1},
-    "mpi+gpu":  {"required_cpus": 16, "required_gpus": 2},
-    "largemem": {"required_cpus":  8, "required_gpus": 1},
+    "cpu": {"required_cpus": 16, "required_gpus": 0},
+    "gpu": {"required_cpus": 4, "required_gpus": 1},
+    "mpi+gpu": {"required_cpus": 16, "required_gpus": 2},
+    "largemem": {"required_cpus": 8, "required_gpus": 1},
 }
 
 # edge.profile → dreamer schedule_strategy
 _PROFILE_STRATEGY: dict[str, str] = {
-    "round_robin":     "random",
-    "diverse_top":     "smallest_to_fastest",
+    "round_robin": "random",
+    "diverse_top": "smallest_to_fastest",
     "explore_exploit": "largest_to_fastest",
-    "pure_promise":    "largest_to_fastest",
+    "pure_promise": "largest_to_fastest",
     "active_learning": "largest_to_fastest",
 }
 
 # edge.profile → dreamer early_binding
 _PROFILE_EARLY_BINDING: dict[str, bool] = {
-    "round_robin":     True,   # diversity-focused: bind early
-    "diverse_top":     True,
+    "round_robin": True,  # diversity-focused: bind early
+    "diverse_top": True,
     "explore_exploit": False,  # score/uncertainty-focused: late binding
-    "pure_promise":    False,
+    "pure_promise": False,
     "active_learning": False,
 }
 
@@ -92,21 +91,21 @@ def _build_from_plan(config: dict) -> dict:
 
     Returns the translated workflows dict; does not mutate ``config``.
     """
-    cm_cfg = config.get("cm", {})
+    config.get("cm", {})
 
     # debug section: SPHERICAL emulation overrides (not in prototype schema).
     # Must be read HERE before main() overwrites config["debug"] with a bool.
     debug_cfg = config.get("debug", {})
     debug_cfg = debug_cfg if isinstance(debug_cfg, dict) else {}
-    stage_replicas_dbg = debug_cfg.get("stage_replicas",  {})
-    trigger_fractions  = debug_cfg.get("trigger_fractions", {})
+    stage_replicas_dbg = debug_cfg.get("stage_replicas", {})
+    trigger_fractions = debug_cfg.get("trigger_fractions", {})
 
     stage_ids: set[str] = {s["id"] for s in config.get("stages", [])}
 
     # Outgoing edge per source stage (profile → schedule_strategy)
     edge_out: dict[str, dict] = {}
     # Incoming edge per destination stage (backpressure water marks for that stage's queue)
-    edge_in:  dict[str, dict] = {}
+    edge_in: dict[str, dict] = {}
     for edge in config.get("edges", []):
         src, dst = edge.get("upstream", ""), edge.get("downstream", "")
         if src in stage_ids:
@@ -116,8 +115,8 @@ def _build_from_plan(config: dict) -> dict:
 
     workflows: dict[str, dict] = {}
     for stage in config.get("stages", []):
-        sid        = stage["id"]
-        upstream   = stage.get("upstream",   "")
+        sid = stage["id"]
+        upstream = stage.get("upstream", "")
         downstream = stage.get("downstream", "")
 
         # Only treat upstream as a CM dependency when it's a real stage
@@ -125,22 +124,20 @@ def _build_from_plan(config: dict) -> dict:
 
         # concurrency_cap drives the CM's concurrency_cap field directly for
         # local emulation.  Accept the legacy max_replicas key for back-compat.
-        cap   = int(stage.get("concurrency_cap",
-                              stage.get("max_replicas", 0)))
+        cap = int(stage.get("concurrency_cap", stage.get("max_replicas", 0)))
 
         # pilot.partition → required_cpus / required_gpus
-        pilot     = stage.get("pilot", {})
+        pilot = stage.get("pilot", {})
         partition = pilot.get("partition", "cpu").lower()
-        resources = _PILOT_RESOURCES.get(partition,
-                                         {"required_cpus": 4, "required_gpus": 0})
+        resources = _PILOT_RESOURCES.get(partition, {"required_cpus": 4, "required_gpus": 0})
 
         # Outgoing edge: profile → dreamer strategy + early_binding
         out_edge = edge_out.get(sid, {})
-        profile  = out_edge.get("profile", "diverse_top")
+        profile = out_edge.get("profile", "diverse_top")
         # Incoming edge: backpressure controls THIS stage's own queue depth
-        in_bp    = edge_in.get(sid, {}).get("backpressure", {})
-        strategy   = _PROFILE_STRATEGY.get(profile,       "smallest_to_fastest")
-        early_bind = _PROFILE_EARLY_BINDING.get(profile,   True)
+        in_bp = edge_in.get(sid, {}).get("backpressure", {})
+        strategy = _PROFILE_STRATEGY.get(profile, "smallest_to_fastest")
+        early_bind = _PROFILE_EARLY_BINDING.get(profile, True)
 
         # dreamer emulation block — may override strategy / early_binding
         dreamer = dict(stage.get("dreamer", {}))
@@ -149,48 +146,46 @@ def _build_from_plan(config: dict) -> dict:
         trigger = downstream if downstream in stage_ids else None
 
         # Replicas: debug.stage_replicas overrides stage.replicas (root stages only)
-        replicas = int(stage_replicas_dbg.get(sid,
-                       stage.get("replicas", 0 if deps else 1)))
+        replicas = int(stage_replicas_dbg.get(sid, stage.get("replicas", 0 if deps else 1)))
 
         # Trigger fraction: debug.trigger_fractions → falls back to threshold_top_fraction
-        trigger_fraction = float(trigger_fractions.get(
-            sid, stage.get("threshold_top_fraction", 1.0) or 1.0))
+        trigger_fraction = float(
+            trigger_fractions.get(sid, stage.get("threshold_top_fraction", 1.0) or 1.0)
+        )
 
         wf_cfg: dict = {
             # ── CM scheduling (consumed by from_config, not forwarded) ───
-            "replicas":             replicas,
-            "concurrency_floor":    int(stage.get("concurrency_floor",
-                                                  stage.get("min_replicas", 0))),
-            "concurrency_cap":      cap,
-            "priority":             int(stage.get("priority", 0)),
-            "dependencies":         deps,
+            "replicas": replicas,
+            "concurrency_floor": int(stage.get("concurrency_floor", stage.get("min_replicas", 0))),
+            "concurrency_cap": cap,
+            "priority": int(stage.get("priority", 0)),
+            "dependencies": deps,
             "dependency_threshold": int(stage.get("dependency_threshold", 1)),
-            **resources,   # required_cpus, required_gpus
-
+            **resources,  # required_cpus, required_gpus
             # ── Workflow config (forwarded to DreamerWorkflow.config) ────
-            "trigger_downstream":       trigger,
-            "trigger_fraction":         trigger_fraction,   # from debug.trigger_fractions
-            "threshold_top_fraction":   stage.get("threshold_top_fraction"),
-            "budget_node_hours":        stage.get("budget_node_hours"),
-            "downstream_input_target":  stage.get("downstream_input_target"),
+            "trigger_downstream": trigger,
+            "trigger_fraction": trigger_fraction,  # from debug.trigger_fractions
+            "threshold_top_fraction": stage.get("threshold_top_fraction"),
+            "budget_node_hours": stage.get("budget_node_hours"),
+            "downstream_input_target": stage.get("downstream_input_target"),
             # campaign_target: early-stop trigger read by executor._on_replica_finished.
             # Must be forwarded into workflow_config (the executor does not see the
             # typed plan StageSpec; budget_kp/burn_rate_band reach BudgetController
             # via the plan path, but the early-stop check reads workflow_config).
-            "campaign_target":          stage.get("campaign_target"),
-            "pilot":                    pilot or None,
-            "surrogate":                stage.get("surrogate"),
-            "profile":                  profile,
-            "schedule_strategy":        dreamer.pop("schedule_strategy", strategy),
-            "early_binding":            dreamer.pop("early_binding", early_bind),
+            "campaign_target": stage.get("campaign_target"),
+            "pilot": pilot or None,
+            "surrogate": stage.get("surrogate"),
+            "profile": profile,
+            "schedule_strategy": dreamer.pop("schedule_strategy", strategy),
+            "early_binding": dreamer.pop("early_binding", early_bind),
             # Backpressure for THIS stage's queue — only for dependent stages.
             # Root (independent) stages have a fixed initial queue size so BP
             # would immediately throttle them; skip it for those.
             "backpressure_high": (in_bp.get("high_water") or None) if deps else None,
-            "backpressure_low":  (in_bp.get("low_water")  or None) if deps else None,
+            "backpressure_low": (in_bp.get("low_water") or None) if deps else None,
             # Sharding spec — only for dependent stages (root stages are not triggered).
             "sharding": stage.get("sharding") if deps else None,
-            **dreamer,   # num_cores, perf_dist, num_tasks, ops_dist, profile_dir…
+            **dreamer,  # num_cores, perf_dist, num_tasks, ops_dist, profile_dir…
         }
 
         # Drop keys with None / falsy values that would clutter workflow config
@@ -200,6 +195,7 @@ def _build_from_plan(config: dict) -> dict:
 
 
 # ── Legacy flat-format helpers ────────────────────────────────────────────────
+
 
 def _expand_workflow_configs(config: dict, config_dir: Path) -> dict:
     """Load external per-workflow YAML files referenced by 'config_file' keys."""
@@ -221,6 +217,7 @@ def _expand_workflow_configs(config: dict, config_dir: Path) -> dict:
 def _build_registry(config: dict) -> dict:
     """Dynamically import workflow classes from 'workflow_registry'."""
     import importlib
+
     registry = {}
     for name, cls_path in config.get("workflow_registry", {}).items():
         module_name, cls_name = cls_path.rsplit(".", 1)
@@ -230,8 +227,8 @@ def _build_registry(config: dict) -> dict:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None,
-                        config_dir=None):
+
+def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None, config_dir=None):
     """Build a CampaignOperator + policy for ADR supervision, or (None, None).
 
     Policy source precedence: --policy CLI override > cm.adr.policy config.
@@ -243,7 +240,10 @@ def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None,
         return None, None
 
     from src.campaign.adr import (
-        CampaignView, CampaignOperator, PolicyRecorder, make_scheduling_policy,
+        CampaignOperator,
+        CampaignView,
+        PolicyRecorder,
+        make_scheduling_policy,
         resolve_system_prompt,
     )
 
@@ -267,8 +267,7 @@ def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None,
         kw["warmstart"] = bool(adr_cfg.get("warmstart", False))
         kw["seed"] = adr_cfg.get("seed", 0)
     elif kind == "llm":
-        api_key = os.environ.get(
-            adr_cfg.get("llm_api_key_env", "OPENROUTER_API_KEY"), "")
+        api_key = os.environ.get(adr_cfg.get("llm_api_key_env", "OPENROUTER_API_KEY"), "")
         # Any OpenAI-compatible endpoint works (OpenRouter, HuggingFace router,
         # a local Ollama/llama.cpp server). Set cm.adr.base_url to switch.
         if adr_cfg.get("base_url"):
@@ -290,8 +289,8 @@ def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None,
         if prompt:
             kw["system_prompt"] = prompt
     op.policy = make_scheduling_policy(
-        op, kind=kind, llm_api_key=api_key,
-        model=adr_cfg.get("model", "openai/gpt-4o-mini"), **kw)
+        op, kind=kind, llm_api_key=api_key, model=adr_cfg.get("model", "openai/gpt-4o-mini"), **kw
+    )
     if recorder is not None:
         recorder.bind(view=view, policy=op.policy)
         print(f"ADR decision recorder → {record_path}")
@@ -306,7 +305,7 @@ async def main(config_file: str, policy_override=None, record_override=None) -> 
     config_path = Path(config_file)
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_file}")
-    config     = load_config(config_file)
+    config = load_config(config_file)
     config_dir = config_path.parent
 
     # ── Detect and translate plan format ─────────────────────────────────────
@@ -322,9 +321,11 @@ async def main(config_file: str, policy_override=None, record_override=None) -> 
         # Overwrite the debug dict with the CM boolean so from_config works correctly
         config["debug"] = bool(cm_cfg.get("debug", False))
         n_stages = len(config["stages"])
-        n_edges  = len(config.get("edges", []))
-        print(f"Plan format: {n_stages} stages, {n_edges} edges → "
-              f"{len(config['workflows'])} workflow groups")
+        n_edges = len(config.get("edges", []))
+        print(
+            f"Plan format: {n_stages} stages, {n_edges} edges → "
+            f"{len(config['workflows'])} workflow groups"
+        )
     else:
         _expand_workflow_configs(config, config_dir)
 
@@ -332,7 +333,7 @@ async def main(config_file: str, policy_override=None, record_override=None) -> 
 
     # ── Build async backend ───────────────────────────────────────────────────
     engine_dragon = None
-    asyncflow     = None
+    asyncflow = None
 
     if engine_type == "dragon":
         try:
@@ -340,7 +341,7 @@ async def main(config_file: str, policy_override=None, record_override=None) -> 
             from rhapsody.backends import DragonExecutionBackendV3
 
             engine_dragon = await DragonExecutionBackendV3()
-            asyncflow     = await WorkflowEngine.create(engine_dragon)
+            asyncflow = await WorkflowEngine.create(engine_dragon)
             print("Dragon backend started")
         except ImportError:
             engine_type = "concurrent"
@@ -349,7 +350,7 @@ async def main(config_file: str, policy_override=None, record_override=None) -> 
         from radical.asyncflow import WorkflowEngine
         from rhapsody.backends import ConcurrentExecutionBackend
 
-        backend   = await ConcurrentExecutionBackend()
+        backend = await ConcurrentExecutionBackend()
         asyncflow = await WorkflowEngine.create(backend)
         print("ConcurrentExecutionBackend started")
 
@@ -357,7 +358,7 @@ async def main(config_file: str, policy_override=None, record_override=None) -> 
     # Asyncflow telemetry needs the opentelemetry SDK; it's an optional extra and
     # the campaign (and ADR operator, which doesn't use it) runs fine without it.
     # Degrade gracefully if the dep is missing rather than crashing the run.
-    tel_cfg   = config.get("telemetry", {})
+    tel_cfg = config.get("telemetry", {})
     telemetry = None
     if tel_cfg.get("collect_telemetry", False):
         telemetry_dir = tel_cfg.get("telemetry_dir", "telemetry-results")
@@ -369,8 +370,10 @@ async def main(config_file: str, policy_override=None, record_override=None) -> 
                 )
                 print(f"Asyncflow telemetry started → {telemetry_dir}")
             except ImportError as exc:
-                print(f"Telemetry disabled (missing optional dep: {exc}). "
-                      f"Install with: pip install opentelemetry-sdk")
+                print(
+                    f"Telemetry disabled (missing optional dep: {exc}). "
+                    f"Install with: pip install opentelemetry-sdk"
+                )
 
     # ── Campaign ──────────────────────────────────────────────────────────────
     registry = _build_registry(config)
@@ -396,16 +399,20 @@ async def main(config_file: str, policy_override=None, record_override=None) -> 
     adr_cfg = dict(config.get("cm", {}).get("adr", {}))
     if record_override is not None:
         adr_cfg["record"] = record_override
-    operator, tick_s = _build_adr_operator(cm, asyncflow, adr_cfg, policy_override,
-                                           config_dir=config_dir)
+    operator, tick_s = _build_adr_operator(
+        cm, asyncflow, adr_cfg, policy_override, config_dir=config_dir
+    )
 
     try:
         await cm.start()
         if operator is not None:
             from src.campaign.adr import run_supervised
+
             kind = (policy_override or adr_cfg.get("policy", "?")).lower()
-            print(f"ADR supervision active: policy={kind}  tick={tick_s}s "
-                  f"(ADR policy drives scheduling priority)")
+            print(
+                f"ADR supervision active: policy={kind}  tick={tick_s}s "
+                f"(ADR policy drives scheduling priority)"
+            )
             await run_supervised(cm, operator, tick_s=tick_s)
         else:
             await cm.wait()
@@ -419,26 +426,37 @@ async def main(config_file: str, policy_override=None, record_override=None) -> 
     # ── Summary ───────────────────────────────────────────────────────────────
     print("\n── Campaign complete ──")
     for name, info in cm.status()["groups"].items():
-        print(f"  {name}: status={info['status']}  "
-              f"replicas={info['replicas_finished']}/{info['replicas_total']}")
+        print(
+            f"  {name}: status={info['status']}  "
+            f"replicas={info['replicas_finished']}/{info['replicas_total']}"
+        )
 
     print("\n── Replica counts per workflow ──")
     for name, s in cm.stats().items():
-        print(f"  {name}: replicas_started={s.replicas_started}  "
-              f"replicas_finished={s.replicas_finished}")
+        print(
+            f"  {name}: replicas_started={s.replicas_started}  "
+            f"replicas_finished={s.replicas_finished}"
+        )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="SPHERICAL dreamer campaign runner")
-    parser.add_argument("--config", default="config.yaml",
-                        help="Path to YAML config (flat or plan format)")
-    parser.add_argument("--policy", default=None,
-                        choices=["none", "rule", "bandit", "llm"],
-                        help="ADR scheduling policy (overrides cm.adr.policy). "
-                             "'none' = no ADR supervision (static priorities).")
-    parser.add_argument("--record", nargs="?", const="auto", default=None,
-                        help="Record per-cycle ADR decisions to JSONL "
-                             "(bare flag → adr-decisions-<policy>.jsonl).")
+    parser.add_argument(
+        "--config", default="config.yaml", help="Path to YAML config (flat or plan format)"
+    )
+    parser.add_argument(
+        "--policy",
+        default=None,
+        choices=["none", "rule", "bandit", "llm"],
+        help="ADR scheduling policy (overrides cm.adr.policy). "
+        "'none' = no ADR supervision (static priorities).",
+    )
+    parser.add_argument(
+        "--record",
+        nargs="?",
+        const="auto",
+        default=None,
+        help="Record per-cycle ADR decisions to JSONL (bare flag → adr-decisions-<policy>.jsonl).",
+    )
     args = parser.parse_args()
-    asyncio.run(main(args.config, policy_override=args.policy,
-                     record_override=args.record))
+    asyncio.run(main(args.config, policy_override=args.policy, record_override=args.record))

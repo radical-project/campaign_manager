@@ -26,7 +26,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Optional
 
-from radical.adr import Operator, act, observe, goals
+from radical.adr import Operator, act, goals, observe
 from radical.adr.goals import Goal
 
 from .view import CampaignViewProtocol
@@ -36,7 +36,7 @@ class CampaignOperator(Operator):
     """ADR Operator whose acts mutate an AsyncCampaignManager's scheduling state."""
 
     # ── State (proxied to state.objectives, persisted across cycles) ────────
-    target:  int = 0           # goal threshold (terminal-stage completions)
+    target: int = 0  # goal threshold (terminal-stage completions)
 
     def __init__(
         self,
@@ -69,8 +69,9 @@ class CampaignOperator(Operator):
             return []
         # Goal.satisfied uses strict '>'; subtract 0.5 so integer hit-counts
         # satisfy at exactly `target` (hits >= target).
-        return Goal(name="target_reached", metric="hits",
-                    threshold=self.target - 0.5, direction="maximize")
+        return Goal(
+            name="target_reached", metric="hits", threshold=self.target - 0.5, direction="maximize"
+        )
 
     # ── Observe ─────────────────────────────────────────────────────────────
 
@@ -109,6 +110,7 @@ async def run_supervised(
     ``tick_s`` until the CM completes (``cm.wait()``) or the operator's goal
     fires.  Cancels the operator loop cleanly when the campaign ends.
     """
+
     async def _drive() -> None:
         async for _snapshot in operator.run():
             await asyncio.sleep(tick_s)

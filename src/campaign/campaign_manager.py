@@ -28,14 +28,15 @@ from typing import Optional
 
 from ..utils.logger import Logger
 from .backpressure import BackpressureNegotiator, BPState  # noqa: F401 (re-exported)
-from .budget_controller import BudgetController, BudgetEvent  # noqa: F401
-from .metrics import CampaignMetrics
+
 # (No bandit import: cross-stage scheduling priority is driven by the ADR
 # layer's BanditSchedulingPolicy, not an in-CM bandit.)
 from .base_workflow import BaseWorkflow
-from .candidate_log import CandidateLog, CandidateHistory, StageResult  # noqa: F401
+from .budget_controller import BudgetController, BudgetEvent  # noqa: F401
+from .candidate_log import CandidateHistory, CandidateLog, StageResult  # noqa: F401
 from .executor import ExecutorMixin
-from .monitor import Monitor, DriftKind  # noqa: F401 (re-exported)
+from .metrics import CampaignMetrics
+from .monitor import DriftKind, Monitor  # noqa: F401 (re-exported)
 from .monitor_mixin import MonitorMixin
 from .plan import CampaignPlan, load_plan, plan_to_workflows_dict
 from .replanning import ReplanningController, ReplanningState  # noqa: F401
@@ -43,7 +44,7 @@ from .scheduler import SchedulerMixin
 from .sharder import Sharder, ShardingSpec
 from .surrogate import Surrogate, build_default_surrogate
 from .triage import Triage, TriageDecision  # noqa: F401 (re-exported)
-from .types import _WorkflowInfo, CampaignState, ResourcePool, WorkflowStats
+from .types import CampaignState, ResourcePool, WorkflowStats, _WorkflowInfo
 
 
 class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
@@ -99,7 +100,7 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
         self._bp: dict[str, BackpressureNegotiator] = {}
         self._sharders: dict[str, Sharder] = {}
         self._monitor: Optional[Monitor] = None
-        self._monitor_interval_s: float = 30.0   # overwritten by from_config
+        self._monitor_interval_s: float = 30.0  # overwritten by from_config
         self._monitor_task: Optional[asyncio.Task] = None
         self._candidate_log: Optional[CandidateLog] = None
         self._cand_seq: itertools.count = itertools.count()
@@ -171,9 +172,9 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
             plan = load_plan(config)
             if "workflows" not in config:
                 config = plan_to_workflows_dict(plan)
-        res_cfg     = config.get("resources", {})
+        res_cfg = config.get("resources", {})
         num_workers = config.get("num_workers")
-        features    = config.get("features", {})
+        features = config.get("features", {})
 
         cm = cls(
             max_workers=config.get("max_workers"),
@@ -193,10 +194,17 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
         # are stripped from the config dict passed to the workflow so they
         # don't accidentally leak through as workflow-level config.
         _cm_keys = {
-            "replicas", "dependencies", "dependency_threshold",
-            "concurrency_floor", "concurrency_cap",
-            "min_replicas", "max_replicas",   # legacy aliases
-            "priority", "required_cpus", "required_gpus", "required_memory_gb",
+            "replicas",
+            "dependencies",
+            "dependency_threshold",
+            "concurrency_floor",
+            "concurrency_cap",
+            "min_replicas",
+            "max_replicas",  # legacy aliases
+            "priority",
+            "required_cpus",
+            "required_gpus",
+            "required_memory_gb",
             "sharding",
         }
 
@@ -209,15 +217,9 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
             has_deps = bool(wf_cfg.get("dependencies", []))
             default_replicas = 0 if has_deps else 1
             # Prefer new key; fall back to legacy alias.
-            concurrency_cap = int(
-                wf_cfg.get("concurrency_cap")
-                or wf_cfg.get("max_replicas")
-                or 0
-            )
+            concurrency_cap = int(wf_cfg.get("concurrency_cap") or wf_cfg.get("max_replicas") or 0)
             concurrency_floor = int(
-                wf_cfg.get("concurrency_floor")
-                or wf_cfg.get("min_replicas")
-                or 0
+                wf_cfg.get("concurrency_floor") or wf_cfg.get("min_replicas") or 0
             )
             cm.register_workflow(
                 name=name,
@@ -238,10 +240,12 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
         if features.get("backpressure"):
             for name, wf_cfg in config.get("workflows", {}).items():
                 hi = int(wf_cfg.get("backpressure_high") or 0)
-                lo = int(wf_cfg.get("backpressure_low")  or 0)
+                lo = int(wf_cfg.get("backpressure_low") or 0)
                 if hi > 0 and lo > 0 and hi > lo:
                     cm._bp[name] = BackpressureNegotiator(
-                        edge_name=f"*_to_{name}", high_water=hi, low_water=lo,
+                        edge_name=f"*_to_{name}",
+                        high_water=hi,
+                        low_water=lo,
                     )
                     cm._log.info(f"Backpressure [{name}]: high_water={hi}  low_water={lo}")
 
@@ -250,11 +254,12 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
             for name, wf_cfg in config.get("workflows", {}).items():
                 sh_raw = wf_cfg.get("sharding")
                 if sh_raw and isinstance(sh_raw, dict):
-                    spec    = ShardingSpec.from_dict(sh_raw)
+                    spec = ShardingSpec.from_dict(sh_raw)
                     sharder = Sharder(name=name, spec=spec)
                     sharder._log_fn = cm._log.info
-                    sharder._metrics_fn = lambda sid, n, sc, pr, _name=name: \
+                    sharder._metrics_fn = lambda sid, n, sc, pr, _name=name: (
                         cm._metrics.record_shard(_name, sid, n, sc, pr)
+                    )
                     cm._sharders[name] = sharder
                     cm._log.info(
                         f"Sharder [{name}]: target={spec.target_size} "
@@ -270,14 +275,12 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
         if features.get("monitor"):
             replan = config.get("replan", {})
             cm._monitor = Monitor(
-                burn_dev_pct=float(replan.get("budget_burn_deviation_pct",    20.0)),
+                burn_dev_pct=float(replan.get("budget_burn_deviation_pct", 20.0)),
                 passthrough_dev_pct=float(replan.get("pass_through_deviation_pct", 25.0)),
-                recall_floor=float(replan.get("surrogate_recall_floor",       0.90)),
+                recall_floor=float(replan.get("surrogate_recall_floor", 0.90)),
                 breaches_to_escalate=2,
             )
-            cm._monitor_interval_s = float(
-                config.get("cm", {}).get("monitor_interval_s", 30.0)
-            )
+            cm._monitor_interval_s = float(config.get("cm", {}).get("monitor_interval_s", 30.0))
             cm._log.info(
                 f"Monitor enabled: pass_through_dev={cm._monitor.passthrough_dev_pct}%  "
                 f"budget_dev={cm._monitor.burn_dev_pct}%  "
@@ -307,14 +310,18 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
                 if stage.surrogate is None:
                     continue
                 triage = Triage.from_surrogate_spec(
-                    stage.id, stage.surrogate,
+                    stage.id,
+                    stage.surrogate,
                     advance_threshold=stage.surrogate.advance_threshold,
                 )
                 cm._triages[stage.id] = triage
                 if stage.budget_node_hours > 0 and stage.downstream_input_target > 0:
-                    bc = BudgetController.from_stage_spec(stage, triage,
-                                                          kp=stage.budget_kp,
-                                                          warmup_min_finished=stage.budget_warmup_min)
+                    bc = BudgetController.from_stage_spec(
+                        stage,
+                        triage,
+                        kp=stage.budget_kp,
+                        warmup_min_finished=stage.budget_warmup_min,
+                    )
                     cm._budget_controllers[stage.id] = bc
                     cm._log.info(
                         f"BudgetController [{stage.id}]: "
@@ -360,6 +367,7 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
                                     f"(surrogate recall {recall:.2f} < floor for "
                                     f"{breaches} consecutive observations)"
                                 )
+
                     return _on_drift
 
                 cm._surrogates[stage.id] = build_default_surrogate(
@@ -510,15 +518,17 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
         if self._debug:
             try:
                 from rhapsody import enable_logging
+
                 enable_logging(level="DEBUG")
                 import logging as _logging
+
                 _logging.getLogger("radical.asyncflow").setLevel(_logging.WARNING)
                 _logging.getLogger("asyncio").setLevel(_logging.WARNING)
                 self._log.warning("rhapsody.enable_logging active")
             except ImportError:
                 self._log.warning("rhapsody.enable_logging not available — skipping")
 
-        from .gpu import find_gpus, detect_gpus
+        from .gpu import detect_gpus, find_gpus
 
         if self._engine_type == "dragon":
             self._gpu_pool = find_gpus()
@@ -680,11 +690,10 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
                     # predictions (legacy dreamer path) pass real values and
                     # this branch is skipped.
                     dst_surrogate = self._surrogates.get(name)
-                    if (dst_surrogate is not None
-                            and surrogate_pred == 0.0
-                            and surrogate_unc == 0.0):
+                    if dst_surrogate is not None and surrogate_pred == 0.0 and surrogate_unc == 0.0:
                         surrogate_pred, surrogate_unc = dst_surrogate.predict(
-                            candidate_id, score=score,
+                            candidate_id,
+                            score=score,
                             scaffold_class=scaffold_class,
                         )
 
@@ -700,8 +709,12 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
                             prior_pred_for_source = existing_history.results[-1].surrogate_pred
 
                         result = self._candidate_log.record(
-                            candidate_id, source_stage, score,
-                            surrogate_pred, surrogate_unc, scaffold_class,
+                            candidate_id,
+                            source_stage,
+                            score,
+                            surrogate_pred,
+                            surrogate_unc,
+                            scaffold_class,
                         )
                         enqueue_time = self._candidate_log.get(candidate_id).enqueue_time
 
@@ -711,14 +724,18 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
                         if prior_pred_for_source is not None:
                             src_surrogate = self._surrogates.get(source_stage)
                             if src_surrogate is not None:
-                                src_surrogate.update_with_results([
-                                    (candidate_id, prior_pred_for_source, score)
-                                ])
+                                src_surrogate.update_with_results(
+                                    [(candidate_id, prior_pred_for_source, score)]
+                                )
 
                         src_group = self._workflows.get(source_stage)
-                        top_frac = float(
-                            (src_group.workflow_config or {}).get("threshold_top_fraction", 1.0)
-                        ) if src_group else 1.0
+                        top_frac = (
+                            float(
+                                (src_group.workflow_config or {}).get("threshold_top_fraction", 1.0)
+                            )
+                            if src_group
+                            else 1.0
+                        )
                         if not self._candidate_log.passes_threshold(
                             candidate_id, source_stage, top_frac
                         ):
@@ -748,7 +765,9 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
                                 f"unc_cutoff={triage.uncertainty_cutoff:.3f})"
                             )
                             if self._candidate_log and source_stage:
-                                self._candidate_log.get(candidate_id).results[-1].decision = "triaged_discard"
+                                self._candidate_log.get(candidate_id).results[
+                                    -1
+                                ].decision = "triaged_discard"
                             return
                         # ADVANCE: confident high-quality candidate — mark
                         # the lineage so the executor can short-circuit the
@@ -762,7 +781,9 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
                             # surfaces in replica_events' duration_s (~0 for
                             # skipped) for plot_budget_control.py to count.
                             if self._candidate_log and source_stage:
-                                self._candidate_log.get(candidate_id).results[-1].decision = "triaged_advance"
+                                self._candidate_log.get(candidate_id).results[
+                                    -1
+                                ].decision = "triaged_advance"
                     sharder.receive(
                         candidate_id=candidate_id,
                         score=score,
@@ -854,11 +875,11 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
             sharder = self._sharders.get(name)
             n_added = 0
             for cand in candidates:
-                candidate_id   = str(cand["candidate_id"])
-                score          = float(cand.get("score", 0.0))
+                candidate_id = str(cand["candidate_id"])
+                score = float(cand.get("score", 0.0))
                 scaffold_class = str(cand.get("scaffold_class", ""))
                 surrogate_pred = float(cand.get("surrogate_pred", 0.0))
-                surrogate_unc  = float(cand.get("surrogate_unc", 0.0))
+                surrogate_unc = float(cand.get("surrogate_unc", 0.0))
                 if sharder is not None:
                     sharder.receive(
                         candidate_id=candidate_id,
@@ -942,19 +963,17 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
         return {
             "workflows": {
                 name: {
-                    "status":             w.status,
-                    "replicas":           w.replicas,
-                    "started_count":      w.started_count,
-                    "running_count":      w.running_count,
-                    "finished_replicas":  w.finished_replicas,
+                    "status": w.status,
+                    "replicas": w.replicas,
+                    "started_count": w.started_count,
+                    "running_count": w.running_count,
+                    "finished_replicas": w.finished_replicas,
                 }
                 for name, w in self._workflows.items()
             },
             "resources": self._resources.as_dict(),
             "triages": {sid: t.state() for sid, t in self._triages.items()},
-            "budget_controllers": {
-                sid: bc.state() for sid, bc in self._budget_controllers.items()
-            },
+            "budget_controllers": {sid: bc.state() for sid, bc in self._budget_controllers.items()},
         }
 
     async def _apply_new_plan_for_resume(self, new_plan: CampaignPlan) -> None:
@@ -980,7 +999,8 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
                 new_triages[stage.id] = triage
                 if stage.budget_node_hours > 0 and stage.downstream_input_target > 0:
                     new_controllers[stage.id] = BudgetController.from_stage_spec(
-                        stage, triage,
+                        stage,
+                        triage,
                         kp=stage.budget_kp,
                         warmup_min_finished=stage.budget_warmup_min,
                     )
@@ -1034,9 +1054,7 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
         async with self._lock:
             to_start = self._schedule_locked()
         for group, replica_idx in to_start:
-            task = asyncio.get_running_loop().create_task(
-                self._run_replica(group, replica_idx)
-            )
+            task = asyncio.get_running_loop().create_task(self._run_replica(group, replica_idx))
             self._replica_tasks.add(task)
             task.add_done_callback(self._on_replica_task_done)
 
@@ -1053,7 +1071,4 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
             return
         exc = task.exception()
         if exc is not None and not isinstance(exc, asyncio.CancelledError):
-            self._log.error(
-                f"Replica task raised unhandled exception: "
-                f"{type(exc).__name__}: {exc}"
-            )
+            self._log.error(f"Replica task raised unhandled exception: {type(exc).__name__}: {exc}")

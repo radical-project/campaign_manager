@@ -72,10 +72,11 @@ RUN_TIMEOUT_S = 1200
 TICK_S = 2.0
 
 ALL_POLICIES = ["none", "rule", "bandit", "llm"]
-LOG_DIR      = Path(__file__).parent / "adr-logs"
+LOG_DIR = Path(__file__).parent / "adr-logs"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _llm_available(config: dict) -> bool:
     adr = config.get("cm", {}).get("adr", {})
@@ -88,6 +89,7 @@ def _llm_available(config: dict) -> bool:
 
 async def _drive_with_timeout(cm, operator, timeout: float) -> bool:
     """Drive the ADR operator alongside cm.wait(). Returns True if campaign finished."""
+
     async def _loop():
         async for _snap in operator.run():
             await asyncio.sleep(TICK_S)
@@ -107,21 +109,24 @@ async def _drive_with_timeout(cm, operator, timeout: float) -> bool:
 
 
 def _prepare_config(config: dict, config_path: Path) -> dict:
-    from src.utils.workflow import _expand_env
     from run_campaing import _expand_workflow_configs
+
+    from src.utils.workflow import _expand_env
 
     config = _expand_env(config)
     _expand_workflow_configs(config, config_path.parent)
     return config
 
 
-async def _run_once(config: dict, config_path: Path, seed_offset: int,
-                    policy_kind: str, log_path: Path) -> dict:
+async def _run_once(
+    config: dict, config_path: Path, seed_offset: int, policy_kind: str, log_path: Path
+) -> dict:
     """Run one GPU campaign under the given policy; return metrics dict."""
-    from src.campaign import AsyncCampaignManager as CampaignManager
-    from run_campaing import _build_registry
     from radical.asyncflow import WorkflowEngine
     from rhapsody.backends import DragonExecutionBackendV3
+    from run_campaing import _build_registry
+
+    from src.campaign import AsyncCampaignManager as CampaignManager
 
     cfg = copy.deepcopy(config)
 
@@ -148,7 +153,7 @@ async def _run_once(config: dict, config_path: Path, seed_offset: int,
     # GPU run: all four workflows execute on real hardware.
     # Do NOT zero md/miniapps.  Do NOT force debug on inference.
     engine_dragon = await DragonExecutionBackendV3()
-    asyncflow     = await WorkflowEngine.create(engine_dragon)
+    asyncflow = await WorkflowEngine.create(engine_dragon)
 
     telemetry = None
     if tel_cfg.get("collect_telemetry", False):
@@ -164,35 +169,45 @@ async def _run_once(config: dict, config_path: Path, seed_offset: int,
                 print(f"[telemetry disabled: {exc}]", end=" ", flush=True)
 
     registry = _build_registry(cfg)
-    cm = CampaignManager.from_config(cfg, registry, asyncflow=asyncflow,
-                                     engine_dragon=engine_dragon)
+    cm = CampaignManager.from_config(
+        cfg, registry, asyncflow=asyncflow, engine_dragon=engine_dragon
+    )
 
     # ── Build ADR operator ────────────────────────────────────────────────────
     operator = None
     if policy_kind != "none":
-        from src.campaign.adr import (
-            CampaignView, PolicyRecorder,
-            make_scheduling_policy, resolve_system_prompt, TelemetrySubscriber,
-        )
         from ddsim_operator import DDSimCampaignOperator
-        adr_cfg  = cfg.get("cm", {}).get("adr", {})
-        tel_sub  = TelemetrySubscriber(telemetry) if telemetry is not None else None
+
+        from src.campaign.adr import (
+            CampaignView,
+            PolicyRecorder,
+            TelemetrySubscriber,
+            make_scheduling_policy,
+            resolve_system_prompt,
+        )
+
+        adr_cfg = cfg.get("cm", {}).get("adr", {})
+        tel_sub = TelemetrySubscriber(telemetry) if telemetry is not None else None
         terminal = adr_cfg.get("terminal") or None
-        view     = CampaignView(cm, terminal=terminal, telemetry_subscriber=tel_sub)
+        view = CampaignView(cm, terminal=terminal, telemetry_subscriber=tel_sub)
         recorder = PolicyRecorder(log_path, policy_kind=policy_kind)
         operator = DDSimCampaignOperator(
-            view, engine=asyncflow, observer=recorder,
+            view,
+            engine=asyncflow,
+            observer=recorder,
             n_md_runs=int(adr_cfg.get("n_md_runs", 4)),
             max_fail_rate=float(adr_cfg.get("max_fail_rate", 0.05)),
         )
 
         api_key, kw = None, {}
         if policy_kind == "bandit":
-            kw = {"warmstart": bool(adr_cfg.get("warmstart", True)),
-                  "seed": adr_cfg.get("seed", 0) + seed_offset}
+            kw = {
+                "warmstart": bool(adr_cfg.get("warmstart", True)),
+                "seed": adr_cfg.get("seed", 0) + seed_offset,
+            }
         elif policy_kind == "llm":
-            env      = adr_cfg.get("llm_api_key_env", "OPENROUTER_API_KEY")
-            api_key  = os.environ.get(env)
+            env = adr_cfg.get("llm_api_key_env", "OPENROUTER_API_KEY")
+            api_key = os.environ.get(env)
             base_url = adr_cfg.get("base_url", "") or ""
             if base_url:
                 kw["base_url"] = base_url
@@ -208,8 +223,12 @@ async def _run_once(config: dict, config_path: Path, seed_offset: int,
                 kw["system_prompt"] = prompt
 
         operator.policy = make_scheduling_policy(
-            operator, kind=policy_kind, llm_api_key=api_key,
-            model=adr_cfg.get("model", "openai/gpt-4o-mini"), **kw)
+            operator,
+            kind=policy_kind,
+            llm_api_key=api_key,
+            model=adr_cfg.get("model", "openai/gpt-4o-mini"),
+            **kw,
+        )
         recorder.bind(view=view, policy=operator.policy)
 
     dnf = False
@@ -228,8 +247,8 @@ async def _run_once(config: dict, config_path: Path, seed_offset: int,
         await asyncflow.shutdown()
 
     m = cm.metrics().to_dict()
-    m["policy"]  = policy_kind
-    m["dnf"]     = dnf
+    m["policy"] = policy_kind
+    m["dnf"] = dnf
     if operator is not None:
         m["decision_log"] = str(log_path)
     if tel_cfg.get("collect_telemetry") and telemetry is not None:
@@ -238,7 +257,7 @@ async def _run_once(config: dict, config_path: Path, seed_offset: int,
     # ── Per-stage completion counts (from group_stats) ────────────────────────
     gs = m.get("group_stats", {})
     for stage, s in gs.items():
-        m[f"{stage}_started"]  = s.get("n_started",  0)
+        m[f"{stage}_started"] = s.get("n_started", 0)
         m[f"{stage}_finished"] = s.get("n_finished", 0)
 
     # ── Primary metric: time to first miniapps completion ─────────────────────
@@ -247,14 +266,16 @@ async def _run_once(config: dict, config_path: Path, seed_offset: int,
     # gets the pass-2 GPU promptly after md triggers it.
     events = m.get("replica_events", [])
     miniapps_finishes = sorted(
-        e["t"] for e in events
+        e["t"]
+        for e in events
         if e.get("group") == "miniapps" and e.get("event") in ("finish", "finished")
     )
     m["time_to_first_miniapps_s"] = miniapps_finishes[0] if miniapps_finishes else None
 
     # Time to first md completion (useful for understanding the timing gap).
     md_finishes = sorted(
-        e["t"] for e in events
+        e["t"]
+        for e in events
         if e.get("group") == "md" and e.get("event") in ("finish", "finished")
     )
     m["time_to_first_md_s"] = md_finishes[0] if md_finishes else None
@@ -264,8 +285,8 @@ async def _run_once(config: dict, config_path: Path, seed_offset: int,
 
 # ── Main benchmark loop ────────────────────────────────────────────────────────
 
-async def run_benchmark(config_path: str, n_runs: int, out_path: str,
-                        policies: list[str]) -> None:
+
+async def run_benchmark(config_path: str, n_runs: int, out_path: str, policies: list[str]) -> None:
     with open(config_path) as f:
         raw_config = yaml.safe_load(f)
 
@@ -279,15 +300,15 @@ async def run_benchmark(config_path: str, n_runs: int, out_path: str,
     results: dict = {}
 
     for policy in policies:
-        print(f"\n{'='*60}\nPolicy: {policy}\n{'='*60}")
+        print(f"\n{'=' * 60}\nPolicy: {policy}\n{'=' * 60}")
         cfg_results = []
         for run_idx in range(n_runs):
             print(f"  Run {run_idx + 1}/{n_runs}...", end=" ", flush=True)
-            cfg      = _prepare_config(copy.deepcopy(raw_config), path)
+            cfg = _prepare_config(copy.deepcopy(raw_config), path)
             log_path = LOG_DIR / f"gpu-{policy}-run{run_idx}.jsonl"
             t0 = time.time()
             try:
-                m       = await _run_once(cfg, path, run_idx * 100, policy, log_path)
+                m = await _run_once(cfg, path, run_idx * 100, policy, log_path)
                 elapsed = time.time() - t0
                 m["wall_time_s"] = elapsed
 
@@ -304,8 +325,7 @@ async def run_benchmark(config_path: str, n_runs: int, out_path: str,
             except Exception as exc:
                 elapsed = time.time() - t0
                 print(f"FAILED: {exc}")
-                cfg_results.append({"error": str(exc), "wall_time_s": elapsed,
-                                    "policy": policy})
+                cfg_results.append({"error": str(exc), "wall_time_s": elapsed, "policy": policy})
         results[policy] = cfg_results
 
     with open(out_path, "w") as f:
@@ -314,27 +334,29 @@ async def run_benchmark(config_path: str, n_runs: int, out_path: str,
 
     # ── Summary table ─────────────────────────────────────────────────────────
     print("\n── GPU scheduling comparison (all policies, same config) ──")
-    print(f"{'policy':8s}  {'miniapps_t':>12s}  {'wall_time':>10s}  "
-          f"{'md_done':>7s}  {'dummy_done':>10s}")
+    print(
+        f"{'policy':8s}  {'miniapps_t':>12s}  {'wall_time':>10s}  "
+        f"{'md_done':>7s}  {'dummy_done':>10s}"
+    )
     print("-" * 58)
     for policy in policies:
         runs = results.get(policy, [])
         if not runs or "error" in runs[0]:
             print(f"{policy:8s}  {'ERROR':>12s}")
             continue
-        r   = runs[0]
+        r = runs[0]
         ttm = r.get("time_to_first_miniapps_s")
-        ttm_str  = f"{ttm:.1f}s"  if ttm  is not None else "N/A"
+        ttm_str = f"{ttm:.1f}s" if ttm is not None else "N/A"
         wall_str = f"{r.get('wall_time_s', 0):.0f}s"
-        md_str   = f"{r.get('md_finished', 0)}/{r.get('md_started', 0)}"
-        dum_str  = str(r.get("dummy_finished", 0))
-        dnf_tag  = " [DNF]" if r.get("dnf") else ""
-        print(f"{policy:8s}  {ttm_str:>12s}  {wall_str:>10s}  "
-              f"{md_str:>7s}  {dum_str:>10s}{dnf_tag}")
+        md_str = f"{r.get('md_finished', 0)}/{r.get('md_started', 0)}"
+        dum_str = str(r.get("dummy_finished", 0))
+        dnf_tag = " [DNF]" if r.get("dnf") else ""
+        print(
+            f"{policy:8s}  {ttm_str:>12s}  {wall_str:>10s}  {md_str:>7s}  {dum_str:>10s}{dnf_tag}"
+        )
 
     if any(p != "none" for p in policies):
-        logs = " ".join(
-            f"adr-logs/gpu-{p}-run0.jsonl" for p in policies if p != "none")
+        logs = " ".join(f"adr-logs/gpu-{p}-run0.jsonl" for p in policies if p != "none")
         print(f"\nPer-cycle decision logs: {LOG_DIR}/gpu-*.jsonl")
         print(f"Plot:  python ../plotting/plot_policy_comparison.py {logs}")
 
@@ -344,33 +366,44 @@ if __name__ == "__main__":
         description="ADR GPU benchmark — all 4 workflows, same config, compare timing"
     )
     parser.add_argument(
-        "--config", default="config_stress_gpu.yaml",
+        "--config",
+        default="config_stress_gpu.yaml",
         help="Campaign config YAML (default: config_stress_gpu.yaml)",
     )
     parser.add_argument(
-        "--runs", type=int, default=1,
+        "--runs",
+        type=int,
+        default=1,
         help="Runs per policy (default: 1)",
     )
     parser.add_argument(
-        "--out", default="benchmark_results.json",
+        "--out",
+        default="benchmark_results.json",
         help="Output JSON path (default: benchmark_results.json)",
     )
     parser.add_argument(
-        "--policies", nargs="+", default=ALL_POLICIES, choices=ALL_POLICIES,
+        "--policies",
+        nargs="+",
+        default=ALL_POLICIES,
+        choices=ALL_POLICIES,
         help="Policies to benchmark (default: none rule bandit llm)",
     )
     parser.add_argument(
-        "--timeout", type=float, default=RUN_TIMEOUT_S,
+        "--timeout",
+        type=float,
+        default=RUN_TIMEOUT_S,
         help=f"Per-run wall-time cap in seconds (default: {RUN_TIMEOUT_S}). "
-             "Increase if real MD replicas take longer than 30 min.",
+        "Increase if real MD replicas take longer than 30 min.",
     )
     parser.add_argument(
-        "--tick", type=float, default=TICK_S,
+        "--tick",
+        type=float,
+        default=TICK_S,
         help=f"ADR operator decision cadence in seconds (default: {TICK_S})",
     )
     args = parser.parse_args()
 
     RUN_TIMEOUT_S = args.timeout
-    TICK_S        = args.tick
+    TICK_S = args.tick
 
     asyncio.run(run_benchmark(args.config, args.runs, args.out, args.policies))

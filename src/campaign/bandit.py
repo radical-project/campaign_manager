@@ -21,7 +21,7 @@ Beta-Bernoulli Thompson sampling with continuous reward:
 """
 
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Optional
 
 
@@ -29,9 +29,9 @@ from typing import Any, Optional
 class BanditArm:
     """One arm of a Beta-Bernoulli bandit."""
 
-    label:  Any
-    alpha:  float = 1.0   # successes + prior
-    beta:   float = 1.0   # failures  + prior
+    label: Any
+    alpha: float = 1.0  # successes + prior
+    beta: float = 1.0  # failures  + prior
 
     def sample(self, rng: random.Random) -> float:
         """Draw a Thompson sample from Beta(alpha, beta)."""
@@ -41,12 +41,12 @@ class BanditArm:
         """Update with *reward* ∈ [0, 1].  Values outside are clamped."""
         reward = max(0.0, min(1.0, reward))
         self.alpha += reward
-        self.beta  += 1.0 - reward
+        self.beta += 1.0 - reward
 
     def reset(self) -> None:
         """Return to uninformative uniform prior."""
         self.alpha = 1.0
-        self.beta  = 1.0
+        self.beta = 1.0
 
     @property
     def mean(self) -> float:
@@ -109,10 +109,7 @@ class SchedulingBandit:
             return eligible
         return sorted(
             eligible,
-            key=lambda g: (
-                self._arms[g.name].sample(self._rng)
-                if g.name in self._arms else 0.5
-            ),
+            key=lambda g: self._arms[g.name].sample(self._rng) if g.name in self._arms else 0.5,
             reverse=True,
         )
 
@@ -133,7 +130,5 @@ class SchedulingBandit:
         return max(self._arms, key=lambda n: self._arms[n].mean)
 
     def __repr__(self) -> str:
-        arms_str = "  ".join(
-            f"{n}:{arm.mean:.3f}" for n, arm in self._arms.items()
-        )
+        arms_str = "  ".join(f"{n}:{arm.mean:.3f}" for n, arm in self._arms.items())
         return f"SchedulingBandit(best={self.best()!r}  [{arms_str}])"

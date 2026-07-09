@@ -25,10 +25,10 @@ def _campaign_complete(groups: dict, sharders: dict) -> bool:
     if not groups:
         return False
     if not any(g.replicas > 0 for g in groups.values()):
-        return False   # nothing has started yet
+        return False  # nothing has started yet
     for g in groups.values():
         if g.replicas == 0:
-            continue   # not yet activated
+            continue  # not yet activated
         if g.running_count > 0:
             return False
         if g.finished_replicas < g.replicas:
@@ -39,7 +39,6 @@ def _campaign_complete(groups: dict, sharders: dict) -> bool:
 
 
 class ExecutorMixin:
-
     async def _run_replica(self, group: _WorkflowInfo, replica_idx: int) -> None:
         """Execute one replica of a workflow group.
 
@@ -89,22 +88,21 @@ class ExecutorMixin:
                     # uncertainty.  Workflows that honour the flag skip the
                     # expensive computation and pass through with the
                     # predicted score (dreamer skips its simulated sleep).
-                    triage_advance = bool(
-                        h.results
-                        and h.results[-1].decision == "triaged_advance"
-                    )
+                    triage_advance = bool(h.results and h.results[-1].decision == "triaged_advance")
                     replica_config = {
                         **(replica_config or {}),
-                        "candidate_id":             candidate_id,
-                        "candidate_score":          h.latest_score,
-                        "candidate_surr":           h.latest_surrogate_pred,
-                        "candidate_surr_unc":       h.latest_surrogate_unc,
-                        "candidate_scaffold":       h.scaffold_class,
+                        "candidate_id": candidate_id,
+                        "candidate_score": h.latest_score,
+                        "candidate_surr": h.latest_surrogate_pred,
+                        "candidate_surr_unc": h.latest_surrogate_unc,
+                        "candidate_scaffold": h.scaffold_class,
                         "candidate_triage_advance": triage_advance,
                     }
                 else:
                     replica_config = {**(replica_config or {}), "candidate_id": candidate_id}
-            self._metrics.record_replica_start(group.name, replica_id, candidate_id=candidate_id, score=score)
+            self._metrics.record_replica_start(
+                group.name, replica_id, candidate_id=candidate_id, score=score
+            )
 
             wf = group.workflow_class(
                 config=replica_config,
@@ -133,24 +131,19 @@ class ExecutorMixin:
             # Setup, construction, or getattr(entry) failed before the entry
             # point ran.  Mark failed and fall through to the finally block
             # so resources still get released.
-            self._log.error(
-                f"Replica {replica_id!r} setup failed: "
-                f"{type(exc).__name__}: {exc}"
-            )
+            self._log.error(f"Replica {replica_id!r} setup failed: {type(exc).__name__}: {exc}")
             final_state = "failed"
         finally:
             try:
-                await self._handle_replica_done(
-                    wf, group, replica_id, replica_idx, final_state
-                )
+                await self._handle_replica_done(wf, group, replica_id, replica_idx, final_state)
             except Exception as exc:
                 import sys as _sys
                 import traceback as _tb
+
                 _tb.print_exc(file=_sys.stderr)
                 _sys.stderr.flush()
                 self._log.error(
-                    f"Replica {replica_id!r} cleanup raised: "
-                    f"{type(exc).__name__}: {exc}"
+                    f"Replica {replica_id!r} cleanup raised: {type(exc).__name__}: {exc}"
                 )
 
     async def _handle_replica_done(
@@ -196,9 +189,7 @@ class ExecutorMixin:
 
             if completion_result is not None:
                 await self._apply_completion_routing(replica_id, completion_result)
-                self._log.debug(
-                    f"Replica {replica_id!r}: next-step routing via _on_completion"
-                )
+                self._log.debug(f"Replica {replica_id!r}: next-step routing via _on_completion")
             else:
                 self._log.debug(
                     f"Replica {replica_id!r}: _on_completion returned None — "
@@ -228,8 +219,7 @@ class ExecutorMixin:
                     specs.append(item)
                 else:
                     self._log.warning(
-                        f"_on_completion [{replica_id!r}]: unrecognised item "
-                        f"{item!r} — skipping"
+                        f"_on_completion [{replica_id!r}]: unrecognised item {item!r} — skipping"
                     )
         else:
             self._log.warning(
@@ -242,16 +232,14 @@ class ExecutorMixin:
             name = spec.get("name")
             if not name:
                 self._log.warning(
-                    f"_on_completion [{replica_id!r}]: spec missing 'name' — "
-                    f"skipping {spec!r}"
+                    f"_on_completion [{replica_id!r}]: spec missing 'name' — skipping {spec!r}"
                 )
                 continue
             replicas = int(spec.get("replicas", 1))
             kwargs = {k: v for k, v in spec.items() if k not in ("name", "replicas")}
             self._log.info(
                 f"_on_completion [{replica_id!r}]: → {name!r} "
-                f"replicas={replicas}"
-                + (f" {kwargs}" if kwargs else "")
+                f"replicas={replicas}" + (f" {kwargs}" if kwargs else "")
             )
             await self.trigger_dependent(name, replicas=replicas, **kwargs)
 
@@ -279,8 +267,7 @@ class ExecutorMixin:
                 if g.running_count > 0:
                     continue
                 deps_done = not g.dependencies or all(
-                    self._workflows.get(d) is not None
-                    and self._workflows[d].status == "done"
+                    self._workflows.get(d) is not None and self._workflows[d].status == "done"
                     for d in g.dependencies
                 )
                 if deps_done:
@@ -332,16 +319,13 @@ class ExecutorMixin:
             # current group transitioning AND any downstream group that
             # was waiting only on this group's completion.
             newly_done = self._propagate_status_done_locked()
-            group_done = group.name in newly_done
 
             # When ReplanningController is DRAINING, signal completion
             # the moment all in-flight work has finished.  is_paused()
             # is true for any non-NORMAL state; we only signal drain on
             # the DRAINING branch.
             if self._replanning is not None and self._replanning.is_paused():
-                total_running = sum(
-                    w.running_count for w in self._workflows.values()
-                )
+                total_running = sum(w.running_count for w in self._workflows.values())
                 if total_running == 0:
                     self._replanning.drained()
 
@@ -361,8 +345,7 @@ class ExecutorMixin:
         if freed_gpu_ids:
             if self._replica_gpu_assignments:
                 asgn_str = ", ".join(
-                    f"{rid}→{gids}"
-                    for rid, gids in sorted(self._replica_gpu_assignments.items())
+                    f"{rid}→{gids}" for rid, gids in sorted(self._replica_gpu_assignments.items())
                 )
                 self._log.info(
                     f"  GPU freed: {replica_id!r} released {freed_gpu_ids}"
@@ -412,16 +395,18 @@ class ExecutorMixin:
         if self._monitor and group.finished_replicas > 0:
             trigger_name = (group.workflow_config or {}).get("trigger_downstream")
             expected_frac = float((group.workflow_config or {}).get("trigger_fraction", 1.0))
-            _MIN_PASSTHROUGH_SAMPLE = 10
-            if (trigger_name and trigger_name in self._workflows and expected_frac < 1.0
-                    and group.finished_replicas >= _MIN_PASSTHROUGH_SAMPLE):
+            _min_passthrough_sample = 10
+            if (
+                trigger_name
+                and trigger_name in self._workflows
+                and expected_frac < 1.0
+                and group.finished_replicas >= _min_passthrough_sample
+            ):
                 # Use the shared buffer-aware helper so the reactive path
                 # agrees with the periodic monitor (monitor_mixin.py).
                 observed_frac = self._compute_passthrough(group.name, trigger_name)
                 if observed_frac is not None:
-                    ev = self._monitor.check_passthrough(
-                        group.name, observed_frac, expected_frac
-                    )
+                    ev = self._monitor.check_passthrough(group.name, observed_frac, expected_frac)
                     if ev:
                         tag = " [ESCALATING]" if self._monitor.is_escalating(ev) else ""
                         self._log.warning(
@@ -448,9 +433,7 @@ class ExecutorMixin:
                 if stage_wall_s > 0:
                     spend_actual = stage_wall_s * bc.pilot_nodes / 3600.0
                 else:
-                    spend_actual = (
-                        bc.pilot_nodes * bc.pilot_walltime_h * group.finished_replicas
-                    )
+                    spend_actual = bc.pilot_nodes * bc.pilot_walltime_h * group.finished_replicas
                 bev = bc.evaluate(
                     finished_replicas=group.finished_replicas,
                     actual_node_hours=spend_actual,
@@ -487,6 +470,7 @@ class ExecutorMixin:
                         # _on_replica_finished proceeds with cleanup.
                         if self._replanning is not None:
                             from .monitor import DriftEvent, DriftKind
+
                             ev = DriftEvent(
                                 kind=DriftKind.BUDGET_LOCKED,
                                 stage_id=group.name,
@@ -496,8 +480,7 @@ class ExecutorMixin:
                                 breach_count=bev.consecutive_hits,
                             )
                             policy = (
-                                self._plan.replan.on_drift
-                                if self._plan is not None else "log_only"
+                                self._plan.replan.on_drift if self._plan is not None else "log_only"
                             )
                             asyncio.get_running_loop().create_task(
                                 self._replanning.on_drift(ev, policy=policy)
@@ -519,7 +502,7 @@ class ExecutorMixin:
                     pilot = _wfcfg.get("pilot", {})
                     nodes = int(pilot.get("nodes", 1))
                     walltime_h = float(pilot.get("walltime_h", 1))
-                    spent_actual    = nodes * walltime_h * group.finished_replicas / group.replicas
+                    spent_actual = nodes * walltime_h * group.finished_replicas / group.replicas
                     expected_so_far = budget * group.finished_replicas / group.replicas
                     ev = self._monitor.check_budget(group.name, spent_actual, expected_so_far)
                     if ev:

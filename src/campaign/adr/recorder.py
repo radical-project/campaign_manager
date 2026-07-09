@@ -60,24 +60,24 @@ class PolicyRecorder:
         obs = self._view.observe() if self._view is not None else {}
         stages = {
             s: {
-                "finished":    info.get("finished"),
+                "finished": info.get("finished"),
                 "queue_depth": info.get("queue_depth"),
-                "running":     info.get("running"),
-                "pending":     info.get("pending"),
-                "starved":     info.get("starved"),
-                "bp_state":    info.get("bp_state"),
-                "priority":    info.get("priority"),
+                "running": info.get("running"),
+                "pending": info.get("pending"),
+                "starved": info.get("starved"),
+                "bp_state": info.get("bp_state"),
+                "priority": info.get("priority"),
             }
             for s, info in obs.get("stages", {}).items()
         }
         row = {
-            "cycle":      snapshot.cycle,
-            "t":          round(time.monotonic() - self._t0, 3),
-            "policy":     self.policy_kind,
+            "cycle": snapshot.cycle,
+            "t": round(time.monotonic() - self._t0, 3),
+            "policy": self.policy_kind,
             "priorities": priorities,
-            "summary":    summary,
-            "hits":       obs.get("hits"),
-            "stages":     stages,
+            "summary": summary,
+            "hits": obs.get("hits"),
+            "stages": stages,
         }
         self._fh.write(json.dumps(row) + "\n")
         self._fh.flush()

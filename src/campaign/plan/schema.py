@@ -29,15 +29,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-
 # ── Leaf specs ────────────────────────────────────────────────────────────────
+
 
 @dataclass
 class PilotSpec:
     """HPC pilot reservation for a stage."""
-    partition:   str   = "cpu"          # cpu | gpu | mpi+gpu | largemem
-    nodes:       int   = 1
-    walltime_h:  float = 1.0
+
+    partition: str = "cpu"  # cpu | gpu | mpi+gpu | largemem
+    nodes: int = 1
+    walltime_h: float = 1.0
 
     def __post_init__(self) -> None:
         if self.nodes < 1:
@@ -64,10 +65,11 @@ class SurrogateSpec:
       score_cutoff:        reject candidates whose upstream score < this
       uncertainty_cutoff:  reject candidates whose surrogate σ > this
     """
-    model_uri:                       Optional[str] = None
-    score_cutoff:                    float = 0.0    # accept all by default
-    score_cutoff_nudge_bounds:       tuple[float, float] = (0.0, 1.0)
-    uncertainty_cutoff:              float = 1.0    # accept all by default
+
+    model_uri: Optional[str] = None
+    score_cutoff: float = 0.0  # accept all by default
+    score_cutoff_nudge_bounds: tuple[float, float] = (0.0, 1.0)
+    uncertainty_cutoff: float = 1.0  # accept all by default
     uncertainty_cutoff_nudge_bounds: tuple[float, float] = (0.0, 1.0)
     # ADVANCE threshold — when a candidate's surrogate prediction is at
     # least this high AND its uncertainty is below uncertainty_cutoff, the
@@ -75,37 +77,33 @@ class SurrogateSpec:
     # can skip the expensive computation (dreamer skips its sleep; real
     # workflows can short-circuit their pipeline).  Default ``inf`` disables
     # ADVANCE so legacy plans never fire it accidentally.
-    advance_threshold:               float = float("inf")
+    advance_threshold: float = float("inf")
 
     def __post_init__(self) -> None:
         sc_lo, sc_hi = self.score_cutoff_nudge_bounds
         if sc_lo > sc_hi:
             raise ValueError(
-                f"score_cutoff_nudge_bounds must be (low, high); "
-                f"got ({sc_lo}, {sc_hi})"
+                f"score_cutoff_nudge_bounds must be (low, high); got ({sc_lo}, {sc_hi})"
             )
         if not (sc_lo <= self.score_cutoff <= sc_hi):
-            raise ValueError(
-                f"score_cutoff={self.score_cutoff} outside bounds [{sc_lo}, {sc_hi}]"
-            )
+            raise ValueError(f"score_cutoff={self.score_cutoff} outside bounds [{sc_lo}, {sc_hi}]")
         un_lo, un_hi = self.uncertainty_cutoff_nudge_bounds
         if un_lo > un_hi:
             raise ValueError(
-                f"uncertainty_cutoff_nudge_bounds must be (low, high); "
-                f"got ({un_lo}, {un_hi})"
+                f"uncertainty_cutoff_nudge_bounds must be (low, high); got ({un_lo}, {un_hi})"
             )
         if not (un_lo <= self.uncertainty_cutoff <= un_hi):
             raise ValueError(
-                f"uncertainty_cutoff={self.uncertainty_cutoff} outside bounds "
-                f"[{un_lo}, {un_hi}]"
+                f"uncertainty_cutoff={self.uncertainty_cutoff} outside bounds [{un_lo}, {un_hi}]"
             )
 
 
 @dataclass
 class RetryPolicy:
     """Per-stage retry policy for failed replicas."""
-    max_attempts:       int       = 1
-    backoff_s:          float     = 0.0
+
+    max_attempts: int = 1
+    backoff_s: float = 0.0
     soft_failure_codes: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -118,8 +116,9 @@ class RetryPolicy:
 @dataclass
 class BackpressureEdge:
     """Hysteresis watermarks for an inter-stage queue."""
+
     high_water: int
-    low_water:  int
+    low_water: int
 
     def __post_init__(self) -> None:
         if self.high_water <= 0:
@@ -135,46 +134,48 @@ class BackpressureEdge:
 
 # ── Stage + edge ──────────────────────────────────────────────────────────────
 
+
 @dataclass
 class StageSpec:
     """Per-stage plan: resources, budget, surrogate, retry, scheduling bounds."""
-    id:                       str
-    variant:                  str   = "default"
+
+    id: str
+    variant: str = "default"
 
     # Quality gate (upstream-score percentile gate at trigger time)
-    threshold_top_fraction:   float = 1.0
+    threshold_top_fraction: float = 1.0
 
     # Budget contract
-    budget_node_hours:        float = 0.0
-    burn_rate_band:           float = 0.15     # ±band tolerance before nudging
-    downstream_input_target:  int   = 0        # BudgetController denominator (T = planned total)
-    campaign_target:          int   = 0        # early-stop trigger: stop when finished >= N (0 = off)
-    budget_kp:                float = 0.05     # BudgetController proportional gain
-    budget_warmup_min:        int   = 3        # minimum finished replicas before controller acts
+    budget_node_hours: float = 0.0
+    burn_rate_band: float = 0.15  # ±band tolerance before nudging
+    downstream_input_target: int = 0  # BudgetController denominator (T = planned total)
+    campaign_target: int = 0  # early-stop trigger: stop when finished >= N (0 = off)
+    budget_kp: float = 0.05  # BudgetController proportional gain
+    budget_warmup_min: int = 3  # minimum finished replicas before controller acts
 
     # Nested specs
-    pilot:                    PilotSpec   = field(default_factory=PilotSpec)
-    surrogate:                Optional[SurrogateSpec] = None
-    retry_policy:             RetryPolicy = field(default_factory=RetryPolicy)
+    pilot: PilotSpec = field(default_factory=PilotSpec)
+    surrogate: Optional[SurrogateSpec] = None
+    retry_policy: RetryPolicy = field(default_factory=RetryPolicy)
 
     # Scheduling bounds (mirrors _WorkflowInfo at runtime)
-    concurrency_floor:        int   = 0
-    concurrency_cap:          int   = 0
-    priority:                 int   = 0
+    concurrency_floor: int = 0
+    concurrency_cap: int = 0
+    priority: int = 0
 
     # Resource overlays — if 0, derive from pilot.partition mapping at load time
-    required_cpus:            int   = 0
-    required_gpus:            int   = 0
-    required_memory_gb:       float = 0.0
+    required_cpus: int = 0
+    required_gpus: int = 0
+    required_memory_gb: float = 0.0
 
     # Runtime population
-    replicas:                 int   = 0       # 0 = dependent (filled by upstream triggers)
-    dependencies:             list[str] = field(default_factory=list)
-    dependency_threshold:     int   = 1
+    replicas: int = 0  # 0 = dependent (filled by upstream triggers)
+    dependencies: list[str] = field(default_factory=list)
+    dependency_threshold: int = 1
 
     # Sharder spec (raw dict — validated downstream by ShardingSpec.from_dict).
     # Kept loose so the plan schema doesn't have to mirror every Sharder knob.
-    sharding:                 Optional[dict] = None
+    sharding: Optional[dict] = None
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -204,17 +205,16 @@ class StageSpec:
                 f"concurrency_cap ({self.concurrency_cap})"
             )
         if self.dependency_threshold < 1:
-            raise ValueError(
-                f"dependency_threshold must be ≥ 1, got {self.dependency_threshold}"
-            )
+            raise ValueError(f"dependency_threshold must be ≥ 1, got {self.dependency_threshold}")
 
 
 @dataclass
 class EdgeSpec:
     """Inter-stage edge: priority profile and (optional) backpressure."""
-    upstream:     str
-    downstream:   str
-    profile:      str = "diverse_top"
+
+    upstream: str
+    downstream: str
+    profile: str = "diverse_top"
     backpressure: Optional[BackpressureEdge] = None
 
     def __post_init__(self) -> None:
@@ -224,16 +224,18 @@ class EdgeSpec:
                 f"downstream={self.downstream!r}"
             )
         valid_profiles = {
-            "pure_promise", "active_learning", "explore_exploit",
-            "diverse_top", "round_robin",
+            "pure_promise",
+            "active_learning",
+            "explore_exploit",
+            "diverse_top",
+            "round_robin",
         }
         if self.profile not in valid_profiles:
-            raise ValueError(
-                f"EdgeSpec.profile={self.profile!r} not in {sorted(valid_profiles)}"
-            )
+            raise ValueError(f"EdgeSpec.profile={self.profile!r} not in {sorted(valid_profiles)}")
 
 
 # ── Replan / Monitor thresholds ──────────────────────────────────────────────
+
 
 @dataclass
 class ReplanThresholds:
@@ -243,25 +245,23 @@ class ReplanThresholds:
       log_only          — just record the event (current default)
       drain_and_replan  — trigger DRIFT → DRAIN → RESUME handshake
     """
-    budget_burn_deviation_pct:  float = 20.0
+
+    budget_burn_deviation_pct: float = 20.0
     pass_through_deviation_pct: float = 25.0
-    surrogate_recall_floor:     float = 0.90
-    breaches_to_escalate:       int   = 2
-    on_drift:                   str   = "log_only"
+    surrogate_recall_floor: float = 0.90
+    breaches_to_escalate: int = 2
+    on_drift: str = "log_only"
 
     def __post_init__(self) -> None:
         valid = {"log_only", "drain_and_replan"}
         if self.on_drift not in valid:
-            raise ValueError(
-                f"ReplanThresholds.on_drift={self.on_drift!r} not in {sorted(valid)}"
-            )
+            raise ValueError(f"ReplanThresholds.on_drift={self.on_drift!r} not in {sorted(valid)}")
         if self.breaches_to_escalate < 1:
-            raise ValueError(
-                f"breaches_to_escalate must be ≥ 1, got {self.breaches_to_escalate}"
-            )
+            raise ValueError(f"breaches_to_escalate must be ≥ 1, got {self.breaches_to_escalate}")
 
 
 # ── Top-level plan ────────────────────────────────────────────────────────────
+
 
 @dataclass
 class CampaignPlan:
@@ -271,23 +271,22 @@ class CampaignPlan:
     Only the surrogate cutoffs in StageSpec are CM-nudgeable, and only
     within their explicit bounds.
     """
-    plan_id:          str
-    stages:           list[StageSpec]
-    plan_version:     int               = 1
-    parent_plan_ref:  Optional[str]     = None
-    signature:        Optional[str]     = None
-    resources:        dict              = field(default_factory=dict)
-    edges:            list[EdgeSpec]    = field(default_factory=list)
-    replan:           ReplanThresholds  = field(default_factory=ReplanThresholds)
-    features:         dict              = field(default_factory=dict)
+
+    plan_id: str
+    stages: list[StageSpec]
+    plan_version: int = 1
+    parent_plan_ref: Optional[str] = None
+    signature: Optional[str] = None
+    resources: dict = field(default_factory=dict)
+    edges: list[EdgeSpec] = field(default_factory=list)
+    replan: ReplanThresholds = field(default_factory=ReplanThresholds)
+    features: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.plan_id:
             raise ValueError("CampaignPlan.plan_id is required")
         if self.plan_version < 1:
-            raise ValueError(
-                f"CampaignPlan.plan_version must be ≥ 1, got {self.plan_version}"
-            )
+            raise ValueError(f"CampaignPlan.plan_version must be ≥ 1, got {self.plan_version}")
         if not self.stages:
             raise ValueError("CampaignPlan.stages must be non-empty")
 
@@ -315,8 +314,7 @@ class CampaignPlan:
             for dep in s.dependencies:
                 if dep not in valid_ids:
                     raise ValueError(
-                        f"stage {s.id!r} dependency {dep!r} not in stages "
-                        f"{sorted(valid_ids)}"
+                        f"stage {s.id!r} dependency {dep!r} not in stages {sorted(valid_ids)}"
                     )
 
         # Resource totals: cpus/gpus/memory_gb only — anything else is ignored

@@ -67,6 +67,37 @@ python plotting/plot_timeline.py slurm-XXXXXX.out \
 
 ---
 
+## `plot_telemetry.sh` — AsyncFlow task-level telemetry dashboard
+
+Wraps `radical.asyncflow`'s `plot_workflow_dashboard.py` to produce a multi-panel
+PNG from the JSONL telemetry checkpoint written by the asyncflow engine during a run.
+
+The workflow name is inferred automatically from the grandparent of the telemetry
+directory (`<wf_name>/telemetry-output/<file>.jsonl → plots/<wf_name>/`), so no
+extra arguments are needed for the common case.
+
+```bash
+bash plotting/plot_telemetry.sh <telemetry.jsonl> \
+    [--out-dir DIR] \
+    [--split]
+```
+
+| Argument              | Default                                        | Description                                      |
+|-----------------------|------------------------------------------------|--------------------------------------------------|
+| `<telemetry.jsonl>`   | required                                       | JSONL checkpoint from asyncflow telemetry        |
+| `--out-dir DIR`       | `plots/<wf_name>/` next to this script         | Output directory                                 |
+| `--split`             | off                                            | Save each subplot as a separate PNG instead of one combined dashboard |
+
+**Output (combined)**: `workflow_dashboard_<YYYYMMDD_HHMMSS>.png` in `OUT_DIR`
+
+**Output (`--split`)**: one `<stem>.<panel>.png` per subplot in `OUT_DIR`
+
+> **Dependency**: requires `radical.asyncflow` with the telemetry extras installed at
+> `$SCRATCH/$USER/radical.asyncflow`. The plot script is resolved at
+> `radical.asyncflow/examples/telemetry/plot_workflow_dashboard.py`.
+
+---
+
 ## Typical Workflow
 
 ```bash
@@ -98,4 +129,13 @@ python dreamer_campaign/plot_benchmark.py \
 python plotting/plot_timeline.py slurm-XXXXXX.out \
     --config dreamer_campaign/config.yaml \
     --profiles-dir dreamer_campaign/dreamer-profiles/
+
+# ── AsyncFlow telemetry dashboard (any campaign) ─────────────────────────────
+
+# Combined dashboard (single PNG, timestamped)
+bash plotting/plot_telemetry.sh esm2_ddsim_campaign/telemetry-results/out.jsonl
+
+# Per-panel PNGs in a custom directory
+bash plotting/plot_telemetry.sh esm2_ddsim_campaign/telemetry-results/out.jsonl \
+    --out-dir esm2_ddsim_campaign/plots/telemetry --split
 ```

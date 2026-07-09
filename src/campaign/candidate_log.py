@@ -10,6 +10,7 @@ Two purposes:
 
 Not thread-safe by design: all access goes through the CM's asyncio lock.
 """
+
 from __future__ import annotations
 
 import time
@@ -22,22 +23,24 @@ import numpy as np
 @dataclass
 class StageResult:
     """One per-stage record in a candidate's history."""
-    stage_id:       str
-    score:          float
+
+    stage_id: str
+    score: float
     surrogate_pred: float = 0.0
-    surrogate_unc:  float = 0.0
-    scaffold_class: str   = ""
-    decision:       str   = ""   # "passed" | "filtered" | ""
-    timestamp:      float = field(default_factory=time.time)
+    surrogate_unc: float = 0.0
+    scaffold_class: str = ""
+    decision: str = ""  # "passed" | "filtered" | ""
+    timestamp: float = field(default_factory=time.time)
 
 
 @dataclass
 class CandidateHistory:
     """Accumulated per-stage results for one candidate."""
-    candidate_id:   str
-    scaffold_class: str   = ""
-    enqueue_time:   float = field(default_factory=time.time)
-    results:        list[StageResult] = field(default_factory=list)
+
+    candidate_id: str
+    scaffold_class: str = ""
+    enqueue_time: float = field(default_factory=time.time)
+    results: list[StageResult] = field(default_factory=list)
 
     @property
     def latest_score(self) -> float:
@@ -64,7 +67,7 @@ class CandidateLog:
 
     def __init__(self) -> None:
         self._histories: dict[str, CandidateHistory] = {}
-        self._stage_scores: dict[str, list[float]] = {}   # stage_id → all scores seen
+        self._stage_scores: dict[str, list[float]] = {}  # stage_id → all scores seen
 
     # ── Write ─────────────────────────────────────────────────────────────────
 
@@ -153,9 +156,9 @@ class CandidateLog:
             return {"n": 0}
         arr = np.asarray(scores, dtype=float)
         return {
-            "n":    len(scores),
+            "n": len(scores),
             "mean": round(float(arr.mean()), 4),
-            "p50":  round(float(np.median(arr)), 4),
-            "p90":  round(float(np.quantile(arr, 0.90)), 4),
-            "max":  round(float(arr.max()), 4),
+            "p50": round(float(np.median(arr)), 4),
+            "p90": round(float(np.quantile(arr, 0.90)), 4),
+            "max": round(float(arr.max()), 4),
         }

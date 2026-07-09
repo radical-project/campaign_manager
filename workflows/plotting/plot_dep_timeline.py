@@ -56,14 +56,20 @@ _TRIGGER_DEP_RE = re.compile(r"trigger_dependent: '(\w+)' \+(\d+) replicas \(tot
 
 GROUP_COLORS = {
     "inference": "#4C72B0",
-    "md":        "#DD8452",
-    "miniapps":  "#55A868",
-    "dummy":     "#C44E52",
+    "md": "#DD8452",
+    "miniapps": "#55A868",
+    "dummy": "#C44E52",
 }
 # Fallback palette for groups not in the hardcoded set above.
 _FALLBACK_COLORS = [
-    "#8172B2", "#F06292", "#4DB6AC", "#FFB74D",
-    "#BA68C8", "#4DD0E1", "#AED581", "#FF8A65",
+    "#8172B2",
+    "#F06292",
+    "#4DB6AC",
+    "#FFB74D",
+    "#BA68C8",
+    "#4DD0E1",
+    "#AED581",
+    "#FF8A65",
 ]
 
 GROUP_ORDER = ["md", "miniapps", "inference", "dummy"]
@@ -83,7 +89,7 @@ def _resolve_colors(groups: list[str]) -> None:
 def _find_policy_sections(path: str) -> dict[str, tuple[int, int]]:
     """Scan a benchmark SLURM log for 'Policy: X' section headers.
     Returns {policy_name: (start_line, end_line)} where end is exclusive."""
-    _sep_re    = re.compile(r"^={10,}\s*$")
+    _sep_re = re.compile(r"^={10,}\s*$")
     _policy_re = re.compile(r"^Policy:\s+(\w+)\s*$")
     order: list[str] = []
     starts_map: dict[str, int] = {}
@@ -103,7 +109,7 @@ def _find_policy_sections(path: str) -> dict[str, tuple[int, int]]:
     result: dict[str, tuple[int, int]] = {}
     for idx, policy in enumerate(order):
         start = starts_map[policy]
-        end   = starts_map[order[idx + 1]] if idx + 1 < len(order) else len(lines)
+        end = starts_map[order[idx + 1]] if idx + 1 < len(order) else len(lines)
         result[policy] = (start, end)
     return result
 
@@ -114,7 +120,7 @@ def parse_log(path: str, line_range: tuple[int, int] | None = None):
     the file (e.g. a single policy section in a benchmark log)."""
     with open(path) as fh:
         all_lines = fh.readlines()
-    lines = all_lines[line_range[0]:line_range[1]] if line_range else all_lines
+    lines = all_lines[line_range[0] : line_range[1]] if line_range else all_lines
 
     starts: dict[str, datetime] = {}
     spans = []
@@ -135,87 +141,85 @@ def parse_log(path: str, line_range: tuple[int, int] | None = None):
             break
 
     for raw in lines:
-            if m := _GROUP_RE.search(raw):
-                name = m.group(1)
-                deps_raw = m.group(6)
-                deps = [
-                    d.strip().strip("'\"") for d in deps_raw.split(",") if d.strip().strip("'\"")
-                ]
-                group_meta[name] = {
-                    "replicas": int(m.group(2)),
-                    "priority": int(m.group(3)),
-                    "min": int(m.group(4)),
-                    "max": int(m.group(5)),
-                    "deps": deps,
-                    "dep_threshold": int(m.group(7)),
-                    "cpus": int(m.group(8)),
-                    "gpus": int(m.group(9)),
-                }
+        if m := _GROUP_RE.search(raw):
+            name = m.group(1)
+            deps_raw = m.group(6)
+            deps = [d.strip().strip("'\"") for d in deps_raw.split(",") if d.strip().strip("'\"")]
+            group_meta[name] = {
+                "replicas": int(m.group(2)),
+                "priority": int(m.group(3)),
+                "min": int(m.group(4)),
+                "max": int(m.group(5)),
+                "deps": deps,
+                "dep_threshold": int(m.group(7)),
+                "cpus": int(m.group(8)),
+                "gpus": int(m.group(9)),
+            }
 
-            if m := _TOTAL_RES_RE.search(raw):
-                total_cpus = int(m.group(1))
-                total_gpus = int(m.group(2))
+        if m := _TOTAL_RES_RE.search(raw):
+            total_cpus = int(m.group(1))
+            total_gpus = int(m.group(2))
 
-            ts_m = _TS_RE.search(raw)
-            if ts_m is None:
-                continue
-            dt = datetime.strptime(f"{date_ref} {ts_m.group(1)}", "%Y-%m-%d %H:%M:%S.%f")
-            if t0_dt is None:
-                t0_dt = dt
-            elapsed = (dt - t0_dt).total_seconds()
+        ts_m = _TS_RE.search(raw)
+        if ts_m is None:
+            continue
+        dt = datetime.strptime(f"{date_ref} {ts_m.group(1)}", "%Y-%m-%d %H:%M:%S.%f")
+        if t0_dt is None:
+            t0_dt = dt
+        elapsed = (dt - t0_dt).total_seconds()
 
-            if m := _GPU_ASSIGN_RE.search(raw):
-                rid = m.group(1)
-                gpu_str = m.group(2).strip()
-                gpu_ids = [int(x) for x in gpu_str.split(",") if x.strip()] if gpu_str else []
-                gpu_assignments[rid] = gpu_ids
+        if m := _GPU_ASSIGN_RE.search(raw):
+            rid = m.group(1)
+            gpu_str = m.group(2).strip()
+            gpu_ids = [int(x) for x in gpu_str.split(",") if x.strip()] if gpu_str else []
+            gpu_assignments[rid] = gpu_ids
 
-            if m := _USAGE_RE.search(raw):
-                uc, tc, ug, tg = (
-                    int(m.group(1)),
-                    int(m.group(2)),
-                    int(m.group(3)),
-                    int(m.group(4)),
-                )
-                resource_timeline.append((elapsed, uc, tc, ug, tg))
-            elif m := _AVAIL_RE.search(raw):
-                ac, tc, ag, tg = (
-                    int(m.group(1)),
-                    int(m.group(2)),
-                    int(m.group(3)),
-                    int(m.group(4)),
-                )
-                resource_timeline.append((elapsed, tc - ac, tc, tg - ag, tg))
+        if m := _USAGE_RE.search(raw):
+            uc, tc, ug, tg = (
+                int(m.group(1)),
+                int(m.group(2)),
+                int(m.group(3)),
+                int(m.group(4)),
+            )
+            resource_timeline.append((elapsed, uc, tc, ug, tg))
+        elif m := _AVAIL_RE.search(raw):
+            ac, tc, ag, tg = (
+                int(m.group(1)),
+                int(m.group(2)),
+                int(m.group(3)),
+                int(m.group(4)),
+            )
+            resource_timeline.append((elapsed, tc - ac, tc, tg - ag, tg))
 
-            # Signal events — new dependency model
-            if m := _SIGNAL_DONE_RE.search(raw):
-                src = m.group(1)
-                n = int(m.group(2))
-                targets_raw = m.group(3)
-                targets = [t.strip().strip("'\"") for t in targets_raw.split(",") if t.strip()]
-                for tgt in targets:
-                    signal_events.append((elapsed, src, tgt, n, "signal_done"))
+        # Signal events — new dependency model
+        if m := _SIGNAL_DONE_RE.search(raw):
+            src = m.group(1)
+            n = int(m.group(2))
+            targets_raw = m.group(3)
+            targets = [t.strip().strip("'\"") for t in targets_raw.split(",") if t.strip()]
+            for tgt in targets:
+                signal_events.append((elapsed, src, tgt, n, "signal_done"))
 
-            if m := _TRIGGER_DEP_RE.search(raw):
-                tgt   = m.group(1)
-                n     = int(m.group(2))
-                total = int(m.group(3))  # total queued after this trigger
-                # Source unknown from log line — mark as "trigger_dep"
-                # total lets us identify the exact replica created: {tgt}_{total-1}
-                signal_events.append((elapsed, None, tgt, n, "trigger_dep", total))
+        if m := _TRIGGER_DEP_RE.search(raw):
+            tgt = m.group(1)
+            n = int(m.group(2))
+            total = int(m.group(3))  # total queued after this trigger
+            # Source unknown from log line — mark as "trigger_dep"
+            # total lets us identify the exact replica created: {tgt}_{total-1}
+            signal_events.append((elapsed, None, tgt, n, "trigger_dep", total))
 
-            if m := _START_RE.search(raw):
-                starts[m.group(1)] = dt
-            elif m := _FINISH_RE.search(raw):
-                rid = m.group(1)
-                if rid in starts:
-                    group = rid.rsplit("_", 1)[0]
-                    spans.append((rid, group, starts.pop(rid), dt, True))
-            elif m := _ERROR_RE.search(raw):
-                rid = m.group(1)
-                if rid in starts:
-                    group = rid.rsplit("_", 1)[0]
-                    spans.append((rid, group, starts.pop(rid), dt, False))
+        if m := _START_RE.search(raw):
+            starts[m.group(1)] = dt
+        elif m := _FINISH_RE.search(raw):
+            rid = m.group(1)
+            if rid in starts:
+                group = rid.rsplit("_", 1)[0]
+                spans.append((rid, group, starts.pop(rid), dt, True))
+        elif m := _ERROR_RE.search(raw):
+            rid = m.group(1)
+            if rid in starts:
+                group = rid.rsplit("_", 1)[0]
+                spans.append((rid, group, starts.pop(rid), dt, False))
 
     for rid, start in starts.items():
         group = rid.rsplit("_", 1)[0]
@@ -412,7 +416,10 @@ def plot(
             # signal_done or trigger_dep without total: earliest unconsumed replica
             # starting at or after the signal
             for s in available[tgt_group]:
-                if s[0] not in consumed_tgt_rows and (s[1] - t0).total_seconds() >= sig_elapsed - 0.5:
+                if (
+                    s[0] not in consumed_tgt_rows
+                    and (s[1] - t0).total_seconds() >= sig_elapsed - 0.5
+                ):
                     tgt_span = s
                     break
         if tgt_span is None:
@@ -550,8 +557,9 @@ def plot(
     ax_gantt.grid(axis="x", linestyle="--", alpha=0.35)
 
     seen_groups = dict.fromkeys(s[1] for s in spans)  # insertion-ordered, deduped
-    legend_patches = [mpatches.Patch(color=GROUP_COLORS[g], label=g)
-                      for g in seen_groups if g in GROUP_COLORS]
+    legend_patches = [
+        mpatches.Patch(color=GROUP_COLORS[g], label=g) for g in seen_groups if g in GROUP_COLORS
+    ]
     legend_patches += [
         mpatches.Patch(facecolor="white", edgecolor="red", linewidth=1.2, label="error"),
         mpatches.Patch(color="grey", alpha=0.45, label="still running"),
@@ -744,14 +752,13 @@ def parse_config(path: str) -> dict:
             # Accept both new (concurrency_floor / concurrency_cap) and legacy
             # (min_replicas / max_replicas) keys so old benchmark configs render.
             "min": int(wf.get("concurrency_floor", wf.get("min_replicas", 0))),
-            "max": int(wf.get("concurrency_cap",   wf.get("max_replicas", 0))),
+            "max": int(wf.get("concurrency_cap", wf.get("max_replicas", 0))),
             "deps": list(wf.get("dependencies", [])),
             "dep_threshold": int(wf.get("dependency_threshold", 1)),
             "cpus": int(wf.get("required_cpus", 0)),
             "gpus": int(wf.get("required_gpus", 0)),
         }
     return group_meta
-
 
 
 def main():
@@ -762,11 +769,14 @@ def main():
         default=None,
         help="Campaign config.yaml (auto-detected as config.yaml next to log if not given)",
     )
-    parser.add_argument("--out", default=None, help="Output PNG (default: plots/dep_timeline_<run>.png)")
     parser.add_argument(
-        "--policy", default=None,
+        "--out", default=None, help="Output PNG (default: plots/dep_timeline_<run>.png)"
+    )
+    parser.add_argument(
+        "--policy",
+        default=None,
         help="Policy section to plot when the log contains a multi-policy benchmark "
-             "(e.g. none, rule, bandit, llm). Omit to plot the whole log.",
+        "(e.g. none, rule, bandit, llm). Omit to plot the whole log.",
     )
     args = parser.parse_args()
 
@@ -783,12 +793,9 @@ def main():
             )
             args.policy = available[0]
         elif args.policy not in sections:
-            raise SystemExit(
-                f"Policy {args.policy!r} not found. Available: {available}"
-            )
+            raise SystemExit(f"Policy {args.policy!r} not found. Available: {available}")
         line_range = sections[args.policy]
-        print(f"Extracting policy section: {args.policy!r} "
-              f"(lines {line_range[0]}–{line_range[1]})")
+        print(f"Extracting policy section: {args.policy!r} (lines {line_range[0]}–{line_range[1]})")
 
     if args.out is None:
         stem = Path(args.log).stem

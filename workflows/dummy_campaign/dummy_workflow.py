@@ -47,26 +47,26 @@ class DummyWorkflow(BaseWorkflow):
     workflow_id = "dummy"
 
     # Shared across all replicas; reset via reset_state() between benchmark runs.
-    _best_score:    ClassVar[float] = float("inf")
-    _n_evaluated:   ClassVar[int]   = 0
+    _best_score: ClassVar[float] = float("inf")
+    _n_evaluated: ClassVar[int] = 0
     # FIFO queue: search appends upstream scores; refine pops them in order.
     # Using a plain list (not asyncio.Queue) because asyncio cooperative
     # scheduling means list.append / pop(0) are never interleaved mid-call.
-    _refine_scores: ClassVar[list]  = []
+    _refine_scores: ClassVar[list] = []
 
     @classmethod
     def reset_state(cls) -> None:
         """Reset shared ClassVar state between benchmark runs."""
-        cls._best_score    = float("inf")
-        cls._n_evaluated   = 0
+        cls._best_score = float("inf")
+        cls._n_evaluated = 0
         cls._refine_scores = []
 
     # ── Compute ────────────────────────────────────────────────────────────────
 
     async def run(self, replica_id: str) -> None:
-        cfg      = self.config or {}
+        cfg = self.config or {}
         duration = float(cfg.get("duration", 0.5))
-        jitter   = float(cfg.get("jitter",   0.1))
+        jitter = float(cfg.get("jitter", 0.1))
         await asyncio.sleep(duration + random.uniform(0.0, jitter))
 
     # ── Completion hook ────────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ class DummyWorkflow(BaseWorkflow):
                 DummyWorkflow._best_score = score
 
             # Route promising candidates to the refine stage.
-            threshold     = float(cfg.get("refine_threshold", 0.35))
+            threshold = float(cfg.get("refine_threshold", 0.35))
             trigger_group = cfg.get("trigger_refine", "refine")
             if score < threshold:
                 DummyWorkflow._refine_scores.append(score)
@@ -94,8 +94,9 @@ class DummyWorkflow(BaseWorkflow):
         else:
             # Refine stage: improve an upstream candidate score.
             # Pop the next queued score (FIFO — matches the trigger order).
-            init_score = (DummyWorkflow._refine_scores.pop(0)
-                          if DummyWorkflow._refine_scores else 0.2)
+            init_score = (
+                DummyWorkflow._refine_scores.pop(0) if DummyWorkflow._refine_scores else 0.2
+            )
             decay = float(cfg.get("score_decay", 0.6))
             noise = float(cfg.get("score_noise", 0.03))
             score = init_score * decay * max(0.1, 1.0 + random.gauss(0.0, noise))

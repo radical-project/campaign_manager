@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     import asyncio
+
     from .backpressure import BackpressureNegotiator
     from .base_workflow import BaseWorkflow
     from .budget_controller import BudgetController
@@ -40,6 +41,7 @@ class _WorkflowInfo:
     no longer schedules new replicas; downstream sharders are notified to
     flush any partial tail.
     """
+
     name: str
     workflow_class: "type[BaseWorkflow]"
     replicas: int
@@ -96,8 +98,7 @@ class _WorkflowInfo:
             f"finished_replicas={self.finished_replicas}"
         )
         assert self.started_count <= self.replicas, (
-            f"{self.name}: started_count={self.started_count} > "
-            f"replicas={self.replicas}"
+            f"{self.name}: started_count={self.started_count} > replicas={self.replicas}"
         )
         assert self.concurrency_floor >= 0
         assert self.concurrency_cap >= 0
@@ -182,6 +183,7 @@ class ResourcePool:
 @dataclass
 class WorkflowStats:
     """Cumulative statistics for one workflow group."""
+
     replicas_started: int = 0
     replicas_finished: int = 0
 
@@ -205,6 +207,7 @@ class CampaignState:
     a dict here mutates the CM's actual state.  Treat the container itself
     as read-only.
     """
+
     lock: "asyncio.Lock"
     workflows: dict[str, "_WorkflowInfo"]
     resources: "ResourcePool"
@@ -222,9 +225,9 @@ class CampaignState:
     stats: dict[str, WorkflowStats]
     features: dict[str, bool]
     # Optional structured-plan extensions
-    plan:               Optional["CampaignPlan"] = None
-    triages:            dict[str, "Triage"] = field(default_factory=dict)
+    plan: Optional["CampaignPlan"] = None
+    triages: dict[str, "Triage"] = field(default_factory=dict)
     budget_controllers: dict[str, "BudgetController"] = field(default_factory=dict)
-    surrogates:         dict[str, "Surrogate"] = field(default_factory=dict)
-    replanning:         Optional["ReplanningController"] = None
+    surrogates: dict[str, "Surrogate"] = field(default_factory=dict)
+    replanning: Optional["ReplanningController"] = None
     log: Any = None  # Logger instance — kept Any to avoid an import cycle

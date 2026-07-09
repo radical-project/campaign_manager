@@ -37,25 +37,23 @@ class TestTriageDecide:
     def test_high_uncertainty_low_signal_discards(self):
         t = _triage(score_cutoff=0.5, unc_cutoff=0.3)
         # unc above cutoff AND both score/pred below floor → DISCARD
-        assert t.decide(score=0.2, surrogate_pred=0.2, surrogate_unc=0.9) \
-            is TriageDecision.DISCARD
+        assert t.decide(score=0.2, surrogate_pred=0.2, surrogate_unc=0.9) is TriageDecision.DISCARD
 
     def test_advance_disabled_by_default(self):
         # default advance_threshold is +inf → never ADVANCE
         t = _triage(score_cutoff=0.1)
-        assert t.decide(score=0.99, surrogate_pred=0.99, surrogate_unc=0.0) \
-            is TriageDecision.RUN
+        assert t.decide(score=0.99, surrogate_pred=0.99, surrogate_unc=0.0) is TriageDecision.RUN
 
     def test_advance_when_confident_and_above_threshold(self):
         t = _triage(score_cutoff=0.1, unc_cutoff=0.5, advance_threshold=0.9)
-        assert t.decide(score=0.95, surrogate_pred=0.95, surrogate_unc=0.1) \
-            is TriageDecision.ADVANCE
+        assert (
+            t.decide(score=0.95, surrogate_pred=0.95, surrogate_unc=0.1) is TriageDecision.ADVANCE
+        )
 
     def test_no_advance_when_uncertain(self):
         # prediction high enough but uncertainty above cutoff → not ADVANCE
         t = _triage(score_cutoff=0.1, unc_cutoff=0.2, advance_threshold=0.9)
-        assert t.decide(score=0.95, surrogate_pred=0.95, surrogate_unc=0.5) \
-            is TriageDecision.RUN
+        assert t.decide(score=0.95, surrogate_pred=0.95, surrogate_unc=0.5) is TriageDecision.RUN
 
 
 class TestTriageNudge:
@@ -67,7 +65,7 @@ class TestTriageNudge:
     def test_nudge_clamps_to_bounds_and_reports_at_bound(self):
         t = _triage(score_cutoff=0.95)
         score_at_bound, _ = t.nudge_cutoffs(score_delta=0.5, unc_delta=0.0)
-        assert t.score_cutoff == pytest.approx(1.0)   # clamped to high bound
+        assert t.score_cutoff == pytest.approx(1.0)  # clamped to high bound
         assert score_at_bound is True
 
     def test_reset_restores_initial(self):
@@ -80,5 +78,10 @@ class TestTriageNudge:
 
 def test_invalid_bounds_raise():
     with pytest.raises(ValueError):
-        Triage(stage_id="s", score_cutoff=0.5, score_cutoff_bounds=(1.0, 0.0),
-               uncertainty_cutoff=0.5, uncertainty_cutoff_bounds=(0.0, 1.0))
+        Triage(
+            stage_id="s",
+            score_cutoff=0.5,
+            score_cutoff_bounds=(1.0, 0.0),
+            uncertainty_cutoff=0.5,
+            uncertainty_cutoff_bounds=(0.0, 1.0),
+        )

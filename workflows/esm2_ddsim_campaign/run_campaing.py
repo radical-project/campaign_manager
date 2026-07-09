@@ -99,8 +99,7 @@ def _build_registry(config: dict) -> dict:
     return registry
 
 
-def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None,
-                        telemetry=None):
+def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None, telemetry=None):
     """Build a CampaignOperator + policy for ADR supervision, or (None, None).
 
     On HPC runs, pass ``telemetry`` (the TelemetryManager returned by
@@ -114,18 +113,22 @@ def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None,
     if kind in ("none", "off", ""):
         return None, None
 
-    from src.campaign.adr import (
-        CampaignView, PolicyRecorder, TelemetrySubscriber,
-        make_scheduling_policy, resolve_system_prompt,
-    )
     from ddsim_operator import DDSimCampaignOperator
+
+    from src.campaign.adr import (
+        CampaignView,
+        PolicyRecorder,
+        TelemetrySubscriber,
+        make_scheduling_policy,
+        resolve_system_prompt,
+    )
 
     # Wire telemetry into the view so observe() includes hardware metrics.
     # terminal: the stage whose finished-replica count is "hits" for the operator goal.
     # Required when routing uses _on_completion (no config dependencies).
-    tel_sub  = TelemetrySubscriber(telemetry) if telemetry is not None else None
+    tel_sub = TelemetrySubscriber(telemetry) if telemetry is not None else None
     terminal = adr_cfg.get("terminal") or None
-    view     = CampaignView(cm, terminal=terminal, telemetry_subscriber=tel_sub)
+    view = CampaignView(cm, terminal=terminal, telemetry_subscriber=tel_sub)
 
     # Optional per-cycle decision recorder.
     recorder = None
@@ -136,7 +139,9 @@ def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None,
         recorder = PolicyRecorder(record_path, policy_kind=kind)
 
     op = DDSimCampaignOperator(
-        view, engine=asyncflow, observer=recorder,
+        view,
+        engine=asyncflow,
+        observer=recorder,
         n_md_runs=int(adr_cfg.get("n_md_runs", 4)),
         max_fail_rate=float(adr_cfg.get("max_fail_rate", 0.05)),
     )
@@ -146,8 +151,7 @@ def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None,
         kw["warmstart"] = bool(adr_cfg.get("warmstart", False))
         kw["seed"] = adr_cfg.get("seed", 0)
     elif kind == "llm":
-        api_key = os.environ.get(
-            adr_cfg.get("llm_api_key_env", "OPENROUTER_API_KEY"), "")
+        api_key = os.environ.get(adr_cfg.get("llm_api_key_env", "OPENROUTER_API_KEY"), "")
         if adr_cfg.get("base_url"):
             kw["base_url"] = adr_cfg["base_url"]
         if adr_cfg.get("llm_timeout_s") is not None:
@@ -158,13 +162,13 @@ def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None,
         bu = adr_cfg.get("base_url", "") or ""
         if not api_key and ("localhost" in bu or "127.0.0.1" in bu):
             api_key = "sk-noauth"
-        prompt = resolve_system_prompt(adr_cfg)   # cm.adr.system_prompt[_file]
+        prompt = resolve_system_prompt(adr_cfg)  # cm.adr.system_prompt[_file]
         if prompt:
             kw["system_prompt"] = prompt
 
     op.policy = make_scheduling_policy(
-        op, kind=kind, llm_api_key=api_key,
-        model=adr_cfg.get("model", "openai/gpt-4o-mini"), **kw)
+        op, kind=kind, llm_api_key=api_key, model=adr_cfg.get("model", "openai/gpt-4o-mini"), **kw
+    )
 
     if recorder is not None:
         recorder.bind(view=view, policy=op.policy)
@@ -175,8 +179,9 @@ def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None,
     return op, tick
 
 
-async def main(config_file: str, policy_override=None, record_override=None,
-               engine_override=None) -> None:
+async def main(
+    config_file: str, policy_override=None, record_override=None, engine_override=None
+) -> None:
     config_path = Path(config_file)
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_file}")
@@ -222,8 +227,10 @@ async def main(config_file: str, policy_override=None, record_override=None,
                 )
                 print(f"Asyncflow telemetry started → {telemetry_dir}")
             except ImportError as exc:
-                print(f"Telemetry disabled (missing optional dep: {exc}). "
-                      f"Install with: pip install opentelemetry-sdk")
+                print(
+                    f"Telemetry disabled (missing optional dep: {exc}). "
+                    f"Install with: pip install opentelemetry-sdk"
+                )
 
     # ── Campaign ──────────────────────────────────────────────────────────────
     registry = _build_registry(config)
@@ -253,12 +260,14 @@ async def main(config_file: str, policy_override=None, record_override=None,
     if record_override is not None:
         adr_cfg["record"] = record_override
     operator, tick_s = _build_adr_operator(
-        cm, asyncflow, adr_cfg, policy_override, telemetry=telemetry)
+        cm, asyncflow, adr_cfg, policy_override, telemetry=telemetry
+    )
 
     try:
         await cm.start()
         if operator is not None:
             from src.campaign.adr import run_supervised
+
             kind = (policy_override or adr_cfg.get("policy", "?")).lower()
             print(f"ADR supervision active: policy={kind}  tick={tick_s}s")
             await run_supervised(cm, operator, tick_s=tick_s)
@@ -296,22 +305,32 @@ if __name__ == "__main__":
         help="Path to YAML config file (default: config.yaml)",
     )
     parser.add_argument(
-        "--policy", default=None,
+        "--policy",
+        default=None,
         choices=["none", "rule", "bandit", "llm"],
         help="ADR scheduling policy (overrides cm.adr.policy). "
-             "'none' = no ADR supervision (static priorities).",
+        "'none' = no ADR supervision (static priorities).",
     )
     parser.add_argument(
-        "--record", nargs="?", const="auto", default=None,
-        help="Record per-cycle ADR decisions to JSONL "
-             "(bare flag → adr-decisions-<policy>.jsonl).",
+        "--record",
+        nargs="?",
+        const="auto",
+        default=None,
+        help="Record per-cycle ADR decisions to JSONL (bare flag → adr-decisions-<policy>.jsonl).",
     )
     parser.add_argument(
-        "--engine", default=None,
+        "--engine",
+        default=None,
         choices=["dragon", "concurrent"],
         help="Override engine type from config (useful for local testing).",
     )
 
     args = parser.parse_args()
-    asyncio.run(main(args.config, policy_override=args.policy,
-                     record_override=args.record, engine_override=args.engine))
+    asyncio.run(
+        main(
+            args.config,
+            policy_override=args.policy,
+            record_override=args.record,
+            engine_override=args.engine,
+        )
+    )

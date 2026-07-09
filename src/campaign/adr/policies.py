@@ -27,12 +27,12 @@ from pydantic import BaseModel, Field
 
 log = logging.getLogger(__name__)
 
-from radical.adr import Decision, LLMPolicy, Policy, decide
+from radical.adr import Decision, LLMPolicy, Policy, decide  # noqa: E402
 
-from ..bandit import SchedulingBandit
-
+from ..bandit import SchedulingBandit  # noqa: E402
 
 # ── Shared helpers ─────────────────────────────────────────────────────────
+
 
 def _stage_depth(stages: dict) -> dict[str, int]:
     """Dependency-chain depth per stage (roots = 0). Downstream = larger depth."""
@@ -62,6 +62,7 @@ def _batch_for_bp(bp_state: str, current: int, lo: int = 10, hi: int = 200) -> i
 
 
 # ── Rule policy ─────────────────────────────────────────────────────────────
+
 
 class DownstreamFirstPolicy(Policy):
     """Deterministic downstream-first scheduling — the rule the bandit learns.
@@ -121,8 +122,10 @@ class DownstreamFirstPolicy(Policy):
         # CPU-only stages (requires_gpu=False) are unaffected by GPU saturation.
         for s, info in stages.items():
             new_batch = _batch_for_bp(
-                info["bp_state"], self._batch_base,
-                lo=self._batch_lo, hi=self._batch_hi,
+                info["bp_state"],
+                self._batch_base,
+                lo=self._batch_lo,
+                hi=self._batch_hi,
             )
             if info.get("requires_gpu", True):
                 if gpu_util > 85.0:
@@ -141,15 +144,15 @@ class DownstreamFirstPolicy(Policy):
 
 # BP state → reward, matching SchedulingBandit's documented signal.
 _BP_REWARD = {"WIDEN": 0.8, "HOLD": 0.7, "THROTTLE": 0.2}
-_TERMINAL_REWARD = 0.5   # terminal stage / no downstream BP → neutral
+_TERMINAL_REWARD = 0.5  # terminal stage / no downstream BP → neutral
 
 
 def _downstream_bp(stage: str, stages: dict) -> str | None:
     """BP state of the stage that *stage* feeds (its first downstream consumer)."""
-    for other, info in stages.items():
+    for _other, info in stages.items():
         if stage in info.get("deps", []):
             return info.get("bp_state", "HOLD")
-    return None   # no downstream → terminal
+    return None  # no downstream → terminal
 
 
 class BanditSchedulingPolicy(Policy):
@@ -196,8 +199,7 @@ class BanditSchedulingPolicy(Policy):
             if self._warmstart:
                 depth = _stage_depth(stages)
                 priors = {s: (float(depth[s] + 1), 1.0) for s in stages}
-            self._bandit = SchedulingBandit(
-                list(stages), seed=self._seed, stage_priors=priors)
+            self._bandit = SchedulingBandit(list(stages), seed=self._seed, stage_priors=priors)
         return self._bandit
 
     @decide
@@ -208,8 +210,8 @@ class BanditSchedulingPolicy(Policy):
         bandit = self._ensure_bandit(stages)
 
         # Real hardware signals from TelemetrySubscriber (0.0 / None when absent).
-        fail_rate    = float(obs.get("task_fail_rate", 0.0))
-        avg_dur      = obs.get("avg_task_duration_s")   # None when no completions yet
+        fail_rate = float(obs.get("task_fail_rate", 0.0))
+        avg_dur = obs.get("avg_task_duration_s")  # None when no completions yet
 
         # 1. Reward: feed the bandit for each new completion since last cycle.
         #    Base reward: downstream BP state (same as the in-CM bandit).
@@ -225,7 +227,7 @@ class BanditSchedulingPolicy(Policy):
                 # Discount by failure rate (capped at 50% discount so bandit
                 # doesn't collapse when transient errors spike).
                 if fail_rate > 0.0:
-                    reward *= (1.0 - min(fail_rate, 0.5))
+                    reward *= 1.0 - min(fail_rate, 0.5)
                 # Discount when average task duration is pathologically long
                 # relative to the campaign's expected baseline (campaign-configured).
                 if (
@@ -234,7 +236,7 @@ class BanditSchedulingPolicy(Policy):
                     and avg_dur > self._long_task_threshold_s
                 ):
                     reward *= 0.8
-                for _ in range(min(delta, 64)):   # cap pathological catch-up
+                for _ in range(min(delta, 64)):  # cap pathological catch-up
                     bandit.update(s, reward)
             self._prev_finished[s] = info["finished"]
 
@@ -255,6 +257,7 @@ class BanditSchedulingPolicy(Policy):
 
 class _NamedStage:
     """Minimal object with a ``.name`` for SchedulingBandit.rank()."""
+
     __slots__ = ("name",)
 
     def __init__(self, name: str) -> None:
@@ -262,6 +265,7 @@ class _NamedStage:
 
 
 # ── LLM policy ──────────────────────────────────────────────────────────────
+
 
 class ScheduleDecision(BaseModel):
     """Structured output the LLM must return each cycle.
@@ -271,7 +275,8 @@ class ScheduleDecision(BaseModel):
     the root screening stage should be lowest.  The CM's two-pass scheduler uses
     these numbers to decide who gets the next free GPU/CPU slot.
     """
-    priorities:  dict[str, int] = Field(
+
+    priorities: dict[str, int] = Field(
         default_factory=dict,
         description=(
             "Priority for every stage: {stage_id: priority_value}. "
@@ -361,6 +366,7 @@ def resolve_system_prompt(adr_cfg: dict, config_dir=None) -> Optional[str]:
     path = adr_cfg.get("system_prompt_file")
     if path:
         from pathlib import Path
+
         p = Path(path)
         if config_dir is not None and not p.is_absolute():
             p = Path(config_dir) / p
@@ -416,13 +422,16 @@ class LLMSchedulingPolicy(LLMPolicy):
         # Per-call timeout prevents a hung LLM from blocking the operator loop.
         # max_retries=0 so the HTTP client fails fast as well.
         self.client = instructor.from_openai(
-            AsyncOpenAI(api_key=api_key, base_url=base_url,
-                        timeout=timeout_s, max_retries=max_retries))
+            AsyncOpenAI(
+                api_key=api_key, base_url=base_url, timeout=timeout_s, max_retries=max_retries
+            )
+        )
         # Silence instructor's per-attempt verbose logging ("API call failed on
         # attempt N", "Max retries exceeded").  When the endpoint is simply down
         # these fill the campaign log on every cycle; we emit our own single-line
         # warning on the first failure instead.
         import logging as _logging
+
         _logging.getLogger("instructor.v2.retry").setLevel(_logging.CRITICAL)
         # Silent rule fallback — called directly (not via @decide composition)
         # so no exception escapes run() and radical.adr never prints a traceback.
@@ -438,6 +447,7 @@ class LLMSchedulingPolicy(LLMPolicy):
     @decide
     async def run(self, obs: dict) -> Decision:
         import time as _time
+
         now = _time.monotonic()
 
         # Rate-limit: operator may tick every 1 s while llm_tick_s is 10 s.
@@ -458,7 +468,7 @@ class LLMSchedulingPolicy(LLMPolicy):
                     max_retries=self._instructor_retries,
                     messages=[
                         {"role": "system", "content": self.system_prompt},
-                        {"role": "user",   "content": self.render_observation(obs)},
+                        {"role": "user", "content": self.render_observation(obs)},
                     ],
                 ),
                 timeout=self._timeout_s + 5.0,
@@ -501,6 +511,7 @@ class LLMSchedulingPolicy(LLMPolicy):
 
 
 # ── Composition factory ─────────────────────────────────────────────────────
+
 
 def make_scheduling_policy(
     op,

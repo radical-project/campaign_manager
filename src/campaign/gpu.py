@@ -10,11 +10,13 @@ def detect_gpus() -> int:
     """Count CUDA-visible GPUs for concurrent-mode assignment tracking. Returns 0 when none found."""
     try:
         import torch
+
         return torch.cuda.device_count()
     except Exception:
         pass
     try:
         import subprocess
+
         out = subprocess.check_output(
             ["nvidia-smi", "--query-gpu=index", "--format=csv,noheader"], text=True
         )
@@ -67,9 +69,12 @@ def make_policies(gpu_pool: list[tuple[str, int]], gpu_ids: list[int]) -> list:
         ]
     except Exception as exc:
         import logging
+
         logging.getLogger(__name__).warning(
             "make_policies failed for gpu_ids=%s host=%s: %s: %s",
-            gpu_ids, gpu_pool[0][0] if gpu_pool else "?",
-            type(exc).__name__, exc,
+            gpu_ids,
+            gpu_pool[0][0] if gpu_pool else "?",
+            type(exc).__name__,
+            exc,
         )
         return []

@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from radical.adr import act, observe, goals
+from radical.adr import goals, observe
 from radical.adr.goals import Goal
 
 from src.campaign.adr import CampaignOperator
@@ -62,11 +62,14 @@ class DDSimCampaignOperator(CampaignOperator):
         max_cycles: Optional[int] = None,
     ) -> None:
         super().__init__(
-            view, engine,
-            target=target, policy=policy,
-            observer=observer, max_cycles=max_cycles,
+            view,
+            engine,
+            target=target,
+            policy=policy,
+            observer=observer,
+            max_cycles=max_cycles,
         )
-        self._n_md_runs     = int(n_md_runs)
+        self._n_md_runs = int(n_md_runs)
         self._max_fail_rate = float(max_fail_rate)
 
     # ── Observation ────────────────────────────────────────────────────────
@@ -78,7 +81,7 @@ class DDSimCampaignOperator(CampaignOperator):
     # ADR observation without touching the CM config or scheduling at all.
     _LOGICAL_DEPS: dict[str, list[str]] = {
         "miniapps": ["md"],
-        "dummy":    ["inference", "miniapps"],
+        "dummy": ["inference", "miniapps"],
     }
 
     @observe
@@ -96,20 +99,20 @@ class DDSimCampaignOperator(CampaignOperator):
         for name, info in stages.items():
             logical = self._LOGICAL_DEPS.get(name, [])
             if logical and not info.get("deps"):
-                info["deps"]      = logical
+                info["deps"] = logical
                 info["is_source"] = False
 
         # Recompute `starved` using corrected is_source.
         # starved = has waiting replicas AND below concurrency cap AND not a source.
         # Source stages (inference, md) are never "starved" in the pipeline sense —
         # their pending count is the pre-loaded work library, not a dependency stall.
-        for name, info in stages.items():
+        for _name, info in stages.items():
             if info.get("is_source", True):
                 info["starved"] = False
             else:
                 pending = info.get("pending", 0)
                 running = info.get("running", 0)
-                cap     = info.get("cap", 0)
+                cap = info.get("cap", 0)
                 info["starved"] = bool(pending > 0 and (cap == 0 or running < cap))
 
         # Flatten per-stage finished counts so Goal.metric can reference them
@@ -136,7 +139,6 @@ class DDSimCampaignOperator(CampaignOperator):
                 threshold=self._n_md_runs - 0.5,
                 direction="maximize",
             ),
-
             # ── Budget / efficiency: no idle GPUs ─────────────────────────
             # Under policy=none, after md finishes, miniapps waits while
             # inference holds the contested pass-2 GPU slot.  One GPU idles
@@ -151,7 +153,6 @@ class DDSimCampaignOperator(CampaignOperator):
                 threshold=0.5,
                 direction="minimize",
             ),
-
             # ── Operational health: low task failure rate ─────────────────
             # Failing tasks waste GPU hours without contributing scientific
             # output.  If task_fail_rate exceeds max_fail_rate, it signals

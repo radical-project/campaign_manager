@@ -5,7 +5,7 @@ import json
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -61,6 +61,7 @@ def detect_device_type() -> str:
     """Return 'cuda' if CUDA GPUs are available, 'cpu' otherwise."""
     try:
         import torch
+
         is_available = torch.cuda.is_available()
         if isinstance(is_available, bool) and is_available:
             return "cuda"
@@ -73,6 +74,7 @@ def get_available_device_count() -> int:
     """Return the number of available CUDA GPUs, or 1 for CPU-only."""
     try:
         import torch
+
         if torch.cuda.is_available():
             count = torch.cuda.device_count()
             if isinstance(count, int):

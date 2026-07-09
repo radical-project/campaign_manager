@@ -35,8 +35,9 @@ ADR-layer concern (the set_batch_size lever), not an in-sharder bandit.
 """
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
@@ -48,17 +49,19 @@ if TYPE_CHECKING:  # pragma: no cover
 
 # ── Candidate entry ────────────────────────────────────────────────────────────
 
+
 @dataclass
 class _CandidateEntry:
-    candidate_id:   str
-    score:          float = 0.0
+    candidate_id: str
+    score: float = 0.0
     surrogate_pred: float = 0.0
-    surrogate_unc:  float = 0.0
-    scaffold_class: str   = ""
-    enqueue_time:   float = 0.0   # set by Sharder.receive() via its now_fn
+    surrogate_unc: float = 0.0
+    scaffold_class: str = ""
+    enqueue_time: float = 0.0  # set by Sharder.receive() via its now_fn
 
 
 # ── Percentile-rank helper ─────────────────────────────────────────────────────
+
 
 def _percentile_rank(values: list[float]) -> list[float]:
     """Map values to percentile ranks in [0, 1]. Stable for ties.
@@ -81,43 +84,47 @@ def _percentile_rank(values: list[float]) -> list[float]:
 
 # ── ShardingSpec ───────────────────────────────────────────────────────────────
 
+
 @dataclass
 class ShardingSpec:
     """Plan-level sharding bounds and dispatch strategy for one stage."""
-    target_size:  int            = 50
-    min_size:     int            = 1
-    max_size:     int            = 200
-    stratify:     str            = "soft"   # off | soft | strict
-    top_fraction: float          = 1.0      # threshold_top_fraction gate (1.0 = no gate)
-    profile:      str            = "diverse_top"
+
+    target_size: int = 50
+    min_size: int = 1
+    max_size: int = 200
+    stratify: str = "soft"  # off | soft | strict
+    top_fraction: float = 1.0  # threshold_top_fraction gate (1.0 = no gate)
+    profile: str = "diverse_top"
 
     @classmethod
     def from_dict(cls, d: dict) -> "ShardingSpec":
         return cls(
-            target_size  = int(d.get("target_size",   50)),
-            min_size     = int(d.get("min_size",       1)),
-            max_size     = int(d.get("max_size",      200)),
-            stratify     = str(d.get("stratify",    "soft")),
-            top_fraction = float(d.get("top_fraction", 1.0)),
-            profile      = str(d.get("profile", "diverse_top")),
+            target_size=int(d.get("target_size", 50)),
+            min_size=int(d.get("min_size", 1)),
+            max_size=int(d.get("max_size", 200)),
+            stratify=str(d.get("stratify", "soft")),
+            top_fraction=float(d.get("top_fraction", 1.0)),
+            profile=str(d.get("profile", "diverse_top")),
         )
 
 
 # ── Sharder ────────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class Sharder:
     """Buffer + priority-dispatch controller for one downstream stage."""
+
     name: str
     spec: ShardingSpec
 
-    _buf:            list                                            = field(default_factory=list, init=False)
-    _upstream_done:  bool                                            = field(default=False,        init=False)
-    _shard_seq:      int                                             = field(default=0,            init=False)
-    _profile:        Optional["ProfileWeights"]                      = field(default=None,         init=False)
-    _log_fn:         Optional[Callable[[str], None]]                 = field(default=None,         init=False)
-    _metrics_fn:     Optional[Callable[[int, int, list, list], None]] = field(default=None,        init=False)
-    _now_fn:         Callable[[], float]                             = field(default=time.time,    init=False)
+    _buf: list = field(default_factory=list, init=False)
+    _upstream_done: bool = field(default=False, init=False)
+    _shard_seq: int = field(default=0, init=False)
+    _profile: Optional["ProfileWeights"] = field(default=None, init=False)
+    _log_fn: Optional[Callable[[str], None]] = field(default=None, init=False)
+    _metrics_fn: Optional[Callable[[int, int, list, list], None]] = field(default=None, init=False)
+    _now_fn: Callable[[], float] = field(default=time.time, init=False)
 
     def _log(self, msg: str) -> None:
         if self._log_fn is not None:
@@ -125,6 +132,7 @@ class Sharder:
 
     def __post_init__(self) -> None:
         from .profiles import get_profile
+
         self._profile = get_profile(self.spec.profile)
 
     # ── Configuration ─────────────────────────────────────────────────────────
@@ -134,6 +142,7 @@ class Sharder:
         or when the downstream input target nears completion).
         """
         from .profiles import get_profile
+
         self.spec.profile = profile_name
         self._profile = get_profile(profile_name)
 
@@ -154,14 +163,16 @@ class Sharder:
         enqueue_time: Optional[float] = None,
     ) -> None:
         """Accept one candidate into the buffer."""
-        self._buf.append(_CandidateEntry(
-            candidate_id=candidate_id,
-            score=score,
-            surrogate_pred=surrogate_pred,
-            surrogate_unc=surrogate_unc,
-            scaffold_class=scaffold_class,
-            enqueue_time=enqueue_time if enqueue_time is not None else self._now_fn(),
-        ))
+        self._buf.append(
+            _CandidateEntry(
+                candidate_id=candidate_id,
+                score=score,
+                surrogate_pred=surrogate_pred,
+                surrogate_unc=surrogate_unc,
+                scaffold_class=scaffold_class,
+                enqueue_time=enqueue_time if enqueue_time is not None else self._now_fn(),
+            )
+        )
 
     def mark_upstream_done(self) -> None:
         """Signal that no more triggers will arrive.
@@ -208,29 +219,28 @@ class Sharder:
         already = running_scaffolds or set()
 
         score_n = _percentile_rank([e.score for e in entries])
-        surr_n  = _percentile_rank([e.surrogate_pred for e in entries])
-        unc_n   = _percentile_rank([e.surrogate_unc  for e in entries])
+        surr_n = _percentile_rank([e.surrogate_pred for e in entries])
+        unc_n = _percentile_rank([e.surrogate_unc for e in entries])
 
-        ages    = [max(0.0, now - e.enqueue_time) for e in entries]
+        ages = [max(0.0, now - e.enqueue_time) for e in entries]
         age_max = max(ages) if max(ages) > 0 else 1.0
-        age_n   = [a / age_max for a in ages]
+        age_n = [a / age_max for a in ages]
 
         counts: dict[str, int] = {}
         for e in entries:
             counts[e.scaffold_class] = counts.get(e.scaffold_class, 0) + 1
         max_count = max(counts.values()) if counts else 1
         diversity = [
-            0.0 if e.scaffold_class in already
-            else 1.0 - (counts[e.scaffold_class] - 1) / max_count
+            0.0 if e.scaffold_class in already else 1.0 - (counts[e.scaffold_class] - 1) / max_count
             for e in entries
         ]
 
         return [
-            w.score       * score_n[i]
-            + w.surrogate   * surr_n[i]
+            w.score * score_n[i]
+            + w.surrogate * surr_n[i]
             + w.uncertainty * unc_n[i]
-            + w.age         * age_n[i]
-            + w.diversity   * diversity[i]
+            + w.age * age_n[i]
+            + w.diversity * diversity[i]
             for i in range(len(entries))
         ]
 
@@ -254,35 +264,37 @@ class Sharder:
 
     def adaptive_size(
         self,
-        bp:        "BackpressureNegotiator | None",
+        bp: "BackpressureNegotiator | None",
         occupancy: float,
     ) -> int:
         """Compute dispatch batch size for this scheduling cycle."""
-        sh       = self.spec
+        sh = self.spec
         bp_state = bp.state if bp is not None else None
-        buf_len  = len(self._buf)
+        buf_len = len(self._buf)
 
-        factor    = self._bp_factor(bp_state)
-        size_bp   = max(sh.min_size, min(sh.max_size, int(sh.target_size * factor)))
-        bp_tag = (f"bp={bp_state.value if bp_state else 'none'} "
-                  f"×{factor:.2f}(fixed) target={sh.target_size}→{size_bp}")
+        factor = self._bp_factor(bp_state)
+        size_bp = max(sh.min_size, min(sh.max_size, int(sh.target_size * factor)))
+        bp_tag = (
+            f"bp={bp_state.value if bp_state else 'none'} "
+            f"×{factor:.2f}(fixed) target={sh.target_size}→{size_bp}"
+        )
 
         if occupancy > 0.85:
             size_occ = max(sh.min_size, int(size_bp * 0.75))
-            occ_tag  = f"occ={occupancy:.2f}(high ×0.75) {size_bp}→{size_occ}"
+            occ_tag = f"occ={occupancy:.2f}(high ×0.75) {size_bp}→{size_occ}"
         elif occupancy < 0.40:
             size_occ = min(sh.max_size, int(size_bp * 1.25))
-            occ_tag  = f"occ={occupancy:.2f}(low ×1.25) {size_bp}→{size_occ}"
+            occ_tag = f"occ={occupancy:.2f}(low ×1.25) {size_bp}→{size_occ}"
         else:
             size_occ = size_bp
-            occ_tag  = f"occ={occupancy:.2f}(ok)"
+            occ_tag = f"occ={occupancy:.2f}(ok)"
 
         if 0 < buf_len < size_occ and sh.stratify != "strict":
             size_final = max(sh.min_size, buf_len)
-            tail_tag   = f"tail(buf={buf_len}<{size_occ})→{size_final}"
+            tail_tag = f"tail(buf={buf_len}<{size_occ})→{size_final}"
         else:
             size_final = size_occ
-            tail_tag   = ""
+            tail_tag = ""
 
         size_final = max(sh.min_size, min(sh.max_size, size_final))
 
@@ -299,8 +311,8 @@ class Sharder:
 
     def dispatch(
         self,
-        bp:               "BackpressureNegotiator | None",
-        occupancy:        float,
+        bp: "BackpressureNegotiator | None",
+        occupancy: float,
         running_scaffolds: Optional[set] = None,
     ) -> list[str]:
         """Dispatch one priority-ordered shard from the buffer.
@@ -326,9 +338,9 @@ class Sharder:
         # or _all_done elsewhere; flushing here would release low-priority
         # candidates that should never run.
         if self._upstream_done and self.spec.stratify == "strict":
-            now    = self._now_fn()
+            now = self._now_fn()
             scores = self._score_entries(self._buf, now, running_scaffolds)
-            order  = sorted(range(len(self._buf)), key=lambda i: -scores[i])
+            order = sorted(range(len(self._buf)), key=lambda i: -scores[i])
             dispatched = [self._buf[i].candidate_id for i in order]
             self._buf.clear()
             self._shard_seq += 1
@@ -341,8 +353,7 @@ class Sharder:
 
         if bp_state == BPState.THROTTLE:
             return []
-        if (self.spec.stratify == "strict"
-                and len(self._buf) < self.spec.target_size):
+        if self.spec.stratify == "strict" and len(self._buf) < self.spec.target_size:
             return []
 
         if self.spec.stratify == "off":
@@ -357,14 +368,14 @@ class Sharder:
             n = min(n, len(self._buf))
 
         # Rank buffer by priority, take top-n
-        now    = self._now_fn()
+        now = self._now_fn()
         scores = self._score_entries(self._buf, now, running_scaffolds)
-        order  = sorted(range(len(self._buf)), key=lambda i: -scores[i])
-        top_n  = order[:n]
+        order = sorted(range(len(self._buf)), key=lambda i: -scores[i])
+        top_n = order[:n]
 
         top_entries = [self._buf[i] for i in top_n]
-        top_scores  = [scores[i]    for i in top_n]
-        dispatched  = [e.candidate_id for e in top_entries]
+        top_scores = [scores[i] for i in top_n]
+        dispatched = [e.candidate_id for e in top_entries]
 
         dispatched_set = set(top_n)
         self._buf = [e for i, e in enumerate(self._buf) if i not in dispatched_set]
@@ -380,7 +391,7 @@ class Sharder:
         if self._log_fn is not None:
             cand_str = "  ".join(
                 f"{e.candidate_id}(s={e.score:.3f} p={ps:.3f} sc={e.scaffold_class})"
-                for e, ps in zip(top_entries, top_scores)
+                for e, ps in zip(top_entries, top_scores, strict=False)
             )
             self._log(
                 f"  Sharder [{self.name}] shard={self._shard_seq}: "

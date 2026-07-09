@@ -76,12 +76,15 @@ def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None):
         return None, None
 
     from src.campaign.adr import (
-        CampaignOperator, CampaignView, PolicyRecorder,
-        make_scheduling_policy, resolve_system_prompt,
+        CampaignOperator,
+        CampaignView,
+        PolicyRecorder,
+        make_scheduling_policy,
+        resolve_system_prompt,
     )
 
     terminal = adr_cfg.get("terminal") or None
-    view     = CampaignView(cm, terminal=terminal)
+    view = CampaignView(cm, terminal=terminal)
 
     record_path = adr_cfg.get("record")
     if record_path in (True, "auto"):
@@ -93,7 +96,7 @@ def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None):
     kw, api_key = {}, None
     if kind == "bandit":
         kw["warmstart"] = bool(adr_cfg.get("warmstart", False))
-        kw["seed"]      = adr_cfg.get("seed", 0)
+        kw["seed"] = adr_cfg.get("seed", 0)
     elif kind == "llm":
         api_key = os.environ.get(adr_cfg.get("llm_api_key_env", "OPENROUTER_API_KEY"), "")
         if adr_cfg.get("base_url"):
@@ -111,8 +114,8 @@ def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None):
             kw["system_prompt"] = prompt
 
     op.policy = make_scheduling_policy(
-        op, kind=kind, llm_api_key=api_key,
-        model=adr_cfg.get("model", "openai/gpt-4o-mini"), **kw)
+        op, kind=kind, llm_api_key=api_key, model=adr_cfg.get("model", "openai/gpt-4o-mini"), **kw
+    )
 
     if recorder is not None:
         recorder.bind(view=view, policy=op.policy)
@@ -127,28 +130,31 @@ async def main(config_file: str, policy_override=None, record_override=None) -> 
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_file}")
 
-    config      = load_config(config_file)
+    config = load_config(config_file)
     engine_type = config.get("engine", "concurrent")
 
     # ── Backend + asyncflow ───────────────────────────────────────────────────
     if engine_type == "dragon":
         from radical.asyncflow import WorkflowEngine
         from rhapsody.backends import DragonExecutionBackendV3
+
         engine_dragon = await DragonExecutionBackendV3()
-        asyncflow     = await WorkflowEngine.create(engine_dragon)
+        asyncflow = await WorkflowEngine.create(engine_dragon)
         print("Dragon backend started")
     else:
         from radical.asyncflow import WorkflowEngine
         from rhapsody.backends import ConcurrentExecutionBackend
+
         engine_dragon = None
-        backend       = await ConcurrentExecutionBackend()
-        asyncflow     = await WorkflowEngine.create(backend)
+        backend = await ConcurrentExecutionBackend()
+        asyncflow = await WorkflowEngine.create(backend)
         print("ConcurrentExecutionBackend started")
 
     # ── Campaign ──────────────────────────────────────────────────────────────
     registry = _build_registry(config)
-    cm = CampaignManager.from_config(config, registry, asyncflow=asyncflow,
-                                     engine_dragon=engine_dragon)
+    cm = CampaignManager.from_config(
+        config, registry, asyncflow=asyncflow, engine_dragon=engine_dragon
+    )
 
     groups = config.get("workflows", {})
     print(
@@ -171,6 +177,7 @@ async def main(config_file: str, policy_override=None, record_override=None) -> 
         await cm.start()
         if operator is not None:
             from src.campaign.adr import run_supervised
+
             kind = (policy_override or adr_cfg.get("policy", "?")).lower()
             print(f"ADR supervision active: policy={kind}  tick={tick_s}s")
             await run_supervised(cm, operator, tick_s=tick_s)
@@ -187,8 +194,8 @@ async def main(config_file: str, policy_override=None, record_override=None) -> 
     search_done = gs.get("search", {}).get("replicas_finished", 0)
     refine_done = gs.get("refine", {}).get("replicas_finished", 0)
 
-    best  = DummyWorkflow._best_score
-    n_ev  = DummyWorkflow._n_evaluated
+    best = DummyWorkflow._best_score
+    n_ev = DummyWorkflow._n_evaluated
     print("\n── Minimization complete ──")
     print(f"  best_score   = {best:.4f}")
     print(f"  n_evaluated  = {n_ev}")
@@ -198,13 +205,21 @@ async def main(config_file: str, policy_override=None, record_override=None) -> 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Dummy minimization campaign runner")
-    parser.add_argument("--config", default="config.yaml",
-                        help="Path to YAML config file (default: config.yaml)")
-    parser.add_argument("--policy", default=None,
-                        choices=["none", "rule", "bandit", "llm"],
-                        help="ADR scheduling policy (overrides cm.adr.policy)")
-    parser.add_argument("--record", nargs="?", const="auto", default=None,
-                        help="Record per-cycle ADR decisions to JSONL")
+    parser.add_argument(
+        "--config", default="config.yaml", help="Path to YAML config file (default: config.yaml)"
+    )
+    parser.add_argument(
+        "--policy",
+        default=None,
+        choices=["none", "rule", "bandit", "llm"],
+        help="ADR scheduling policy (overrides cm.adr.policy)",
+    )
+    parser.add_argument(
+        "--record",
+        nargs="?",
+        const="auto",
+        default=None,
+        help="Record per-cycle ADR decisions to JSONL",
+    )
     args = parser.parse_args()
-    asyncio.run(main(args.config, policy_override=args.policy,
-                     record_override=args.record))
+    asyncio.run(main(args.config, policy_override=args.policy, record_override=args.record))

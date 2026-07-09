@@ -32,6 +32,7 @@ sees structured input.  ``plan_to_workflows_dict`` is the inverse — used by
 the existing flat-config-driven ``AsyncCampaignManager.from_config`` so the
 structured plan can drive the same code path.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -50,13 +51,12 @@ from .schema import (
     SurrogateSpec,
 )
 
-
 # Partition → default resource overlay.  Stage can override individual fields.
 _PARTITION_RESOURCES: dict[str, dict[str, float]] = {
-    "cpu":      {"required_cpus": 16, "required_gpus": 0, "required_memory_gb": 0.0},
-    "gpu":      {"required_cpus":  4, "required_gpus": 1, "required_memory_gb": 0.0},
-    "mpi+gpu":  {"required_cpus": 16, "required_gpus": 2, "required_memory_gb": 0.0},
-    "largemem": {"required_cpus":  8, "required_gpus": 1, "required_memory_gb": 64.0},
+    "cpu": {"required_cpus": 16, "required_gpus": 0, "required_memory_gb": 0.0},
+    "gpu": {"required_cpus": 4, "required_gpus": 1, "required_memory_gb": 0.0},
+    "mpi+gpu": {"required_cpus": 16, "required_gpus": 2, "required_memory_gb": 0.0},
+    "largemem": {"required_cpus": 8, "required_gpus": 1, "required_memory_gb": 64.0},
 }
 
 
@@ -114,14 +114,16 @@ def _pilot_from_dict(d: Any) -> PilotSpec:
     )
 
 
-def _stage_from_dict(d: dict, valid_stage_ids: Optional[set] = None) -> StageSpec:
+def _stage_from_dict(d: dict, valid_stage_ids: set | None = None) -> StageSpec:
     pilot = _pilot_from_dict(d.get("pilot"))
 
     # Resource overlay: explicit dict keys win; otherwise derive from partition.
     res_default = _PARTITION_RESOURCES.get(pilot.partition, {})
     required_cpus = int(d.get("required_cpus", res_default.get("required_cpus", 0)))
     required_gpus = int(d.get("required_gpus", res_default.get("required_gpus", 0)))
-    required_memory_gb = float(d.get("required_memory_gb", res_default.get("required_memory_gb", 0.0)))
+    required_memory_gb = float(
+        d.get("required_memory_gb", res_default.get("required_memory_gb", 0.0))
+    )
 
     # Legacy alias: derive dependencies from upstream key (cm-plan/1.0 shape).
     # Only honour upstream when it refers to a real stage in the plan (the
@@ -235,11 +237,13 @@ def _load_structured(cfg: dict) -> CampaignPlan:
         for s in raw_stages:
             ds = s.get("downstream")
             if ds and ds in valid_ids:
-                edges.append(EdgeSpec(
-                    upstream=str(s["id"]),
-                    downstream=str(ds),
-                    profile=str(s.get("profile", "diverse_top")),
-                ))
+                edges.append(
+                    EdgeSpec(
+                        upstream=str(s["id"]),
+                        downstream=str(ds),
+                        profile=str(s.get("profile", "diverse_top")),
+                    )
+                )
     cm_cfg = cfg.get("cm", {})
     return CampaignPlan(
         plan_id=str(cfg["plan_id"]),
@@ -266,34 +270,32 @@ def _load_legacy(cfg: dict) -> CampaignPlan:
     edges: list[EdgeSpec] = []
     for name, wf in wfs.items():
         # Accept both new and legacy keys
-        concurrency_floor = int(
-            wf.get("concurrency_floor") or wf.get("min_replicas") or 0
-        )
-        concurrency_cap = int(
-            wf.get("concurrency_cap") or wf.get("max_replicas") or 0
-        )
+        concurrency_floor = int(wf.get("concurrency_floor") or wf.get("min_replicas") or 0)
+        concurrency_cap = int(wf.get("concurrency_cap") or wf.get("max_replicas") or 0)
         has_deps = bool(wf.get("dependencies", []))
         default_replicas = 0 if has_deps else 1
-        stages.append(StageSpec(
-            id=name,
-            replicas=int(wf.get("replicas", default_replicas)),
-            dependencies=list(wf.get("dependencies", [])),
-            dependency_threshold=int(wf.get("dependency_threshold", 1)),
-            concurrency_floor=concurrency_floor,
-            concurrency_cap=concurrency_cap,
-            priority=int(wf.get("priority", 0)),
-            required_cpus=int(wf.get("required_cpus", 0)),
-            required_gpus=int(wf.get("required_gpus", 0)),
-            required_memory_gb=float(wf.get("required_memory_gb", 0.0)),
-            threshold_top_fraction=float(wf.get("threshold_top_fraction", 1.0)),
-            budget_node_hours=float(wf.get("budget_node_hours", 0.0)),
-            burn_rate_band=float(wf.get("burn_rate_band", 0.15)),
-            downstream_input_target=int(wf.get("downstream_input_target", 0)),
-            campaign_target=int(wf.get("campaign_target", 0)),
-            budget_kp=float(wf.get("budget_kp", 0.05)),
-            budget_warmup_min=int(wf.get("budget_warmup_min", 3)),
-            pilot=_pilot_from_dict(wf.get("pilot")),
-        ))
+        stages.append(
+            StageSpec(
+                id=name,
+                replicas=int(wf.get("replicas", default_replicas)),
+                dependencies=list(wf.get("dependencies", [])),
+                dependency_threshold=int(wf.get("dependency_threshold", 1)),
+                concurrency_floor=concurrency_floor,
+                concurrency_cap=concurrency_cap,
+                priority=int(wf.get("priority", 0)),
+                required_cpus=int(wf.get("required_cpus", 0)),
+                required_gpus=int(wf.get("required_gpus", 0)),
+                required_memory_gb=float(wf.get("required_memory_gb", 0.0)),
+                threshold_top_fraction=float(wf.get("threshold_top_fraction", 1.0)),
+                budget_node_hours=float(wf.get("budget_node_hours", 0.0)),
+                burn_rate_band=float(wf.get("burn_rate_band", 0.15)),
+                downstream_input_target=int(wf.get("downstream_input_target", 0)),
+                campaign_target=int(wf.get("campaign_target", 0)),
+                budget_kp=float(wf.get("budget_kp", 0.05)),
+                budget_warmup_min=int(wf.get("budget_warmup_min", 3)),
+                pilot=_pilot_from_dict(wf.get("pilot")),
+            )
+        )
         # Synthesize edges with backpressure from per-workflow keys
         for dep in wf.get("dependencies", []):
             bp = None
@@ -301,11 +303,14 @@ def _load_legacy(cfg: dict) -> CampaignPlan:
             lo = int(wf.get("backpressure_low") or 0)
             if hi > 0 and lo > 0 and hi > lo:
                 bp = BackpressureEdge(high_water=hi, low_water=lo)
-            edges.append(EdgeSpec(
-                upstream=dep, downstream=name,
-                profile=str(wf.get("profile", "diverse_top")),
-                backpressure=bp,
-            ))
+            edges.append(
+                EdgeSpec(
+                    upstream=dep,
+                    downstream=name,
+                    profile=str(wf.get("profile", "diverse_top")),
+                    backpressure=bp,
+                )
+            )
 
     cm_cfg = cfg.get("cm", {})
     return CampaignPlan(
@@ -320,6 +325,7 @@ def _load_legacy(cfg: dict) -> CampaignPlan:
 
 
 # ── Plan → flat workflows dict (legacy code path) ────────────────────────────
+
 
 def plan_to_workflows_dict(plan: CampaignPlan) -> dict:
     """Render a CampaignPlan back into the legacy flat-config shape.
@@ -380,12 +386,14 @@ def plan_to_workflows_dict(plan: CampaignPlan) -> dict:
                 "score_cutoff": s.surrogate.score_cutoff,
                 "score_cutoff_nudge_bounds": list(s.surrogate.score_cutoff_nudge_bounds),
                 "uncertainty_cutoff": s.surrogate.uncertainty_cutoff,
-                "uncertainty_cutoff_nudge_bounds": list(s.surrogate.uncertainty_cutoff_nudge_bounds),
+                "uncertainty_cutoff_nudge_bounds": list(
+                    s.surrogate.uncertainty_cutoff_nudge_bounds
+                ),
             }
         workflows[s.id] = wf
 
     return {
-        "engine": "concurrent",   # caller may override
+        "engine": "concurrent",  # caller may override
         "resources": dict(plan.resources),
         "features": dict(plan.features),
         "replan": {

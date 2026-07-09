@@ -10,6 +10,7 @@ When pydantic is added to the project, schema.py can be ported to BaseModel
 without changing public APIs.
 """
 
+from .loader import load_plan, plan_to_workflows_dict
 from .schema import (
     BackpressureEdge,
     CampaignPlan,
@@ -20,7 +21,6 @@ from .schema import (
     StageSpec,
     SurrogateSpec,
 )
-from .loader import load_plan, plan_to_workflows_dict
 
 __all__ = [
     "BackpressureEdge",

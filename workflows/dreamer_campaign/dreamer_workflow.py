@@ -43,8 +43,7 @@ from pathlib import Path
 from typing import ClassVar
 
 # Scaffold alphabet for diversity signal (8 classes, assigned by hash of candidate_id)
-_SCAFFOLDS = ["scaf_A", "scaf_B", "scaf_C", "scaf_D",
-              "scaf_E", "scaf_F", "scaf_G", "scaf_H"]
+_SCAFFOLDS = ["scaf_A", "scaf_B", "scaf_C", "scaf_D", "scaf_E", "scaf_F", "scaf_G", "scaf_H"]
 
 _dreamer_dir = os.environ.get("DREAMER_DIR")
 if _dreamer_dir:
@@ -61,6 +60,7 @@ try:
     from radical.dreamer.configs import ScheduleConfig
     from radical.dreamer.managers.ext.schedule import Schedule
     from radical.dreamer.managers.resource import ResourceManager
+
     _DREAMER_AVAILABLE = True
 except Exception as _dreamer_exc:
     # Broad catch: radical.dreamer's package import can raise FileNotFoundError
@@ -68,10 +68,12 @@ except Exception as _dreamer_exc:
     # non-ImportError exceptions during module init.  config.yaml's stub
     # path doesn't need the real package, so swallow and continue.
     import warnings as _warnings
+
     _warnings.warn(
         f"radical.dreamer unavailable ({type(_dreamer_exc).__name__}: "
         f"{_dreamer_exc}); falling back to use_stub mode.  "
-        f"Real-task emulation will not run."
+        f"Real-task emulation will not run.",
+        stacklevel=2,
     )
     _DREAMER_AVAILABLE = False
 
@@ -141,23 +143,32 @@ class DreamerWorkflow(BaseWorkflow):
     def _run_simulation(replica_id: str, cfg: dict) -> dict:
         if not _DREAMER_AVAILABLE or cfg.get("use_stub"):
             import time
-            dur    = float(cfg.get("simulated_duration", 1.0))
-            jitter = float(cfg.get("simulated_jitter",   0.1))
+
+            dur = float(cfg.get("simulated_duration", 1.0))
+            jitter = float(cfg.get("simulated_jitter", 0.1))
             time.sleep(dur + random.uniform(0.0, jitter))
             return {"stub": True}
 
-        num_cores     = int(cfg.get("num_cores", 32))
-        perf_dist     = dict(cfg.get("perf_dist", {"name": "uniform", "mean": 16.0, "var_spatial": 2.0}))
-        num_tasks     = int(cfg.get("num_tasks", 64))
-        ops_dist      = dict(cfg.get("ops_dist",  {"mean": 512.0}))
-        strategy      = str(cfg.get("schedule_strategy", "smallest_to_fastest"))
+        num_cores = int(cfg.get("num_cores", 32))
+        perf_dist = dict(
+            cfg.get("perf_dist", {"name": "uniform", "mean": 16.0, "var_spatial": 2.0})
+        )
+        num_tasks = int(cfg.get("num_tasks", 64))
+        ops_dist = dict(cfg.get("ops_dist", {"mean": 512.0}))
+        strategy = str(cfg.get("schedule_strategy", "smallest_to_fastest"))
         early_binding = bool(cfg.get("early_binding", True))
 
         resource = Resource(num_cores=num_cores, perf_dist=perf_dist)
         workload = Workload(num_tasks=num_tasks, ops_dist=ops_dist)
-        schedule = Schedule(cfg=ScheduleConfig(from_dict={
-            "strategy": strategy, "early_binding": early_binding, "is_adaptive": False,
-        }))
+        schedule = Schedule(
+            cfg=ScheduleConfig(
+                from_dict={
+                    "strategy": strategy,
+                    "early_binding": early_binding,
+                    "is_adaptive": False,
+                }
+            )
+        )
         ResourceManager.processing(resource=resource, workload=workload, schedule=schedule)
         return {"stub": False}
 
@@ -166,7 +177,9 @@ class DreamerWorkflow(BaseWorkflow):
     @staticmethod
     def _scaffold_for(candidate_id: str) -> str:
         """Deterministic scaffold class from candidate id hash."""
-        return _SCAFFOLDS[int(hashlib.md5(candidate_id.encode()).hexdigest()[:2], 16) % len(_SCAFFOLDS)]
+        return _SCAFFOLDS[
+            int(hashlib.md5(candidate_id.encode()).hexdigest()[:2], 16) % len(_SCAFFOLDS)
+        ]
 
     # ── Score cascade ─────────────────────────────────────────────────────────
 
@@ -181,14 +194,14 @@ class DreamerWorkflow(BaseWorkflow):
         The downstream candidate receives output_score, surrogate_pred, and
         surrogate_unc so the sharder can dispatch highest-value candidates first.
         """
-        cfg     = self.config or {}
+        cfg = self.config or {}
         trigger = cfg.get("trigger_downstream")
         if not trigger or final_state != "done":
             return
 
         # ── Read upstream context ─────────────────────────────────────────────
-        input_score = cfg.get("candidate_score")   # None for root stage (s1)
-        scaffold    = cfg.get("candidate_scaffold") or self._scaffold_for(replica_id)
+        input_score = cfg.get("candidate_score")  # None for root stage (s1)
+        scaffold = cfg.get("candidate_scaffold") or self._scaffold_for(replica_id)
 
         # ── Compute this stage's output score ─────────────────────────────────
         noise_std = float(cfg.get("score_noise", 0.05))
@@ -199,23 +212,19 @@ class DreamerWorkflow(BaseWorkflow):
         else:
             # Downstream: refine upstream estimate with stage-specific noise.
             # Noise models imperfect correlation between successive assays.
-            output_score = max(0.0, min(1.0,
-                input_score + random.gauss(0.0, noise_std)
-            ))
+            output_score = max(0.0, min(1.0, input_score + random.gauss(0.0, noise_std)))
 
         # ── Threshold gate ────────────────────────────────────────────────────
         threshold = float(cfg.get("score_threshold", 0.0))
         if output_score < threshold:
-            return   # candidate does not proceed to next stage
+            return  # candidate does not proceed to next stage
 
         # ── Surrogate outputs for sharder priority ranking ────────────────────
         # surr_pred: predict what the NEXT stage will produce.
         # Modelled as a noisy, slightly-decayed version of the current score.
         surr_decay = float(cfg.get("surr_decay", 0.90))
         surr_noise = float(cfg.get("surr_noise", 0.05))
-        surr_pred  = max(0.0, min(1.0,
-            output_score * surr_decay + random.gauss(0.0, surr_noise)
-        ))
+        surr_pred = max(0.0, min(1.0, output_score * surr_decay + random.gauss(0.0, surr_noise)))
         # surr_unc: uncertainty decreases for high-scoring candidates
         # (the model is more confident about good leads).
         surr_unc = 0.4 * (1.0 - output_score)

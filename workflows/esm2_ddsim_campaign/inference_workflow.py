@@ -104,9 +104,9 @@ class InferenceWorkflow(BaseWorkflow):
 
         _os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
         import transformers  # noqa: F401
-
         from src.inference.esm2_service.esm2_client import ESM2Client  # from SPHERICAL
         from src.inference.esm2_service.esm2_service import ESM2InferenceService  # from SPHERICAL
+
         from src.utils.workflow import export_metrics
 
         await self._ensure_initialized(cfg, ESM2InferenceService, asyncflow=self.asyncflow)
@@ -168,7 +168,10 @@ class InferenceWorkflow(BaseWorkflow):
             if cls._svc_handles is not None:
                 return
 
-            from src.inference.orchestrator import start_services, start_services_local  # from SPHERICAL
+            from src.inference.orchestrator import (  # from SPHERICAL
+                start_services,
+                start_services_local,
+            )
 
             mode = cfg.get("mode", "local")
             cls._log.info(f"Starting ESM2 services (mode={mode})")
@@ -241,9 +244,10 @@ class InferenceWorkflow(BaseWorkflow):
             # (e.g. perplexity, confidence, or downstream affinity prediction).
             score = random.uniform(0.5, 1.0)
             surr_pred = score * 0.9 + random.gauss(0.0, 0.05)
-            surr_unc  = 0.4 * (1.0 - score)
+            surr_unc = 0.4 * (1.0 - score)
             await self._trigger_dependent(
-                "dummy", replicas=1,
+                "dummy",
+                replicas=1,
                 score=max(0.0, min(1.0, score)),
                 surrogate_pred=max(0.0, min(1.0, surr_pred)),
                 surrogate_unc=max(0.0, surr_unc),

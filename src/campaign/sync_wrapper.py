@@ -119,7 +119,5 @@ class CampaignManager:
         the sync wrapper silently dropped all features keyed under
         ``features:`` in the config.
         """
-        async_cm = AsyncCampaignManager.from_config(
-            config, workflow_registry, **kwargs
-        )
+        async_cm = AsyncCampaignManager.from_config(config, workflow_registry, **kwargs)
         return cls(_acm=async_cm)

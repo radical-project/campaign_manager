@@ -44,7 +44,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .plan import SurrogateSpec
@@ -52,7 +52,8 @@ if TYPE_CHECKING:
 
 class TriageDecision(Enum):
     """Outcome of a per-candidate triage call."""
-    RUN     = "run"
+
+    RUN = "run"
     ADVANCE = "advance"
     DISCARD = "discard"
 
@@ -65,32 +66,31 @@ class Triage:
     the current cutoffs and the candidate's signals.  The cutoffs themselves
     are mutated by ``nudge_cutoffs`` between dispatch cycles.
     """
-    stage_id:                       str
-    score_cutoff:                   float
-    score_cutoff_bounds:            tuple[float, float]
-    uncertainty_cutoff:             float
-    uncertainty_cutoff_bounds:      tuple[float, float]
+
+    stage_id: str
+    score_cutoff: float
+    score_cutoff_bounds: tuple[float, float]
+    uncertainty_cutoff: float
+    uncertainty_cutoff_bounds: tuple[float, float]
 
     # ADVANCE only fires when surrogate_pred ≥ this — set well above
     # score_cutoff so it's a "high-confidence" decision.  Disabled (set to
     # +inf) by default so RUN is always preferred over ADVANCE; turn on by
     # passing advance_threshold explicitly when the surrogate is known to be
     # well-calibrated.
-    advance_threshold:              float = float("inf")
+    advance_threshold: float = float("inf")
     # Initial values for reset(), captured in __post_init__.
-    _score_initial:                 float = field(default=0.0, init=False)
-    _unc_initial:                   float = field(default=0.0, init=False)
+    _score_initial: float = field(default=0.0, init=False)
+    _unc_initial: float = field(default=0.0, init=False)
 
     def __post_init__(self) -> None:
         # Snapshot initial values so reset() / state_log() can reference them.
         self._score_initial = self.score_cutoff
-        self._unc_initial   = self.uncertainty_cutoff
+        self._unc_initial = self.uncertainty_cutoff
         # Sanity-check bounds shape.
         sc_lo, sc_hi = self.score_cutoff_bounds
         if sc_lo > sc_hi:
-            raise ValueError(
-                f"score_cutoff_bounds must be (low, high); got ({sc_lo}, {sc_hi})"
-            )
+            raise ValueError(f"score_cutoff_bounds must be (low, high); got ({sc_lo}, {sc_hi})")
         un_lo, un_hi = self.uncertainty_cutoff_bounds
         if un_lo > un_hi:
             raise ValueError(
@@ -103,9 +103,9 @@ class Triage:
     def from_surrogate_spec(
         cls,
         stage_id: str,
-        spec: "SurrogateSpec",
+        spec: SurrogateSpec,
         advance_threshold: float = float("inf"),
-    ) -> "Triage":
+    ) -> Triage:
         """Build a Triage from a plan-side SurrogateSpec."""
         return cls(
             stage_id=stage_id,
@@ -146,8 +146,7 @@ class Triage:
                 return TriageDecision.DISCARD
 
         # Confident high-quality → ADVANCE (only when explicitly enabled)
-        if (surrogate_unc <= self.uncertainty_cutoff
-                and surrogate_pred >= self.advance_threshold):
+        if surrogate_unc <= self.uncertainty_cutoff and surrogate_pred >= self.advance_threshold:
             return TriageDecision.ADVANCE
 
         # Low score AND low surrogate prediction → DISCARD
@@ -171,23 +170,21 @@ class Triage:
         longer correct burn and that escalation to replan is needed.
         """
         new_score = self.score_cutoff + score_delta
-        new_unc   = self.uncertainty_cutoff + unc_delta
+        new_unc = self.uncertainty_cutoff + unc_delta
 
         sc_lo, sc_hi = self.score_cutoff_bounds
         un_lo, un_hi = self.uncertainty_cutoff_bounds
 
         # Clamp first, then check whether we're at a bound after clamping.
-        self.score_cutoff       = max(sc_lo, min(sc_hi, new_score))
+        self.score_cutoff = max(sc_lo, min(sc_hi, new_score))
         self.uncertainty_cutoff = max(un_lo, min(un_hi, new_unc))
 
         eps = 1e-9
         score_at_bound = (
-            abs(self.score_cutoff - sc_lo) < eps
-            or abs(self.score_cutoff - sc_hi) < eps
+            abs(self.score_cutoff - sc_lo) < eps or abs(self.score_cutoff - sc_hi) < eps
         )
         unc_at_bound = (
-            abs(self.uncertainty_cutoff - un_lo) < eps
-            or abs(self.uncertainty_cutoff - un_hi) < eps
+            abs(self.uncertainty_cutoff - un_lo) < eps or abs(self.uncertainty_cutoff - un_hi) < eps
         )
         return score_at_bound, unc_at_bound
 
@@ -195,7 +192,7 @@ class Triage:
         """Restore the initial Plan-set cutoffs.  Used by ReplanningController
         on RESUME after a drain → new-plan handshake (each new plan re-arms
         the bands; in-flight nudges are discarded)."""
-        self.score_cutoff       = self._score_initial
+        self.score_cutoff = self._score_initial
         self.uncertainty_cutoff = self._unc_initial
 
     # ── Inspection ────────────────────────────────────────────────────────
@@ -203,12 +200,12 @@ class Triage:
     def state(self) -> dict:
         """Snapshot of current cutoffs and bounds — for logging / status()."""
         return {
-            "stage_id":                       self.stage_id,
-            "score_cutoff":                   self.score_cutoff,
-            "score_cutoff_bounds":            list(self.score_cutoff_bounds),
-            "score_cutoff_initial":           self._score_initial,
-            "uncertainty_cutoff":             self.uncertainty_cutoff,
-            "uncertainty_cutoff_bounds":      list(self.uncertainty_cutoff_bounds),
-            "uncertainty_cutoff_initial":     self._unc_initial,
-            "advance_threshold":              self.advance_threshold,
+            "stage_id": self.stage_id,
+            "score_cutoff": self.score_cutoff,
+            "score_cutoff_bounds": list(self.score_cutoff_bounds),
+            "score_cutoff_initial": self._score_initial,
+            "uncertainty_cutoff": self.uncertainty_cutoff,
+            "uncertainty_cutoff_bounds": list(self.uncertainty_cutoff_bounds),
+            "uncertainty_cutoff_initial": self._unc_initial,
+            "advance_threshold": self.advance_threshold,
         }
