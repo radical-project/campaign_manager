@@ -1,0 +1,96 @@
+# =============================================================================
+# dummy_ddsim Campaign
+# =============================================================================
+#
+# Two independent DDSim pools feed a shared analysis stage.
+#
+#   ddsim_a  (fast / coarse)
+#            10 replicas, short MD run (0.10 s), noisier scores (σ=0.15).
+#            Simulates a quick coarse-grained MD flavour.
+#
+#   ddsim_b  (long / fine)
+#            10 replicas, longer MD run (0.30 s), tighter scores (σ=0.05).
+#            Simulates a production-quality fine-grained MD flavour.
+#
+#   analysis
+#            Triggered by each completed sim replica from either pool.
+#            Applies a flavour-aware refinement factor (0.85 for fast,
+#            0.70 for long — long results need less post-processing).
+#            Campaign stops when campaign_target analyses complete.
+#
+# Run:
+#   python run_campaign.py --config config.yaml
+#   python run_campaign.py --config config.yaml --policy rule
+# =============================================================================
+
+engine: concurrent
+
+resources:
+  total_cpus: 0   # 0 = unlimited
+  total_gpus: 0
+
+# ── Workflow groups ───────────────────────────────────────────────────────────
+
+workflows:
+
+  ddsim_a:
+    replicas:          10
+    concurrency_cap:   4
+    concurrency_floor: 1
+    priority:          10
+    required_cpus:     0
+    required_gpus:     0
+    # Sim config — fast / coarse flavour
+    duration:          0.10   # short MD run
+    jitter:            0.02
+    score_mean:        0.50
+    score_noise:       0.15   # coarser: wider score distribution
+    trigger_analysis:  analysis
+
+  ddsim_b:
+    replicas:          10
+    concurrency_cap:   4
+    concurrency_floor: 1
+    priority:          9      # slightly lower than fast pool — runs in parallel
+    required_cpus:     0
+    required_gpus:     0
+    # Sim config — long / fine flavour
+    duration:          0.30   # longer MD run
+    jitter:            0.05
+    score_mean:        0.40   # fine-grained sims bias toward better scores
+    score_noise:       0.05   # tighter distribution
+    trigger_analysis:  analysis
+
+  analysis:
+    replicas:          0      # triggered dynamically by both sim groups
+    concurrency_cap:   4
+    concurrency_floor: 1
+    priority:          8
+    required_cpus:     0
+    required_gpus:     0
+    campaign_target:   15     # stop when 15 analyses finish
+    # Analysis config
+    duration:          0.15
+    jitter:            0.03
+    refinement_a:      0.85   # fast-sim refinement factor (coarser → heavier post-proc)
+    refinement_b:      0.70   # long-sim refinement factor (finer  → lighter post-proc)
+
+# ── Campaign manager ──────────────────────────────────────────────────────────
+
+cm:
+  features:
+    backpressure: false
+    sharder:      false
+    monitor:      false
+
+  adr:
+    policy:    none   # none | rule | bandit | llm
+    tick_s:    0.5
+    terminal:  analysis
+
+# ── Workflow registry ─────────────────────────────────────────────────────────
+
+workflow_registry:
+  ddsim_a:  ddsim_workflow.DdSimWorkflow
+  ddsim_b:  ddsim_workflow.DdSimWorkflow
+  analysis: ddsim_workflow.AnalysisWorkflow

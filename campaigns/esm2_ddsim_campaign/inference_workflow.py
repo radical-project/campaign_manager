@@ -17,12 +17,33 @@ Lifecycle
 """
 
 import asyncio
+import os
 import random
+import sys
 from pathlib import Path
 from typing import ClassVar, Optional
 
-from src.campaign import BaseWorkflow
-from src.utils.logger import Logger
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")  # suppress XLA/cuInit probe noise
+
+_spherical_dir = os.environ.get("SPHERICAL_DIR")
+if not _spherical_dir:
+    raise OSError("SPHERICAL_DIR is not set. Export it before launching the campaign.")
+_SPHERICAL_ROOT = Path(_spherical_dir)
+
+if str(_SPHERICAL_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SPHERICAL_ROOT))
+
+# Both campaign_manager and SPHERICAL share a top-level 'src' package.
+# Python caches the first one loaded (campaign_manager's src/campaign).
+# Extend its __path__ so src.inference resolves to SPHERICAL's src/inference.
+import src as _src_pkg  # noqa: E402
+
+_spherical_src = str(_SPHERICAL_ROOT / "src")
+if _spherical_src not in _src_pkg.__path__:
+    _src_pkg.__path__.insert(0, _spherical_src)
+
+from src.campaign import BaseWorkflow  # noqa: E402
+from src.utils.logger import Logger  # noqa: E402
 
 
 class InferenceWorkflow(BaseWorkflow):

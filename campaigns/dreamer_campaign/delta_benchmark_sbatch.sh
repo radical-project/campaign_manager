@@ -12,7 +12,7 @@
 # Submit: sbatch delta_benchmark_sbatch.sh
 # Logs:   slurm-<jobid>.out  (stdout+stderr, streamed live)
 #
-#SBATCH -A ***-delta-cpu
+# Account: set SBATCH_ACCOUNT=<project>-delta-cpu before calling sbatch
 #SBATCH --partition=cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -25,15 +25,27 @@
 #SBATCH --error=slurm-%j.out
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-export SPHERICAL_DIR="/scratch/***/${USER}/SPHERICAL"
-export DREAMER_DIR="/scratch/***/${USER}/radical.dreamer"
-export ENV_DIR="/u/${USER}/ve/dreamer_campaign"
+if [ -z "${SBATCH_ACCOUNT:-}${SLURM_JOB_ACCOUNT:-}" ]; then
+    echo "WARNING: SBATCH_ACCOUNT is not set — job may be charged to default account."
+    echo "         Set it with: export SBATCH_ACCOUNT=<project>-delta-cpu"
+fi
+echo "Account: ${SLURM_JOB_ACCOUNT:-unknown}"
+
+if [ -z "${SCRATCH:-}" ]; then
+    echo "ERROR: SCRATCH is not set."
+    echo "       export SCRATCH=/scratch/<allocation> && sbatch delta_benchmark_sbatch.sh"
+    exit 1
+fi
+
+export CM_DIR="${CM_DIR:-${SCRATCH}/${USER}/campaign_manager}"
+export DREAMER_DIR="${DREAMER_DIR:-${SCRATCH}/${USER}/radical.dreamer}"
+export ENV_DIR="${ENV_DIR:-/u/${USER}/ve/dreamer_campaign}"
 
 # ── Activate venv ─────────────────────────────────────────────────────────────
 source "${ENV_DIR}/bin/activate"
 
 # ── Run ───────────────────────────────────────────────────────────────────────
-CAMPAIGN_DIR="${SPHERICAL_DIR}/workflows/dreamer_campaign"
+CAMPAIGN_DIR="${CM_DIR}/campaigns/dreamer_campaign"
 cd "${CAMPAIGN_DIR}"
 
 # Clean stale artifacts from previous runs

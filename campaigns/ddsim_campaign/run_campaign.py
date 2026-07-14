@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """
-Dummy minimization campaign runner.
+dummy_ddsim campaign runner.
 
-Runs a two-stage search → refine pipeline in which 50 search replicas each
-generate a random score; candidates below ``refine_threshold`` trigger a refine
-replica that improves the score.  The campaign stops when 10 refine replicas
-finish (campaign_target) or all search replicas are exhausted.
+Two independent DDSim pools (fast/coarse and long/fine) feed a shared
+analysis stage.  The campaign stops when campaign_target analyses finish.
 
 Usage
 -----
@@ -15,33 +13,12 @@ Usage
     # With ADR scheduling policy:
     python run_campaign.py --config config.yaml --policy rule
     python run_campaign.py --config config.yaml --policy bandit
-
-Config file structure
----------------------
-    engine: concurrent
-
-    workflows:
-      search:
-        replicas: 50
-        refine_threshold: 0.35
-        trigger_refine: refine
-      refine:
-        campaign_target: 10
-        score_decay: 0.6
-        score_noise: 0.03
-
-    cm:
-      adr:
-        policy: rule
-        tick_s: 0.5
-        terminal: refine
 """
 
 import asyncio
 import sys
 from pathlib import Path
 
-# Project root (for src.campaign, src.utils) and this directory (for workflow imports).
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -52,7 +29,6 @@ from src.utils.workflow import load_config  # noqa: E402
 
 
 def _build_registry(config: dict) -> dict:
-    """Dynamically import workflow classes from the 'workflow_registry' config section."""
     import importlib
 
     registry = {}
@@ -64,11 +40,6 @@ def _build_registry(config: dict) -> dict:
 
 
 def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None):
-    """Build a CampaignOperator + tick for ADR supervision, or return (None, None).
-
-    policy_override wins over adr_cfg["policy"].
-    kind ∈ {none, rule, bandit, llm}; 'none' = no ADR supervision.
-    """
     import os
 
     kind = (policy_override or adr_cfg.get("policy", "none") or "none").lower()
@@ -134,15 +105,15 @@ async def main(config_file: str, policy_override=None, record_override=None) -> 
     engine_type = config.get("engine", "concurrent")
 
     # ── Backend + asyncflow ───────────────────────────────────────────────────
+    from radical.asyncflow import WorkflowEngine
+
     if engine_type == "dragon":
-        from radical.asyncflow import WorkflowEngine
         from rhapsody.backends import DragonExecutionBackendV3
 
         engine_dragon = await DragonExecutionBackendV3()
         asyncflow = await WorkflowEngine.create(engine_dragon)
         print("Dragon backend started")
     else:
-        from radical.asyncflow import WorkflowEngine
         from rhapsody.backends import ConcurrentExecutionBackend
 
         engine_dragon = None
@@ -187,27 +158,30 @@ async def main(config_file: str, policy_override=None, record_override=None) -> 
         await cm.close()
         await asyncflow.shutdown()
 
-    # ── Minimization summary ──────────────────────────────────────────────────
-    from dummy_workflow import DummyWorkflow
+    # ── Summary ───────────────────────────────────────────────────────────────
+    from ddsim_workflow import AnalysisWorkflow, DdSimWorkflow
 
     gs = cm.status()["groups"]
-    search_done = gs.get("search", {}).get("replicas_finished", 0)
-    refine_done = gs.get("refine", {}).get("replicas_finished", 0)
+    a_done = gs.get("ddsim_a", {}).get("replicas_finished", 0)
+    b_done = gs.get("ddsim_b", {}).get("replicas_finished", 0)
+    an_done = gs.get("analysis", {}).get("replicas_finished", 0)
 
-    best = DummyWorkflow._best_score
-    n_ev = DummyWorkflow._n_evaluated
-    print("\n── Minimization complete ──")
-    print(f"  best_score   = {best:.4f}")
-    print(f"  n_evaluated  = {n_ev}")
-    print(f"  search done  = {search_done}")
-    print(f"  refine done  = {refine_done}")
+    na = DdSimWorkflow._n_sim.get("ddsim_a", 0)
+    nb = DdSimWorkflow._n_sim.get("ddsim_b", 0)
+    ana_a = AnalysisWorkflow._n_analyzed.get("ddsim_a", 0)
+    ana_b = AnalysisWorkflow._n_analyzed.get("ddsim_b", 0)
+
+    print("\n── DDSim campaign complete ──")
+    print(f"  best raw score   = {DdSimWorkflow._best_raw:.4f}")
+    print(f"  best analyzed    = {AnalysisWorkflow._best_analyzed:.4f}")
+    print(f"  sims done        = {na} (fast/ddsim_a) + {nb} (long/ddsim_b) = {na + nb}")
+    print(f"  analyses done    = {ana_a} (from fast) + {ana_b} (from long) = {ana_a + ana_b}")
+    print(f"  CM groups        = ddsim_a:{a_done}  ddsim_b:{b_done}  analysis:{an_done}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Dummy minimization campaign runner")
-    parser.add_argument(
-        "--config", default="config.yaml", help="Path to YAML config file (default: config.yaml)"
-    )
+    parser = argparse.ArgumentParser(description="dummy_ddsim campaign runner")
+    parser.add_argument("--config", default="config.yaml")
     parser.add_argument(
         "--policy",
         default=None,

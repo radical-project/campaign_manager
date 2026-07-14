@@ -5,7 +5,7 @@
 # Runs the campaign without Dragon/GPU — useful for functional testing and
 # development. Workflows execute via the asyncflow ConcurrentExecutionBackend.
 #
-#SBATCH -A ***-delta-cpu
+# Account: set SBATCH_ACCOUNT=<project>-delta-cpu before calling sbatch
 #SBATCH --partition=cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -15,9 +15,23 @@
 #xSBATCH --mail-user=${USER}@institution.edu
 #SBATCH --mail-type=ALL
 
+# ── Environment ───────────────────────────────────────────────────────────────
+if [ -z "${SBATCH_ACCOUNT:-}${SLURM_JOB_ACCOUNT:-}" ]; then
+    echo "WARNING: SBATCH_ACCOUNT is not set — job may be charged to default account."
+    echo "         Set it with: export SBATCH_ACCOUNT=<project>-delta-cpu"
+fi
+echo "Account: ${SLURM_JOB_ACCOUNT:-unknown}"
+
+if [ -z "${SCRATCH:-}" ]; then
+    echo "ERROR: SCRATCH is not set."
+    echo "       export SCRATCH=/scratch/<allocation> && sbatch delta_cpu_batch.sh"
+    exit 1
+fi
+
 # ── Project paths (adjust base dirs if layout differs) ───────────────────────
-export SPHERICAL_DIR=/scratch/***/${USER}/SPHERICAL
-export DDSIM_DIR=/scratch/***/${USER}/DeepDriveSim
+export CM_DIR="${CM_DIR:-${SCRATCH}/${USER}/campaign_manager}"
+export DDSIM_DIR="${DDSIM_DIR:-${SCRATCH}/${USER}/DeepDriveSim}"
+export SPHERICAL_DIR="${SPHERICAL_DIR:-${SCRATCH}/${USER}/SPHERICAL}"
 export VE_HOME=/u/${USER}/ve
 
 export MD_DIR=${DDSIM_DIR}/workflows/ddmd_workflow
@@ -28,7 +42,7 @@ export INF_DIR=${SPHERICAL_DIR}/workflows/esm2_inference
 export MD_HOME=${DDSIM_DIR}/workflows/ddmd_workflow
 export MD_INPUT=${MD_HOME}/data
 
-export WORK_DIR=${SPHERICAL_DIR}/workflows/esm2_ddsim_campaign
+export WORK_DIR=${CM_DIR}/campaigns/esm2_ddsim_campaign
 
 cd ${WORK_DIR}
 
@@ -36,7 +50,7 @@ cd ${WORK_DIR}
 rm -rf DDMD* telemetry-results asyncflow.session*
 
 # ── Activate campaign environment ─────────────────────────────────────────────
-source ${VE_HOME}/campaign/bin/activate
+source ${VE_HOME}/esm2_ddsim_campaign/bin/activate
 
 # ── Launch (concurrent backend, no Dragon) ───────────────────────────────────
 python run_campaing.py --config config.yaml --engine concurrent

@@ -29,11 +29,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 import argparse  # noqa: E402
 
 from src.campaign import AsyncCampaignManager as CampaignManager  # noqa: E402
-from src.utils.workflow import load_config                         # noqa: E402
+from src.utils.workflow import load_config  # noqa: E402
 
 
 def _build_registry(config: dict) -> dict:
     import importlib
+
     registry = {}
     for name, cls_path in config.get("workflow_registry", {}).items():
         module_name, cls_name = cls_path.rsplit(".", 1)
@@ -52,7 +53,7 @@ async def main(config_file: str) -> None:
     from radical.asyncflow import WorkflowEngine
     from rhapsody.backends import ConcurrentExecutionBackend
 
-    backend   = await ConcurrentExecutionBackend()
+    backend = await ConcurrentExecutionBackend()
     asyncflow = await WorkflowEngine.create(backend)
     print("ConcurrentExecutionBackend started (asyncflow)")
 
@@ -77,13 +78,14 @@ async def main(config_file: str) -> None:
         await cm.close()
         # Shut down the shared orbit connection
         from orbit_workflow import OrbitWorkflow
+
         await OrbitWorkflow.close_connection()
         await asyncflow.shutdown()
 
     # ── Summary ───────────────────────────────────────────────────────────────
     from orbit_workflow import OrbitWorkflow
 
-    gs          = cm.status()["groups"]
+    gs = cm.status()["groups"]
     search_done = gs.get("search", {}).get("replicas_finished", 0)
     refine_done = gs.get("refine", {}).get("replicas_finished", 0)
 
@@ -96,7 +98,8 @@ async def main(config_file: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="dummy_orbit campaign runner")
-    parser.add_argument("--config", default="config.yaml",
-                        help="Path to YAML config (default: config.yaml)")
+    parser.add_argument(
+        "--config", default="config.yaml", help="Path to YAML config (default: config.yaml)"
+    )
     args = parser.parse_args()
     asyncio.run(main(args.config))

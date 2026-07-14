@@ -28,24 +28,20 @@ asyncflow.session.*
 slurm-*.out
 
 # Benchmark result data files
-workflows/esm2_ddsim_campaign/benchmark*.json
-workflows/esm2_ddsim_campaign/saved_benchmark*.json
-workflows/esm2_ddsim_campaign/config_stress*.yaml
-workflows/dreamer_campaign/benchmark*.json
-workflows/dummy_campaign/benchmark*.json
+campaigns/*/benchmark*.json
 
 # Runtime output directories (campaign artifacts)
-ESM2/results/
-ESM2/client_inference_*.json
-ESM2/metrics_*.json
-ESM2/_dragon_config_*.json
-Dummy/
-MiniApps/
-cache/
-adr-logs/
-plots/
-telemetry-results-*/
-*.npy
+campaigns/esm2_ddsim_campaign/ESM2/results/
+campaigns/esm2_ddsim_campaign/ESM2/client_inference_*.json
+campaigns/esm2_ddsim_campaign/ESM2/metrics_*.json
+campaigns/esm2_ddsim_campaign/ESM2/_dragon_config_*.json
+campaigns/esm2_ddsim_campaign/Dummy/
+campaigns/esm2_ddsim_campaign/MiniApps/
+campaigns/esm2_ddsim_campaign/cache/
+campaigns/*/adr-logs/
+campaigns/*/plots/
+campaigns/*/telemetry-results-*/
+campaigns/*/*.npy
 
 # Editor / OS
 .DS_Store
@@ -59,10 +55,7 @@ telemetry-results-*/
 .claude/settings.local.json
 
 # Plotting scripts kept locally but not committed
-workflows/plotting/make_presentation.py
-workflows/plotting/plot_policy_comparison.py
-workflows/plotting/plot_replica_timeline.py
-workflows/plotting/plot_deadline_yield.py
-
-# GPU sbatch script not used by dreamer campaign (CPU-only)
-workflows/dreamer_campaign/delta_gpu_sbatch.sh
+campaigns/plotting/make_presentation.py
+campaigns/plotting/plot_policy_comparison.py
+campaigns/plotting/plot_replica_timeline.py
+campaigns/plotting/plot_deadline_yield.py

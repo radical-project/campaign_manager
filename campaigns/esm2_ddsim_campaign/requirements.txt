@@ -1,0 +1,6 @@
+pydantic-settings
+mpi4py
+opentelemetry-sdk
+aiohttp
+openai
+instructor

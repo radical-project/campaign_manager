@@ -20,7 +20,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLOT_SCRIPT="${SCRATCH:-/scratch/bblj}/${USER}/radical.asyncflow/examples/telemetry/plot_workflow_dashboard.py"
+
+if [ -z "${SCRATCH:-}" ]; then
+    echo "ERROR: SCRATCH is not set."
+    echo "       export SCRATCH=/scratch/<allocation>"
+    exit 1
+fi
+PLOT_SCRIPT="${SCRATCH}/${USER}/radical.asyncflow/examples/telemetry/plot_workflow_dashboard.py"
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
 if [ $# -lt 1 ]; then

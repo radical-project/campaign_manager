@@ -54,14 +54,15 @@ class OrbitWorkflow(BaseWorkflow):
             from radical.orbit import EndpointRuntime
 
             broker_url = config.get("orbit_broker_url") or None
-            endpoint   = config.get("orbit_endpoint")   or None
+            endpoint = config.get("orbit_endpoint") or None
 
             rt = EndpointRuntime(broker_url=broker_url)
             await asyncio.to_thread(rt.start, True)
 
             topology = rt.topology()
             eids = [
-                n for n, info in topology.items()
+                n
+                for n, info in topology.items()
                 if n != "broker" and "rhapsody" in info.get("plugins", [])
             ]
             if not eids:
@@ -71,9 +72,7 @@ class OrbitWorkflow(BaseWorkflow):
                 )
 
             eid = endpoint if (endpoint and endpoint in topology) else eids[0]
-            rh  = await asyncio.to_thread(
-                rt.get_plugin, eid, "rhapsody", backends=["concurrent"]
-            )
+            rh = await asyncio.to_thread(rt.get_plugin, eid, "rhapsody", backends=["concurrent"])
 
             cls._rt = rt
             cls._rh = rh
@@ -105,17 +104,17 @@ class OrbitWorkflow(BaseWorkflow):
         if self._group_name == "search":
             task = {
                 "executable": "/bin/echo",
-                "arguments":  [f"search {replica_id}"],
+                "arguments": [f"search {replica_id}"],
             }
         else:
             duration = float(cfg.get("duration", 0.3))
             task = {
                 "executable": "/bin/sleep",
-                "arguments":  [str(duration)],
+                "arguments": [str(duration)],
             }
 
         submitted = await asyncio.to_thread(rh.submit_tasks, [task])
-        uids      = [t["uid"] for t in submitted]
+        uids = [t["uid"] for t in submitted]
         completed = await asyncio.to_thread(rh.wait_tasks, uids)
 
         for t in completed:
@@ -139,7 +138,7 @@ class OrbitWorkflow(BaseWorkflow):
             if score < OrbitWorkflow._best_score:
                 OrbitWorkflow._best_score = score
 
-            threshold     = float(cfg.get("refine_threshold", 0.5))
+            threshold = float(cfg.get("refine_threshold", 0.5))
             trigger_group = cfg.get("trigger_refine", "refine")
             if score < threshold:
                 OrbitWorkflow._refine_scores.append(score)
@@ -147,8 +146,7 @@ class OrbitWorkflow(BaseWorkflow):
 
         else:
             init_score = (
-                OrbitWorkflow._refine_scores.pop(0)
-                if OrbitWorkflow._refine_scores else 0.3
+                OrbitWorkflow._refine_scores.pop(0) if OrbitWorkflow._refine_scores else 0.3
             )
             decay = float(cfg.get("score_decay", 0.6))
             noise = float(cfg.get("score_noise", 0.05))

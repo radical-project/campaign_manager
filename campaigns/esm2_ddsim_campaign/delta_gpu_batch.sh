@@ -14,14 +14,13 @@
 #   bandit → miniapps>0  (converges within 3–5 cycles)
 #   llm    → miniapps>0  (if HF_TOKEN is valid)
 #
-#SBATCH -A ***-delta-gpu
+# Account: set SBATCH_ACCOUNT=<project>-delta-gpu before calling sbatch
 #SBATCH --partition=gpuA40x4
 #SBATCH --nodes=1
 #SBATCH --tasks-per-node=4
 #SBATCH --cpus-per-task=16
 #SBATCH --gpus=4
 #SBATCH --exclusive
-#SBATCH --export=NONE
 #SBATCH --time=01:30:00
 #SBATCH --job-name=campaign-gpu
 #xSBATCH --mail-user=${USER}@institution.edu
@@ -38,10 +37,25 @@ export LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${MPI_LIB}:${FAB_LIB}:${LD_LIBRARY_PAT
 
 export TF_FORCE_GPU_ALLOW_GROWTH=true
 export JAX_PLATFORMS=cpu
+export TF_CPP_MIN_LOG_LEVEL=3   # suppress TF/XLA C++ log noise (cuInit probe at import time)
+
+# ── Environment ───────────────────────────────────────────────────────────────
+if [ -z "${SBATCH_ACCOUNT:-}${SLURM_JOB_ACCOUNT:-}" ]; then
+    echo "WARNING: SBATCH_ACCOUNT is not set — job may be charged to default account."
+    echo "         Set it with: export SBATCH_ACCOUNT=<project>-delta-gpu"
+fi
+echo "Account: ${SLURM_JOB_ACCOUNT:-unknown}"
+
+if [ -z "${SCRATCH:-}" ]; then
+    echo "ERROR: SCRATCH is not set."
+    echo "       export SCRATCH=/scratch/<allocation> && sbatch delta_gpu_batch.sh"
+    exit 1
+fi
 
 # ── Project paths (adjust base dirs if layout differs) ───────────────────────
-export SPHERICAL_DIR=/scratch/***/${USER}/SPHERICAL
-export DDSIM_DIR=/scratch/***/${USER}/DeepDriveSim
+export CM_DIR="${CM_DIR:-${SCRATCH}/${USER}/campaign_manager}"
+export DDSIM_DIR="${DDSIM_DIR:-${SCRATCH}/${USER}/DeepDriveSim}"
+export SPHERICAL_DIR="${SPHERICAL_DIR:-${SCRATCH}/${USER}/SPHERICAL}"
 export VE_HOME=/u/${USER}/ve
 
 export MD_DIR=${DDSIM_DIR}/workflows/ddmd_workflow
@@ -51,9 +65,9 @@ export INF_DIR=${SPHERICAL_DIR}/workflows/esm2_inference
 
 export MD_HOME=${DDSIM_DIR}/workflows/ddmd_workflow
 export MD_INPUT=${MD_HOME}/data
-export SGDES_DIR=/scratch/***/${USER}/SGDES
+export SGDES_DIR="${SGDES_DIR:-${SCRATCH}/${USER}/SGDES}"
 
-export WORK_DIR=${SPHERICAL_DIR}/workflows/esm2_ddsim_campaign
+export WORK_DIR=${CM_DIR}/campaigns/esm2_ddsim_campaign
 
 cd ${WORK_DIR}
 
@@ -61,7 +75,7 @@ cd ${WORK_DIR}
 rm -rf DDMD* telemetry-results nvml-telemetry asyncflow.session*
 
 # ── Activate campaign environment and configure Dragon ───────────────────────
-source ${VE_HOME}/campaign/bin/activate
+source ${VE_HOME}/esm2_ddsim_campaign/bin/activate
 dragon-config add --ofi-runtime-lib=${FAB_LIB}
 
 # ── Launch ───────────────────────────────────────────────────────────────────
