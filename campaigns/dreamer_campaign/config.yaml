@@ -236,7 +236,6 @@ stages:
     budget_node_hours:      25000
     pilot: { facility: frontier, partition: largemem, nodes: 200, walltime_h: 240 }
     downstream_input_target: 5    # BudgetController denominator T
-    campaign_target: 5            # early-stop: halt campaign when 5 s5 leads produced
     surrogate:
       score_cutoff:                    0.65
       score_cutoff_nudge_bounds:       [0.45, 0.92]
@@ -365,19 +364,31 @@ cm:
   adr:
     # Compare strategies by running each and recording (see plot_policy_comparison.py).
     # 'bandit' wraps the same Thompson-sampling SchedulingBandit as an ADR agent.
-    policy:    none        # none = no ADR (static priorities); rule | bandit | llm
+    policy:    downstream_first  # none | rule | downstream_first | bandit | llm
+                           # none            = goals-only, no scheduling changes
+                           # rule            = campaign's rule_policy() or DownstreamFirstPolicy fallback
+                           # downstream_first= generic depth-first rule unconditionally
+                           # bandit          = Thompson-sampling online learner
+                           # llm             = LLM-driven with silent rule fallback
+                           # (absent = use DreamerCampaignOperator.default_policy())
     tick_s:    1.0         # operator decision cadence (seconds)
     warmstart: true        # bandit policy: depth-based Beta(depth+1,1) priors
     seed:      0           # bandit policy RNG seed
+
+    # ── Campaign stopping goal ─────────────────────────────────────────────
+    # n_target: stop when this many s5_fep_ranking replicas have finished.
+    # (Was campaign_target on s5_fep_ranking stage before this refactor.)
+    goals:
+      n_target: 5
 
     # ── LLM policy (kind=llm) ──────────────────────────────────────────────
     # OpenRouter + GPT-4o-mini: fast (~0.5s), cheap (~$0.15/M tokens), reliable
     # structured output → LLM actually decides every cycle instead of falling back.
     #   export OPENROUTER_API_KEY=sk-or-v1-...
     #   python run_campaign.py --policy llm --record
-    base_url:        https://openrouter.ai/api/v1
-    model:           openai/gpt-4o-mini
-    llm_api_key_env: OPENROUTER_API_KEY
+    # base_url:        https://openrouter.ai/api/v1
+    # model:           openai/gpt-4o-mini
+    # llm_api_key_env: OPENROUTER_API_KEY
     # System prompt steering the LLM — edit prompts/scheduling_system_prompt.txt
     # to change HOW it schedules (no code change). Inline `system_prompt: |` also
     # works and overrides the file; omit both → built-in DEFAULT_SCHEDULING_PROMPT.
@@ -396,9 +407,9 @@ cm:
     #     model: meta-llama/llama-3.3-70b-instruct:free
     #     llm_tick_s: 4.0
     #   HuggingFace router:
-    #     base_url: https://router.huggingface.co/v1
-    #     model: meta-llama/Llama-3.3-70B-Instruct
-    #     llm_api_key_env: HF_TOKEN
+    base_url: https://router.huggingface.co/v1
+    model: meta-llama/Llama-3.3-70B-Instruct
+    llm_api_key_env: HF_TOKEN
     #   Claude (best quality, ~cents/run): switch LLMSchedulingPolicy to
     #     the Anthropic SDK and use model: claude-haiku-4-5 / claude-sonnet-4-6.
 

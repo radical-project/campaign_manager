@@ -386,11 +386,6 @@ class ExecutorMixin:
                         f"— partial tail ({sharder.buffered}) will flush next cycle"
                     )
 
-        self._log.info(
-            f"_on_replica_finished: {group.name!r} - "
-            f"finished_replicas={group.finished_replicas}/{group.replicas}"
-        )
-
         # ── Monitor: pass-through and budget drift checks ─────────────────────
         if self._monitor and group.finished_replicas > 0:
             trigger_name = (group.workflow_config or {}).get("trigger_downstream")

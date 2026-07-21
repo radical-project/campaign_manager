@@ -174,31 +174,37 @@ async def _run_once(
     )
 
     # ── Build ADR operator ────────────────────────────────────────────────────
-    operator = None
-    if policy_kind != "none":
-        from ddsim_operator import DDSimCampaignOperator
+    from ddsim_operator import DDSimCampaignOperator
 
-        from src.campaign.adr import (
-            CampaignView,
-            PolicyRecorder,
-            TelemetrySubscriber,
-            make_scheduling_policy,
-            resolve_system_prompt,
-        )
+    from src.campaign.adr import (
+        CampaignView,
+        LoggingPolicy,
+        NullSchedulingPolicy,
+        PolicyRecorder,
+        TelemetrySubscriber,
+        make_scheduling_policy,
+        resolve_system_prompt,
+    )
 
-        adr_cfg = cfg.get("cm", {}).get("adr", {})
-        tel_sub = TelemetrySubscriber(telemetry) if telemetry is not None else None
-        terminal = adr_cfg.get("terminal") or None
-        view = CampaignView(cm, terminal=terminal, telemetry_subscriber=tel_sub)
-        recorder = PolicyRecorder(log_path, policy_kind=policy_kind)
-        operator = DDSimCampaignOperator(
-            view,
-            engine=asyncflow,
-            observer=recorder,
-            n_md_runs=int(adr_cfg.get("n_md_runs", 4)),
-            max_fail_rate=float(adr_cfg.get("max_fail_rate", 0.05)),
-        )
+    adr_cfg = cfg.get("cm", {}).get("adr", {})
+    goals_cfg = adr_cfg.get("goals", {})
+    tel_sub = TelemetrySubscriber(telemetry) if telemetry is not None else None
+    terminal = adr_cfg.get("terminal") or None
+    view = CampaignView(cm, terminal=terminal, telemetry_subscriber=tel_sub)
+    recorder = PolicyRecorder(log_path, policy_kind=policy_kind)
+    n_md_runs = int(goals_cfg.get("n_md_runs", adr_cfg.get("n_md_runs", 4)))
+    max_fail_rate = float(goals_cfg.get("max_fail_rate", adr_cfg.get("max_fail_rate", 0.05)))
+    operator = DDSimCampaignOperator(
+        view,
+        engine=asyncflow,
+        observer=recorder,
+        n_md_runs=n_md_runs,
+        max_fail_rate=max_fail_rate,
+    )
 
+    if policy_kind == "none":
+        policy = NullSchedulingPolicy()
+    else:
         api_key, kw = None, {}
         if policy_kind == "bandit":
             kw = {
@@ -218,26 +224,26 @@ async def _run_once(
             kw["min_call_interval_s"] = float(adr_cfg.get("llm_tick_s", 10.0))
             if not api_key and ("localhost" in base_url or "127.0.0.1" in base_url):
                 api_key = "sk-noauth"
-            prompt = resolve_system_prompt(adr_cfg)
+            prompt = resolve_system_prompt(adr_cfg, config_path.parent)
             if prompt:
                 kw["system_prompt"] = prompt
-
-        operator.policy = make_scheduling_policy(
+        policy = make_scheduling_policy(
             operator,
             kind=policy_kind,
             llm_api_key=api_key,
             model=adr_cfg.get("model", "openai/gpt-4o-mini"),
             **kw,
         )
-        recorder.bind(view=view, policy=operator.policy)
+
+    if not isinstance(policy, NullSchedulingPolicy):
+        policy = LoggingPolicy(policy)
+    operator.policy = policy
+    recorder.bind(view=view, policy=operator.policy)
 
     dnf = False
     try:
         await cm.start()
-        if operator is not None:
-            finished = await _drive_with_timeout(cm, operator, RUN_TIMEOUT_S)
-        else:
-            finished = await cm.wait(timeout=RUN_TIMEOUT_S)
+        finished = await _drive_with_timeout(cm, operator, RUN_TIMEOUT_S)
         if not finished:
             dnf = True
     finally:
@@ -249,8 +255,7 @@ async def _run_once(
     m = cm.metrics().to_dict()
     m["policy"] = policy_kind
     m["dnf"] = dnf
-    if operator is not None:
-        m["decision_log"] = str(log_path)
+    m["decision_log"] = str(log_path)
     if tel_cfg.get("collect_telemetry") and telemetry is not None:
         m["telemetry_dir"] = tel_cfg["telemetry_dir"]
 

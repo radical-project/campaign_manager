@@ -1,5 +1,6 @@
 """Campaign management for multi-workflow orchestration."""
 
+from .logging_setup import enable_logging
 from .backpressure import BackpressureNegotiator, BPState
 from .bandit import BanditArm, SchedulingBandit
 from .base_workflow import BaseWorkflow
@@ -35,6 +36,7 @@ from .triage import Triage, TriageDecision
 from .types import CampaignState, ResourcePool, WorkflowStats
 
 __all__ = [
+    "enable_logging",
     "AsyncCampaignManager",
     "CampaignManager",
     "BaseWorkflow",

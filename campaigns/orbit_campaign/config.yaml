@@ -1,18 +1,20 @@
 # =============================================================================
-# dummy_orbit Campaign
+# orbit_ddsim Campaign
 # =============================================================================
 #
-# Two-stage search → refine pipeline where tasks run on a remote HPC node
-# via the ORBIT broker + rhapsody plugin (concurrent backend).
+# Two-stage search → refine pipeline.  Each replica submits num_sims
+# independent simulation.py tasks to orbit in a single batch — orbit runs
+# them all in parallel, so per-replica wall time ≈ one sim's duration (~15s).
 #
-# search:  10 replicas each submit /bin/echo to the endpoint and generate
-#          a random score.  Candidates below refine_threshold trigger a refine.
+# search:  10 replicas, up to concurrency_cap running at once.  Each scores
+#          mean(|y|) across its sim outputs.  Candidates below
+#          refine_threshold trigger a refine replica.
 #
-# refine:  triggered at runtime by search; submits /bin/sleep to the endpoint.
+# refine:  triggered at runtime by search; same simulation, separate dir.
 #          Campaign stops when campaign_target refine replicas finish.
 #
 # Prerequisites:
-#   export RADICAL_ORBIT_BROKER_URL=wss://dt-login03.delta.ncsa.illinois.edu:8020
+#   export RADICAL_ORBIT_BROKER_URL=https://dt-login03.delta.ncsa.illinois.edu:8020
 #   # Terminal 1 (login node): ./bin/radical-orbit-broker.py --port 8020
 #   # Terminal 2 (compute node): ./bin/radical-orbit-endpoint.py -p rhapsody
 #
@@ -26,27 +28,25 @@ resources:
   total_cpus: 0   # 0 = unlimited
   total_gpus: 0
 
-# ── Orbit connection (forwarded to workflow config) ───────────────────────────
-# orbit_broker_url: auto-resolved from $RADICAL_ORBIT_BROKER_URL if omitted
-# orbit_endpoint:   auto-selects first rhapsody endpoint if omitted
-
 # ── Workflow groups ───────────────────────────────────────────────────────────
 
 workflows:
 
   search:
     replicas:          10
-    concurrency_cap:   4
+    concurrency_cap:   2   # 2 replicas × 4 batches of 5 = manageable load on endpoint
     concurrency_floor: 1
     priority:          10
     required_cpus:     0
     required_gpus:     0
-    # Orbit connection (passed to workflow.config)
-    # orbit_broker_url: "wss://dt-login03.delta.ncsa.illinois.edu:8020"
-    # orbit_endpoint:   "my-endpoint"
-    # Search config
-    refine_threshold:  0.5
+    refine_threshold:  650.0
     trigger_refine:    refine
+    # Paths — must be accessible from both login and compute nodes
+    python_exe:    "/u/mgoliyad1/ve/orbit_campaign/bin/python"
+    work_dir:      "/scratch/bblj/mgoliyad1/DeepDriveSim/workflows/dummy_workflow"
+    sim_output_dir: "/scratch/bblj/mgoliyad1/orbit_ddsim_output"
+    num_sims:      5    # sims per replica; all run in parallel — keep cap×num_sims ≤ 10
+    sim_batch_size: 5  # submit all at once (num_sims == sim_batch_size)
 
   refine:
     replicas:          0   # triggered at runtime by search via _trigger_dependent
@@ -56,10 +56,12 @@ workflows:
     required_cpus:     0
     required_gpus:     0
     campaign_target:   5
-    # Refine task config
-    duration:          0.3   # seconds for /bin/sleep
-    score_decay:       0.6
-    score_noise:       0.05
+    # Paths — must be accessible from both login and compute nodes
+    python_exe:    "/u/mgoliyad1/ve/orbit_campaign/bin/python"
+    work_dir:      "/scratch/bblj/mgoliyad1/DeepDriveSim/workflows/dummy_workflow"
+    sim_output_dir: "/scratch/bblj/mgoliyad1/orbit_ddsim_output"
+    num_sims:      5
+    sim_batch_size: 5
 
 # ── Campaign manager ──────────────────────────────────────────────────────────
 

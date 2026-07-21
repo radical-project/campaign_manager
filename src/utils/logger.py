@@ -46,11 +46,13 @@ class Logger:
         config=None,
         rank=0,
         devices=None,
+        min_level: str = "INFO",
     ):
         self.name = name
         self.use_colors = use_colors
         self.output_stream = output_stream or sys.stdout
         self.rank = rank
+        self._min_level = LogLevel[min_level.upper()]
 
         self.level_colors = {
             LogLevel.DEBUG: Colors.BRIGHT_BLACK,
@@ -115,6 +117,8 @@ class Logger:
         stream.flush()
 
     def debug(self, message, component="manager", task_name=None):
+        if self._min_level != LogLevel.DEBUG:
+            return
         if task_name is None:
             task_name = self.name
         formatted = self._format_message(LogLevel.DEBUG, component, message, task_name)

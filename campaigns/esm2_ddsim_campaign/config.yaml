@@ -35,7 +35,7 @@ cm:
   monitor_interval_s: 15
 
   adr:
-    policy:    none      # none | rule | bandit | llm  (override with --policy)
+    policy:    none      # none | rule | downstream_first | bandit | llm  (override with --policy)
     tick_s:    2.0       # operator decision cadence (seconds)
     warmstart: true      # bandit policy: depth-based Beta(depth+1,1) priors
     seed:      0         # bandit policy RNG seed
@@ -48,8 +48,9 @@ cm:
     # DDSim campaign goals (used by DDSimCampaignOperator):
     #   n_md_runs      — expected miniapps completions (= md.replicas)
     #   max_fail_rate  — task failure rate ceiling (0–1); alert if exceeded
-    n_md_runs:     4
-    max_fail_rate: 0.05
+    goals:
+      n_md_runs:     4
+      max_fail_rate: 0.05
 
     # Custom LLM system prompt (relative to this config file's directory).
     # Describes the dual-pipeline topology and GPU contention to the LLM.

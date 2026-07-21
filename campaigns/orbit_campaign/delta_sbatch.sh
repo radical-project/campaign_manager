@@ -7,7 +7,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=64
-#SBATCH --time=00:30:00
+#SBATCH --time=01:30:00
 #SBATCH --job-name=orbit_campaign
 #SBATCH --mail-user=mariya.goliyad@rutgers.edu
 #SBATCH --mail-type=END,FAIL

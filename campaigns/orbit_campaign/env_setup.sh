@@ -121,7 +121,7 @@ echo ""
 echo "── Step 4: rhapsody ──"
 # [telemetry] extra pulls in opentelemetry-sdk, which rhapsody 0.4+ imports
 # unconditionally during session init despite it being listed as optional.
-"${PIP}" install -q "rhapsody-py[telemetry]>=0.2.0" "radical.asyncflow>=0.3.1"
+"${PIP}" install -q "rhapsody-py[telemetry,dragon]>=0.2.0" "radical.asyncflow>=0.3.1" openai instructor
 
 # ── 5. radical.adr (local — not on PyPI, must come before campaign_manager[adr]) ──
 echo ""

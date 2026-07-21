@@ -137,11 +137,13 @@ echo ""
 echo "── Step 3: Dragon HPC + Rhapsody + Radical ──"
 "${PIP}" install -q \
     "dragonhpc>=0.13.2" \
-    "rhapsody-py>=0.2.0" \
+    "rhapsody-py[telemetry,dragon]>=0.2.0" \
     "radical.asyncflow>=0.3.1" \
     "nvidia-ml-py" \
     "numpy>=1.26.3,<2.0.0" \
-    "transformers>=4.30.0"
+    "transformers>=4.30.0" \
+    "openai" \
+    "instructor"
 
 # ── 4. campaign_manager (editable) ───────────────────────────────────────────
 echo ""

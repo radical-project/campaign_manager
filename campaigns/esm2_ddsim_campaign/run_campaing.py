@@ -99,76 +99,83 @@ def _build_registry(config: dict) -> dict:
     return registry
 
 
-def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None, telemetry=None):
-    """Build a CampaignOperator + policy for ADR supervision, or (None, None).
+def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None, telemetry=None, config_dir=None):
+    """Build a CampaignOperator + policy for ADR supervision.
+
+    Always returns a (op, tick) pair.  When policy='none', op uses
+    NullSchedulingPolicy — goals still fire for early-stop, no priority
+    changes are applied.
 
     On HPC runs, pass ``telemetry`` (the TelemetryManager returned by
-    ``asyncflow.start_telemetry()``) to feed real GPU/CPU/mem utilisation into
-    the ADR observation so policies can react to hardware saturation.
-
-    Policy source precedence: --policy CLI override > cm.adr.policy config.
-    kind ∈ {none, rule, bandit, llm}; 'none' = no ADR supervision.
+    ``asyncflow.start_telemetry()``) to feed real GPU/CPU/mem utilisation
+    into the ADR observation so policies can react to hardware saturation.
     """
-    kind = (policy_override or adr_cfg.get("policy", "none") or "none").lower()
-    if kind in ("none", "off", ""):
-        return None, None
-
     from ddsim_operator import DDSimCampaignOperator
 
     from src.campaign.adr import (
         CampaignView,
+        LoggingPolicy,
+        NullSchedulingPolicy,
         PolicyRecorder,
         TelemetrySubscriber,
         make_scheduling_policy,
         resolve_system_prompt,
     )
 
-    # Wire telemetry into the view so observe() includes hardware metrics.
-    # terminal: the stage whose finished-replica count is "hits" for the operator goal.
-    # Required when routing uses _on_completion (no config dependencies).
+    kind = (policy_override or adr_cfg.get("policy", "none") or "none").lower()
+
     tel_sub = TelemetrySubscriber(telemetry) if telemetry is not None else None
     terminal = adr_cfg.get("terminal") or None
     view = CampaignView(cm, terminal=terminal, telemetry_subscriber=tel_sub)
 
-    # Optional per-cycle decision recorder.
-    recorder = None
     record_path = adr_cfg.get("record")
     if record_path in (True, "auto"):
         record_path = f"adr-decisions-{kind}.jsonl"
-    if record_path:
-        recorder = PolicyRecorder(record_path, policy_kind=kind)
+    recorder = PolicyRecorder(record_path, policy_kind=kind) if record_path else None
+
+    # Read goals from cm.adr.goals (fall back to flat cm.adr.* for compat).
+    goals_cfg = adr_cfg.get("goals", {})
+    n_md_runs = int(goals_cfg.get("n_md_runs", adr_cfg.get("n_md_runs", 4)))
+    max_fail_rate = float(goals_cfg.get("max_fail_rate", adr_cfg.get("max_fail_rate", 0.05)))
 
     op = DDSimCampaignOperator(
         view,
         engine=asyncflow,
         observer=recorder,
-        n_md_runs=int(adr_cfg.get("n_md_runs", 4)),
-        max_fail_rate=float(adr_cfg.get("max_fail_rate", 0.05)),
+        n_md_runs=n_md_runs,
+        max_fail_rate=max_fail_rate,
     )
 
-    kw, api_key = {}, None
-    if kind == "bandit":
-        kw["warmstart"] = bool(adr_cfg.get("warmstart", False))
-        kw["seed"] = adr_cfg.get("seed", 0)
-    elif kind == "llm":
-        api_key = os.environ.get(adr_cfg.get("llm_api_key_env", "OPENROUTER_API_KEY"), "")
-        if adr_cfg.get("base_url"):
-            kw["base_url"] = adr_cfg["base_url"]
-        if adr_cfg.get("llm_timeout_s") is not None:
-            kw["timeout_s"] = float(adr_cfg["llm_timeout_s"])
-        if adr_cfg.get("llm_max_retries") is not None:
-            kw["instructor_retries"] = int(adr_cfg["llm_max_retries"])
-        kw["min_call_interval_s"] = float(adr_cfg.get("llm_tick_s", 10.0))
-        bu = adr_cfg.get("base_url", "") or ""
-        if not api_key and ("localhost" in bu or "127.0.0.1" in bu):
-            api_key = "sk-noauth"
-        prompt = resolve_system_prompt(adr_cfg)  # cm.adr.system_prompt[_file]
-        if prompt:
-            kw["system_prompt"] = prompt
+    if kind in ("none", "off", ""):
+        policy = NullSchedulingPolicy()
+    else:
+        kw, api_key = {}, None
+        if kind == "bandit":
+            kw["warmstart"] = bool(adr_cfg.get("warmstart", False))
+            kw["seed"] = adr_cfg.get("seed", 0)
+        elif kind == "llm":
+            api_key = os.environ.get(adr_cfg.get("llm_api_key_env", "OPENROUTER_API_KEY"), "")
+            if adr_cfg.get("base_url"):
+                kw["base_url"] = adr_cfg["base_url"]
+            if adr_cfg.get("llm_timeout_s") is not None:
+                kw["timeout_s"] = float(adr_cfg["llm_timeout_s"])
+            if adr_cfg.get("llm_max_retries") is not None:
+                kw["instructor_retries"] = int(adr_cfg["llm_max_retries"])
+            kw["min_call_interval_s"] = float(adr_cfg.get("llm_tick_s", 10.0))
+            bu = adr_cfg.get("base_url", "") or ""
+            if not api_key and ("localhost" in bu or "127.0.0.1" in bu):
+                api_key = "sk-noauth"
+            prompt = resolve_system_prompt(adr_cfg, config_dir)
+            if prompt:
+                kw["system_prompt"] = prompt
+        policy = make_scheduling_policy(
+            op, kind=kind, llm_api_key=api_key, model=adr_cfg.get("model", "openai/gpt-4o-mini"), **kw
+        )
 
-    op.policy = make_scheduling_policy(
-        op, kind=kind, llm_api_key=api_key, model=adr_cfg.get("model", "openai/gpt-4o-mini"), **kw
-    )
+    if not isinstance(policy, NullSchedulingPolicy):
+        log_every = int(adr_cfg.get("log_every", 1))
+        policy = LoggingPolicy(policy, log_every=log_every)
+    op.policy = policy
 
     if recorder is not None:
         recorder.bind(view=view, policy=op.policy)
@@ -260,15 +267,35 @@ async def main(
     if record_override is not None:
         adr_cfg["record"] = record_override
     operator, tick_s = _build_adr_operator(
-        cm, asyncflow, adr_cfg, policy_override, telemetry=telemetry
+        cm, asyncflow, adr_cfg, policy_override, telemetry=telemetry, config_dir=config_path.parent
     )
+
+    # ── Startup summary ───────────────────────────────────────────────────────
+    adr_policy = (policy_override or adr_cfg.get("policy") or "none").lower()
+    goals_cfg  = adr_cfg.get("goals", {})
+    n_md_runs  = goals_cfg.get("n_md_runs", adr_cfg.get("n_md_runs", 4))
+    terminal   = adr_cfg.get("terminal") or "dummy"
+    n_groups   = len(config.get("workflows", {}))
+    print("=" * 62)
+    print(f"  Config  : {config_file}")
+    print(f"  Engine  : {engine_type}  |  {n_groups} workflow groups")
+    print(f"  ADR     : policy={adr_policy}  tick={tick_s}s")
+    print(f"  Goal    : {n_md_runs} miniapps completions  terminal='{terminal}'")
+    if adr_policy == "llm":
+        print(f"  Model   : {adr_cfg.get('model', '—')}")
+        bu = adr_cfg.get("base_url") or "OpenRouter (default)"
+        print(f"  Backend : {bu}")
+        key_env = adr_cfg.get("llm_api_key_env", "OPENROUTER_API_KEY")
+        key_set = "set" if os.environ.get(key_env) else "NOT SET"
+        print(f"  Key env : {key_env} ({key_set})")
+    print("=" * 62)
 
     try:
         await cm.start()
         if operator is not None:
             from src.campaign.adr import run_supervised
 
-            kind = (policy_override or adr_cfg.get("policy", "?")).lower()
+            kind = (policy_override or adr_cfg.get("policy", "none")).lower()
             print(f"ADR supervision active: policy={kind}  tick={tick_s}s")
             await run_supervised(cm, operator, tick_s=tick_s)
         else:
@@ -307,9 +334,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--policy",
         default=None,
-        choices=["none", "rule", "bandit", "llm"],
+        choices=["none", "rule", "downstream_first", "bandit", "llm"],
         help="ADR scheduling policy (overrides cm.adr.policy). "
-        "'none' = no ADR supervision (static priorities).",
+        "'none' = goals-only (NullSchedulingPolicy). "
+        "'downstream_first' = generic depth-first rule unconditionally.",
     )
     parser.add_argument(
         "--record",

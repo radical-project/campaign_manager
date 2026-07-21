@@ -102,6 +102,15 @@ def _build_from_plan(config: dict) -> dict:
 
     stage_ids: set[str] = {s["id"] for s in config.get("stages", [])}
 
+    # Validate: campaign_target is no longer a stage-level field.
+    for stage in config.get("stages", []):
+        if stage.get("campaign_target") is not None:
+            raise ValueError(
+                f"Stage '{stage['id']}': 'campaign_target' has been removed from the "
+                "stage schema.  Move the goal to 'cm.adr.goals.n_target' and declare "
+                "the stopping condition in a CampaignOperator subclass."
+            )
+
     # Outgoing edge per source stage (profile → schedule_strategy)
     edge_out: dict[str, dict] = {}
     # Incoming edge per destination stage (backpressure water marks for that stage's queue)
@@ -168,11 +177,11 @@ def _build_from_plan(config: dict) -> dict:
             "threshold_top_fraction": stage.get("threshold_top_fraction"),
             "budget_node_hours": stage.get("budget_node_hours"),
             "downstream_input_target": stage.get("downstream_input_target"),
-            # campaign_target: early-stop trigger read by executor._on_replica_finished.
-            # Must be forwarded into workflow_config (the executor does not see the
-            # typed plan StageSpec; budget_kp/burn_rate_band reach BudgetController
-            # via the plan path, but the early-stop check reads workflow_config).
-            "campaign_target": stage.get("campaign_target"),
+            # campaign_target has been removed from the stage schema.
+            # Move campaign end-goals to cm.adr.goals.n_target and use a
+            # campaign-specific CampaignOperator subclass.
+            # (Raise early so mis-migrated configs get a clear message.)
+
             "pilot": pilot or None,
             "surrogate": stage.get("surrogate"),
             "profile": profile,
@@ -229,75 +238,100 @@ def _build_registry(config: dict) -> dict:
 
 
 def _build_adr_operator(cm, asyncflow, adr_cfg: dict, policy_override=None, config_dir=None):
-    """Build a CampaignOperator + policy for ADR supervision, or (None, None).
+    """Build a DreamerCampaignOperator + policy for ADR supervision, or (None, None).
 
-    Policy source precedence: --policy CLI override > cm.adr.policy config.
-    kind ∈ {none, rule, bandit, llm}. 'none' = no ADR supervision (the scheduler
-    uses static group priorities; the in-loop bandit was removed).
+    Policy resolution precedence:
+      1. ``--policy`` CLI override
+      2. ``cm.adr.policy`` config key (none | rule | bandit | llm)
+      3. operator.default_policy() — when ``policy`` key is absent from config
+      4. None — no ADR supervision
+
+    ``policy: none`` explicitly suppresses ADR even if default_policy() would act.
     """
-    kind = (policy_override or adr_cfg.get("policy", "none") or "none").lower()
-    if kind in ("none", "off", ""):
-        return None, None
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent))
+    from dreamer_operator import DreamerCampaignOperator
 
     from src.campaign.adr import (
-        CampaignOperator,
         CampaignView,
+        LoggingPolicy,
+        NullSchedulingPolicy,
         PolicyRecorder,
         make_scheduling_policy,
         resolve_system_prompt,
     )
 
-    # The CM has no in-loop scheduling bandit; the scheduler orders eligible
-    # groups purely by group.priority, which the ADR policy drives via its
-    # set_priority lever.
+    # Read n_target from adr.goals (was campaign_target on s5 stage before refactor).
+    goals_cfg = adr_cfg.get("goals", {})
+    n_target = int(goals_cfg.get("n_target", 5))
+
+    # Determine effective policy kind.
+    # policy_key=None means the 'policy' key is absent → use operator.default_policy().
+    # policy_key="none"/"off"/"" means no scheduling decisions, but goals still fire.
+    policy_key = policy_override or adr_cfg.get("policy")
+
     view = CampaignView(cm)
 
-    # Optional per-cycle decision recorder (for plot_policy_comparison.py).
-    recorder = None
+    # Record path (for plot_policy_comparison.py).
+    effective_kind = (policy_key or "default").lower()
     record_path = adr_cfg.get("record")
     if record_path in (True, "auto"):
-        record_path = f"adr-decisions-{kind}.jsonl"
-    if record_path:
-        recorder = PolicyRecorder(record_path, policy_kind=kind)
+        record_path = f"adr-decisions-{effective_kind}.jsonl"
+    recorder = PolicyRecorder(record_path, policy_kind=effective_kind) if record_path else None
 
-    op = CampaignOperator(view, engine=asyncflow, observer=recorder)
+    op = DreamerCampaignOperator(view, engine=asyncflow, n_target=n_target, observer=recorder)
 
-    kw, api_key = {}, None
-    if kind == "bandit":
-        kw["warmstart"] = bool(adr_cfg.get("warmstart", False))
-        kw["seed"] = adr_cfg.get("seed", 0)
-    elif kind == "llm":
-        api_key = os.environ.get(adr_cfg.get("llm_api_key_env", "OPENROUTER_API_KEY"), "")
-        # Any OpenAI-compatible endpoint works (OpenRouter, HuggingFace router,
-        # a local Ollama/llama.cpp server). Set cm.adr.base_url to switch.
-        if adr_cfg.get("base_url"):
-            kw["base_url"] = adr_cfg["base_url"]
-        if adr_cfg.get("llm_timeout_s") is not None:
-            kw["timeout_s"] = float(adr_cfg["llm_timeout_s"])
-        if adr_cfg.get("llm_max_retries") is not None:
-            kw["instructor_retries"] = int(adr_cfg["llm_max_retries"])
-        # Local endpoints (Ollama/llama.cpp) need no real key; AsyncOpenAI still
-        # requires a non-empty string, so supply a placeholder for localhost.
-        # Remote endpoints keep the empty key so make_scheduling_policy raises a
-        # clear "kind='llm' requires llm_api_key" instead of failing every call.
-        bu = adr_cfg.get("base_url", "") or ""
-        if not api_key and ("localhost" in bu or "127.0.0.1" in bu):
-            api_key = "sk-noauth"
-        # User-tweakable system prompt (cm.adr.system_prompt or system_prompt_file);
-        # falls back to DEFAULT_SCHEDULING_PROMPT when unset.
-        prompt = resolve_system_prompt(adr_cfg, config_dir)
-        if prompt:
-            kw["system_prompt"] = prompt
-    op.policy = make_scheduling_policy(
-        op, kind=kind, llm_api_key=api_key, model=adr_cfg.get("model", "openai/gpt-4o-mini"), **kw
-    )
+    # Resolve policy.
+    if policy_key is None:
+        # No explicit policy in config — use operator's campaign default.
+        policy = op.default_policy()
+        if policy is None:
+            return None, None
+        kind_label = "default"
+    elif str(policy_key).lower() in ("none", "off", ""):
+        # "none" suppresses scheduling decisions but goals still need checking.
+        # NullSchedulingPolicy satisfies the Policy interface without changing
+        # any priorities or batch sizes — the operator loop runs for early-stop only.
+        policy = NullSchedulingPolicy()
+        kind_label = "none"
+    else:
+        kind = str(policy_key).lower()
+        kind_label = kind
+        kw: dict = {}
+        api_key = None
+        if kind == "bandit":
+            kw["warmstart"] = bool(adr_cfg.get("warmstart", False))
+            kw["seed"] = adr_cfg.get("seed", 0)
+        elif kind == "llm":
+            api_key = os.environ.get(adr_cfg.get("llm_api_key_env", "OPENROUTER_API_KEY"), "")
+            if adr_cfg.get("base_url"):
+                kw["base_url"] = adr_cfg["base_url"]
+            if adr_cfg.get("llm_timeout_s") is not None:
+                kw["timeout_s"] = float(adr_cfg["llm_timeout_s"])
+            if adr_cfg.get("llm_max_retries") is not None:
+                kw["instructor_retries"] = int(adr_cfg["llm_max_retries"])
+            bu = adr_cfg.get("base_url", "") or ""
+            if not api_key and ("localhost" in bu or "127.0.0.1" in bu):
+                api_key = "sk-noauth"
+            prompt = resolve_system_prompt(adr_cfg, config_dir)
+            if prompt:
+                kw["system_prompt"] = prompt
+            # LLMSchedulingPolicy raises ValueError if system_prompt is missing.
+        policy = make_scheduling_policy(
+            op, kind=kind, llm_api_key=api_key,
+            model=adr_cfg.get("model", "openai/gpt-4o-mini"), **kw
+        )
+
+    if policy is not None and not isinstance(policy, NullSchedulingPolicy):
+        log_every = int(adr_cfg.get("log_every", 1))
+        policy = LoggingPolicy(policy, log_every=log_every)
+    op.policy = policy
     if recorder is not None:
         recorder.bind(view=view, policy=op.policy)
         print(f"ADR decision recorder → {record_path}")
-    # The LLM policy gets its own (slower) tick so free, rate-limited models
-    # don't get throttled; falls back to tick_s when llm_tick_s isn't set.
+
     default_tick = float(adr_cfg.get("tick_s", 1.0))
-    tick = float(adr_cfg.get("llm_tick_s", default_tick)) if kind == "llm" else default_tick
+    tick = float(adr_cfg.get("llm_tick_s", default_tick)) if kind_label == "llm" else default_tick
     return op, tick
 
 
@@ -403,16 +437,34 @@ async def main(config_file: str, policy_override=None, record_override=None) -> 
         cm, asyncflow, adr_cfg, policy_override, config_dir=config_dir
     )
 
+    # ── Startup summary ───────────────────────────────────────────────────────
+    adr_policy = (policy_override or adr_cfg.get("policy") or "default").lower()
+    n_target   = adr_cfg.get("goals", {}).get("n_target", "—")
+    terminal   = adr_cfg.get("terminal") or "(inferred leaf)"
+    n_stages   = len(config.get("stages", []))
+    n_groups   = len(config.get("workflows", {}))
+    print("=" * 62)
+    print(f"  Config  : {config_file}")
+    print(f"  Engine  : {engine_type}  |  {n_stages} stages → {n_groups} workflow groups")
+    print(f"  ADR     : policy={adr_policy}  tick={tick_s}s")
+    print(f"  Goal    : stop when {n_target} '{terminal}' replica(s) finish")
+    if adr_policy == "llm":
+        print(f"  Model   : {adr_cfg.get('model', '—')}")
+        bu = adr_cfg.get("base_url") or "OpenRouter (default)"
+        print(f"  Backend : {bu}")
+        key_env = adr_cfg.get("llm_api_key_env", "OPENROUTER_API_KEY")
+        import os
+        key_set = "set" if os.environ.get(key_env) else "NOT SET"
+        print(f"  Key env : {key_env} ({key_set})")
+    print("=" * 62)
+
     try:
         await cm.start()
         if operator is not None:
             from src.campaign.adr import run_supervised
 
             kind = (policy_override or adr_cfg.get("policy", "?")).lower()
-            print(
-                f"ADR supervision active: policy={kind}  tick={tick_s}s "
-                f"(ADR policy drives scheduling priority)"
-            )
+            print(f"ADR supervision active: policy={kind}  tick={tick_s}s")
             await run_supervised(cm, operator, tick_s=tick_s)
         else:
             await cm.wait()
@@ -447,9 +499,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--policy",
         default=None,
-        choices=["none", "rule", "bandit", "llm"],
+        choices=["none", "rule", "downstream_first", "bandit", "llm"],
         help="ADR scheduling policy (overrides cm.adr.policy). "
-        "'none' = no ADR supervision (static priorities).",
+        "'none' = goals only, no scheduling. "
+        "'rule' = campaign's rule_policy() or DownstreamFirstPolicy fallback. "
+        "'downstream_first' = generic depth-first rule unconditionally.",
     )
     parser.add_argument(
         "--record",

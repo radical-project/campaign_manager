@@ -1,24 +1,24 @@
 """
-OrbitWorkflow — submits tasks to a remote HPC node via ORBIT + rhapsody.
+OrbitWorkflow — submits dummy_workflow simulation tasks to a remote HPC node
+via the ORBIT broker + rhapsody plugin.
 
-Both search and refine stages use this class; _group_name distinguishes them.
+Each replica submits num_sims independent simulation.py tasks to orbit in a
+single batch.  Orbit runs them all in parallel on the endpoint, so per-replica
+wall time ≈ one simulation's duration (~15s) regardless of num_sims.
 
-search  — submits /bin/echo to the orbit endpoint, generates a random score.
-          Candidates below refine_threshold trigger a refine replica.
+Score = mean(|y|) across all .npz output files, computed after all tasks land.
 
-refine  — triggered by search, submits /bin/sleep 0.3 to the endpoint.
-          Campaign stops when campaign_target refine replicas finish.
-
-The EndpointRuntime and RhapsodyClient are shared across all replicas via
-class variables, initialized once on first use.  Broker URL is read from
-$RADICAL_ORBIT_BROKER_URL (or ~/.radical/orbit/broker.url).
+Candidates below refine_threshold trigger a refine replica.  Campaign stops
+when campaign_target refine replicas finish.
 """
 
 from __future__ import annotations
 
 import asyncio
-import random
+from pathlib import Path
 from typing import ClassVar
+
+import numpy as np
 
 from src.campaign import BaseWorkflow
 
@@ -27,6 +27,9 @@ class OrbitWorkflow(BaseWorkflow):
     workflow_id = "orbit"
 
     # Shared connection — initialized once, reused by all replicas.
+    # _session is set when the rhapsody 'orbit' backend is available;
+    # _rt/_rh are set when falling back to EndpointRuntime.
+    _session: ClassVar = None
     _rt: ClassVar = None
     _rh: ClassVar = None
     _lock: ClassVar[asyncio.Lock | None] = None
@@ -44,43 +47,67 @@ class OrbitWorkflow(BaseWorkflow):
 
     @classmethod
     async def _ensure_connected(cls, config: dict) -> None:
-        """Initialize the shared EndpointRuntime + RhapsodyClient (idempotent)."""
+        """Initialize the shared rhapsody Session (idempotent)."""
         if cls._lock is None:
             cls._lock = asyncio.Lock()
         async with cls._lock:
-            if cls._rh is not None:
+            if cls._session is not None or cls._rh is not None:
                 return
 
-            from radical.orbit import EndpointRuntime
+            import rhapsody
 
-            broker_url = config.get("orbit_broker_url") or None
-            endpoint = config.get("orbit_endpoint") or None
+            batch_window = config.get("batch_window", 0.05)
+            batch_limit  = config.get("batch_limit", 1024)
 
-            rt = EndpointRuntime(broker_url=broker_url)
-            await asyncio.to_thread(rt.start, True)
-
-            topology = rt.topology()
-            eids = [
-                n
-                for n, info in topology.items()
-                if n != "broker" and "rhapsody" in info.get("plugins", [])
-            ]
-            if not eids:
-                raise RuntimeError(
-                    "No endpoint with rhapsody plugin found — "
-                    "is the endpoint running with '-p rhapsody'?"
+            try:
+                backend = await rhapsody.get_backend(
+                    "orbit",
+                    backends=["concurrent"],
+                    batch_window=batch_window,
+                    batch_limit=batch_limit,
                 )
-
-            eid = endpoint if (endpoint and endpoint in topology) else eids[0]
-            rh = await asyncio.to_thread(rt.get_plugin, eid, "rhapsody", backends=["concurrent"])
-
-            cls._rt = rt
-            cls._rh = rh
-            print(f"[OrbitWorkflow] Connected → endpoint='{eid}'")
+                cls._session = rhapsody.Session(backends=[backend])
+                print(
+                    f"[OrbitWorkflow] Connected (rhapsody) → "
+                    f"broker='{backend._broker_url}'  "
+                    f"endpoint='{backend._endpoint_name}'"
+                )
+            except (ValueError, RuntimeError) as e:
+                import warnings
+                warnings.warn(
+                    f"rhapsody 'orbit' backend not available ({e}) — "
+                    "falling back to EndpointRuntime.",
+                    stacklevel=2,
+                )
+                from radical.orbit import EndpointRuntime
+                rt = EndpointRuntime()
+                await asyncio.to_thread(rt.start, True)
+                topology = rt.topology()
+                eids = [
+                    n for n, info in topology.items()
+                    if n != "broker" and "rhapsody" in info.get("plugins", [])
+                ]
+                if not eids:
+                    raise RuntimeError(
+                        "No endpoint with rhapsody plugin found — "
+                        "is the endpoint running with '-p rhapsody'?"
+                    )
+                eid = eids[0]
+                cls._rh = await asyncio.to_thread(
+                    rt.get_plugin, eid, "rhapsody", backends=["concurrent"]
+                )
+                cls._rt = rt
+                print(f"[OrbitWorkflow] Connected (EndpointRuntime) → endpoint='{eid}'")
 
     @classmethod
     async def close_connection(cls, timeout: float = 5.0) -> None:
-        """Shutdown the shared rhapsody session and EndpointRuntime."""
+        """Shutdown the shared connection (rhapsody session or EndpointRuntime)."""
+        if cls._session is not None:
+            try:
+                await asyncio.wait_for(cls._session.close(), timeout=timeout)
+            except (asyncio.TimeoutError, Exception):
+                pass
+            cls._session = None
         if cls._rh is not None:
             try:
                 await asyncio.wait_for(asyncio.to_thread(cls._rh.close), timeout=timeout)
@@ -97,32 +124,77 @@ class OrbitWorkflow(BaseWorkflow):
     # ── Compute ────────────────────────────────────────────────────────────────
 
     async def run(self, replica_id: str) -> None:
+        import rhapsody
+
         cfg = self.config or {}
         await self._ensure_connected(cfg)
-        rh = self._rh
 
-        if self._group_name == "search":
-            task = {
-                "executable": "/bin/echo",
-                "arguments": [f"search {replica_id}"],
-            }
-        else:
-            duration = float(cfg.get("duration", 0.3))
-            task = {
-                "executable": "/bin/sleep",
-                "arguments": [str(duration)],
-            }
+        python_exe  = cfg["python_exe"]
+        work_dir    = cfg["work_dir"]
+        num_sims    = int(cfg.get("num_sims", 20))
+        sim_out_dir = str(Path(cfg["sim_output_dir"]) / replica_id / "sim_output")
+        Path(sim_out_dir).mkdir(parents=True, exist_ok=True)
 
-        submitted = await asyncio.to_thread(rh.submit_tasks, [task])
-        uids = [t["uid"] for t in submitted]
-        completed = await asyncio.to_thread(rh.wait_tasks, uids)
+        # One ComputeTask per simulation — orbit runs them all in parallel.
+        # Per-replica wall time ≈ single sim duration regardless of num_sims.
+        def _make_args(i: int) -> list[str]:
+            return [
+                f"{work_dir}/simulation.py",
+                "--output_dir", sim_out_dir,
+                "--sim_tag",    f"sim_{i}",
+                "--filename",   f"config_{i}.npz",
+            ]
 
-        for t in completed:
-            if t.get("exit_code", 0) != 0:
+        # Submit in small batches so the endpoint isn't flooded, but wait for
+        # all tasks together so sims still run in parallel on the endpoint.
+        sub_batch = int(cfg.get("sim_batch_size", 5))
+
+        if self._session is not None:
+            tasks = [
+                rhapsody.ComputeTask(executable=python_exe, arguments=_make_args(i))
+                for i in range(num_sims)
+            ]
+            for i in range(0, num_sims, sub_batch):
+                await self._session.submit_tasks(tasks[i : i + sub_batch])
+            await self._session.wait_tasks(tasks)
+            failed = [t for t in tasks if t.get("exit_code", 0) != 0]
+            if failed:
+                codes = [t.get("exit_code") for t in failed]
                 raise RuntimeError(
-                    f"[{replica_id}] task {t['uid']} failed "
-                    f"(exit={t.get('exit_code')}): {t.get('stderr', '').strip()}"
+                    f"[{replica_id}] {len(failed)}/{num_sims} sims failed "
+                    f"(exit codes: {codes})"
                 )
+        else:
+            task_dicts = [
+                {"executable": python_exe, "arguments": _make_args(i)}
+                for i in range(num_sims)
+            ]
+            all_uids = []
+            for i in range(0, num_sims, sub_batch):
+                submitted = await asyncio.to_thread(
+                    self._rh.submit_tasks, task_dicts[i : i + sub_batch]
+                )
+                all_uids.extend(t["uid"] for t in submitted)
+            completed = await asyncio.to_thread(self._rh.wait_tasks, all_uids)
+            failed = [t for t in completed if t.get("exit_code", 0) != 0]
+            if failed:
+                raise RuntimeError(
+                    f"[{replica_id}] {len(failed)}/{num_sims} sims failed"
+                )
+
+    # ── Score ─────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _compute_score(replica_dir: str) -> float:
+        """Return mean |y| across all simulation .npz files in sim_output/."""
+        ys = []
+        for f in (Path(replica_dir) / "sim_output").rglob("*.npz"):
+            arr = np.load(f)
+            if "y" in arr:
+                ys.append(arr["y"].ravel())
+        if not ys:
+            return float("inf")
+        return float(np.mean(np.abs(np.concatenate(ys))))
 
     # ── Completion hook ────────────────────────────────────────────────────────
 
@@ -131,26 +203,26 @@ class OrbitWorkflow(BaseWorkflow):
             return
 
         cfg = self.config or {}
+        replica_dir = str(Path(cfg["sim_output_dir"]) / replica_id)
+
+        score = await asyncio.to_thread(self._compute_score, replica_dir)
+
+        OrbitWorkflow._n_evaluated += 1
+        is_best = score < OrbitWorkflow._best_score
+        if is_best:
+            OrbitWorkflow._best_score = score
+        print(
+            f"[OrbitWorkflow] {replica_id}  score={score:.4f}"
+            f"  best={OrbitWorkflow._best_score:.4f}"
+            + ("  ★" if is_best else "")
+        )
 
         if self._group_name == "search":
-            score = random.random()
-            OrbitWorkflow._n_evaluated += 1
-            if score < OrbitWorkflow._best_score:
-                OrbitWorkflow._best_score = score
-
             threshold = float(cfg.get("refine_threshold", 0.5))
             trigger_group = cfg.get("trigger_refine", "refine")
             if score < threshold:
                 OrbitWorkflow._refine_scores.append(score)
                 await self._trigger_dependent(trigger_group, replicas=1)
-
         else:
-            init_score = (
-                OrbitWorkflow._refine_scores.pop(0) if OrbitWorkflow._refine_scores else 0.3
-            )
-            decay = float(cfg.get("score_decay", 0.6))
-            noise = float(cfg.get("score_noise", 0.05))
-            score = init_score * decay * max(0.1, 1.0 + random.gauss(0.0, noise))
-            OrbitWorkflow._n_evaluated += 1
-            if score < OrbitWorkflow._best_score:
-                OrbitWorkflow._best_score = score
+            if OrbitWorkflow._refine_scores:
+                OrbitWorkflow._refine_scores.pop(0)

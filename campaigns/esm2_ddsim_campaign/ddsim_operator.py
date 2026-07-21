@@ -56,7 +56,6 @@ class DDSimCampaignOperator(CampaignOperator):
         *,
         n_md_runs: int = 4,
         max_fail_rate: float = 0.05,
-        target: Optional[int] = None,
         policy=None,
         observer=None,
         max_cycles: Optional[int] = None,
@@ -64,13 +63,13 @@ class DDSimCampaignOperator(CampaignOperator):
         super().__init__(
             view,
             engine,
-            target=target,
             policy=policy,
             observer=observer,
             max_cycles=max_cycles,
         )
         self._n_md_runs = int(n_md_runs)
         self._max_fail_rate = float(max_fail_rate)
+        self._validate_stopping_condition()
 
     # ── Observation ────────────────────────────────────────────────────────
 

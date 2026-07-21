@@ -55,38 +55,6 @@ GPU BUDGET — 4 A40 GPUs, shared by inference, md, miniapps
     md has floor=1: its 1 guaranteed GPU is already reserved in pass-1.
 
 ────────────────────────────────────────────────────────────────────────────
-STAGE FIELDS each cycle
-
-  running      — replicas currently executing
-  cap          — max replicas this stage can run at once
-  pending      — replicas waiting to start (blocked on resources or backpressure)
-  starved      — true when stage has pending work AND running < cap (resource-blocked)
-                 Use BOTH pending AND starved: pending > 0 means work is waiting;
-                 starved = true means the stage can't get more resource slots.
-                 A stage with pending > 0 but starved = false is already at cap —
-                 raising its priority won't help (it's cap-limited, not resource-starved).
-  is_source    — true only for inference and md (they have no upstream stages)
-  requires_gpu — true when this stage needs a GPU slot; false for CPU-only stages
-                 (e.g. dummy).  GPU-utilisation-based batch adjustments should only
-                 apply to stages where requires_gpu = true.
-  bp_state     — backpressure on the DOWNSTREAM edge: HOLD | THROTTLE | WIDEN
-                 THROTTLE → downstream buffer full; slow upstream dispatch
-                 WIDEN    → downstream buffer draining; increase upstream dispatch
-
-LIVE HARDWARE TELEMETRY (0 when unavailable — e.g. CPU-only runs)
-
-  gpu_util             — EWA GPU utilisation % across all devices (0–100)
-  cpu_util             — EWA node CPU utilisation % (0–100)
-  mem_util             — EWA node memory utilisation % (0–100)
-  gpu_utils_per_device — latest GPU % per device id (dict)
-  task_fail_rate       — fraction of completed tasks that failed (0–1)
-  avg_task_duration_s  — rolling mean of task wall-clock seconds (None = no data)
-
-When gpu_util = 0: no GPU telemetry available (CPU-only run or NVML absent).
-All gpu_util-based rules below are INACTIVE.  Apply downstream-first ordering
-unconditionally — do NOT adjust priorities or batches based on gpu_util = 0.
-
-────────────────────────────────────────────────────────────────────────────
 DEFAULT STRATEGY — DOWNSTREAM-FIRST
 
 The correct depth ordering (deeper = higher priority):

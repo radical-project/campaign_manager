@@ -174,7 +174,8 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
                 config = plan_to_workflows_dict(plan)
         res_cfg = config.get("resources", {})
         num_workers = config.get("num_workers")
-        features = config.get("features", {})
+        cm_cfg = config.get("cm", {})
+        features = cm_cfg.get("features", {}) or config.get("features", {})
 
         cm = cls(
             max_workers=config.get("max_workers"),
@@ -242,12 +243,21 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
                 hi = int(wf_cfg.get("backpressure_high") or 0)
                 lo = int(wf_cfg.get("backpressure_low") or 0)
                 if hi > 0 and lo > 0 and hi > lo:
+                    # score_slack > 0 lets a high-quality upstream buffer raise the
+                    # effective high-water mark (see BackpressureNegotiator.step()).
+                    # Requires backpressure + sharder features to both be enabled;
+                    # safe to configure regardless (0.0 = feature off).
+                    score_slack = float(wf_cfg.get("backpressure_score_slack") or 0.0)
                     cm._bp[name] = BackpressureNegotiator(
                         edge_name=f"*_to_{name}",
                         high_water=hi,
                         low_water=lo,
+                        score_slack=score_slack,
                     )
-                    cm._log.info(f"Backpressure [{name}]: high_water={hi}  low_water={lo}")
+                    cm._log.info(
+                        f"Backpressure [{name}]: high_water={hi}  low_water={lo}"
+                        + (f"  score_slack={score_slack}" if score_slack else "")
+                    )
 
         # ── Feature: Sharder ─────────────────────────────────────────────────
         if features.get("sharder"):
@@ -299,13 +309,38 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
         if plan is not None:
             cm._plan = plan
 
+        # ── Flat-config Triage (no plan, triage: key in workflow config) ──────
+        # When features.budget is set and a workflow config has a triage: block,
+        # create a Triage without a BudgetController so the ADR view exposes
+        # score_cutoff / score_cutoff_bounds in budget_controllers obs.
+        if features.get("budget_control") or features.get("budget"):
+            for name, wf_cfg in config.get("workflows", {}).items():
+                if name in cm._triages:
+                    continue  # already set by plan-based path below
+                triage_cfg = wf_cfg.get("triage")
+                if triage_cfg and isinstance(triage_cfg, dict):
+                    bounds = triage_cfg.get("score_cutoff_bounds", [0.0, 1.0])
+                    t = Triage(
+                        stage_id=name,
+                        score_cutoff=float(triage_cfg.get("score_cutoff", 0.5)),
+                        score_cutoff_bounds=tuple(bounds),
+                        uncertainty_cutoff=float(triage_cfg.get("uncertainty_cutoff", 1.0)),
+                        uncertainty_cutoff_bounds=(0.0, 1.0),
+                    )
+                    cm._triages[name] = t
+                    cm._log.info(
+                        f"Triage [{name}]: score_cutoff={t.score_cutoff:.2f}"
+                        f"  bounds={list(t.score_cutoff_bounds)}"
+                        f"  unc_cutoff={t.uncertainty_cutoff:.2f}"
+                    )
+
         # ── Triage + BudgetController per stage ──────────────────────────────
         # Gated by features.budget_control so other benchmark configurations
         # (sharding+bp, all_optimizations) stay unaffected
         # even if the plan defines surrogate specs.  When the flag is off, no
         # surrogates, no triages, no controllers, no replanning controller —
         # the CM behaves like the legacy flat-config path.
-        if plan is not None and features.get("budget_control"):
+        if plan is not None and (features.get("budget_control") or features.get("budget")):
             for stage in plan.stages:
                 if stage.surrogate is None:
                     continue
@@ -628,6 +663,16 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
     # Public control API
     # ------------------------------------------------------------------
 
+    async def stop(self) -> None:
+        """Signal the campaign to stop early (e.g. an ADR goal was reached).
+
+        Sets the internal completion event so that ``wait()`` returns immediately.
+        In-flight replicas are cancelled by the subsequent ``close()`` call.
+        """
+        if not self._all_done.is_set():
+            self._all_done.set()
+            self._log.info("Campaign stopped by external signal (ADR goal reached)")
+
     async def signal_done(self, group_name: str) -> None:
         """Signal that *group_name* has produced output; queue 1 replica in each dependent."""
         async with self._lock:
@@ -934,6 +979,22 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
     def metrics(self) -> CampaignMetrics:
         """Return the live metrics recorder for this campaign run."""
         return self._metrics
+
+    def set_score_cutoff(self, stage: str, value: float) -> bool:
+        """Absolute-set the triage score cutoff for a stage, clamped to its bounds.
+
+        Convenience method for non-ADR callers (tests, scripts, REPL).
+        Within an ADR operator prefer view.set_score_cutoff() directly.
+
+        Note: BudgetController nudges the cutoff every scheduler cycle, so this
+        must be called repeatedly to maintain the target (last write wins).
+        Returns False if the stage has no active triage.
+        """
+        triage = self._triages.get(stage)
+        if triage is None:
+            return False
+        triage.nudge_cutoffs(value - triage.score_cutoff, 0.0)
+        return True
 
     def set_replan_io(
         self,

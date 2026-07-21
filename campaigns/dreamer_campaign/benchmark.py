@@ -5,8 +5,8 @@ ADR policy benchmark — measures campaign performance across scheduling policie
 Mirrors benchmark.py, but instead of feature-flag configurations it varies the
 *scheduling policy* that drives the campaign:
 
-    none    — no ADR supervision: static group priorities (baseline)
-    rule    — DownstreamFirstPolicy   (deterministic, the rule the bandit learns)
+    none    — NullSchedulingPolicy: goals-only, static priorities (baseline)
+    rule    — campaign's rule_policy() → DownstreamFirstPolicy fallback
     bandit  — BanditSchedulingPolicy  (the same bandit, wrapped as an ADR agent)
     llm     — LLMSchedulingPolicy      (only if an API key is set)
 
@@ -107,10 +107,9 @@ async def _run_once(config: dict, seed_offset: int, policy_kind: str, log_path: 
 
     # Deadline-yield mode: disable early-stop so the campaign runs the full window
     # (we measure leads produced by the deadline, not time to a fixed lead count).
-    if MODE == "deadline-yield" and "stages" in config:
-        for s in config["stages"]:
-            if "campaign_target" in s:
-                s["campaign_target"] = 0
+    # n_target=0 tells DreamerCampaignOperator to return [] from @goals → no stop.
+    if MODE == "deadline-yield":
+        config.setdefault("cm", {}).setdefault("adr", {}).setdefault("goals", {})["n_target"] = 0
 
     if "stages" in config:
         cm_cfg = config.get("cm", {})
@@ -133,52 +132,60 @@ async def _run_once(config: dict, seed_offset: int, policy_kind: str, log_path: 
     registry = _build_registry(config)
     cm = CampaignManager.from_config(config, registry, asyncflow=asyncflow)
 
-    # Build the operator (policy != none). The CM has no in-loop bandit; the
-    # ADR policy owns scheduling priority via group.priority.
-    operator = None
-    final_summary: dict = {}
-    if policy_kind != "none":
-        from src.campaign.adr import (
-            CampaignOperator,
-            CampaignView,
-            PolicyRecorder,
-            make_scheduling_policy,
-            resolve_system_prompt,
-        )
+    # Build the operator for all policies — DreamerCampaignOperator owns the
+    # @goals declaration so early-stop fires correctly for every policy kind.
+    # "none" uses NullSchedulingPolicy: goals still checked, no priority changes.
+    from dreamer_operator import DreamerCampaignOperator
+    from src.campaign.adr import (
+        CampaignView,
+        LoggingPolicy,
+        NullSchedulingPolicy,
+        PolicyRecorder,
+        make_scheduling_policy,
+        resolve_system_prompt,
+    )
 
-        adr_cfg = config.get("cm", {}).get("adr", {})
-        view = CampaignView(cm)
-        recorder = PolicyRecorder(log_path, policy_kind=policy_kind)
-        operator = CampaignOperator(view, engine=asyncflow, observer=recorder)
-        api_key = None
-        kw = {}
-        if policy_kind == "bandit":
-            kw = {"warmstart": bool(adr_cfg.get("warmstart", True)), "seed": seed_offset}
-        elif policy_kind == "llm":
-            # Mirror run_campaign._build_adr_operator: honour base_url / timeout
-            # and supply a placeholder key for local (Ollama/llama.cpp) endpoints.
-            env = adr_cfg.get("llm_api_key_env", "OPENROUTER_API_KEY")
-            api_key = os.environ.get(env)
-            base_url = adr_cfg.get("base_url", "") or ""
-            if base_url:
-                kw["base_url"] = base_url
-            if adr_cfg.get("llm_timeout_s") is not None:
-                kw["timeout_s"] = float(adr_cfg["llm_timeout_s"])
-            if adr_cfg.get("llm_max_retries") is not None:
-                kw["instructor_retries"] = int(adr_cfg["llm_max_retries"])
-            if not api_key and ("localhost" in base_url or "127.0.0.1" in base_url):
-                api_key = "sk-noauth"
-            prompt = resolve_system_prompt(adr_cfg)  # cwd-relative for file paths
-            if prompt:
-                kw["system_prompt"] = prompt
-        operator.policy = make_scheduling_policy(
-            operator,
-            kind=policy_kind,
-            llm_api_key=api_key,
-            model=adr_cfg.get("model", "openai/gpt-4o-mini"),
-            **kw,
+    config_dir = Path(__file__).parent
+    adr_cfg = config.get("cm", {}).get("adr", {})
+    n_target = int(adr_cfg.get("goals", {}).get("n_target", TARGET_N))
+    view = CampaignView(cm, terminal=adr_cfg.get("terminal") or None)
+    recorder = PolicyRecorder(log_path, policy_kind=policy_kind)
+    operator = DreamerCampaignOperator(view, engine=asyncflow, n_target=n_target, observer=recorder)
+    final_summary: dict = {}
+
+    api_key = None
+    kw: dict = {}
+    if policy_kind == "none":
+        policy = NullSchedulingPolicy()
+    elif policy_kind == "bandit":
+        kw = {"warmstart": bool(adr_cfg.get("warmstart", True)), "seed": seed_offset}
+        policy = make_scheduling_policy(operator, kind="bandit", **kw)
+    elif policy_kind == "llm":
+        env = adr_cfg.get("llm_api_key_env", "OPENROUTER_API_KEY")
+        api_key = os.environ.get(env)
+        base_url = adr_cfg.get("base_url", "") or ""
+        if base_url:
+            kw["base_url"] = base_url
+        if adr_cfg.get("llm_timeout_s") is not None:
+            kw["timeout_s"] = float(adr_cfg["llm_timeout_s"])
+        if adr_cfg.get("llm_max_retries") is not None:
+            kw["instructor_retries"] = int(adr_cfg["llm_max_retries"])
+        if not api_key and ("localhost" in base_url or "127.0.0.1" in base_url):
+            api_key = "sk-noauth"
+        prompt = resolve_system_prompt(adr_cfg, config_dir)
+        if prompt:
+            kw["system_prompt"] = prompt
+        policy = make_scheduling_policy(
+            operator, kind="llm", llm_api_key=api_key,
+            model=adr_cfg.get("model", "openai/gpt-4o-mini"), **kw,
         )
-        recorder.bind(view=view, policy=operator.policy)
+    else:
+        policy = make_scheduling_policy(operator, kind=policy_kind, **kw)
+    if not isinstance(policy, NullSchedulingPolicy):
+        log_every = int(adr_cfg.get("log_every", 1))
+        policy = LoggingPolicy(policy, log_every=log_every)
+    operator.policy = policy
+    recorder.bind(view=view, policy=operator.policy)
 
     # In deadline-yield mode the run is cut off at DEADLINE_S by design (the
     # campaign never finishes naturally); in time-to-target mode it runs until
@@ -188,16 +195,12 @@ async def _run_once(config: dict, seed_offset: int, policy_kind: str, log_path: 
     dnf = False
     try:
         await cm.start()
-        if operator is not None:
-            finished = await _drive_with_timeout(cm, operator, run_timeout)
-        else:
-            finished = await cm.wait(timeout=run_timeout)
+        finished = await _drive_with_timeout(cm, operator, run_timeout)
         # Not-finishing is a DNF only in time-to-target mode; in deadline-yield
         # the cutoff is expected and the metric is leads produced by then.
         if not finished and MODE != "deadline-yield":
             dnf = True
-        if operator is not None:
-            final_summary = getattr(operator.policy, "summary", {}) or {}
+        final_summary = getattr(operator.policy, "summary", {}) or {}
     finally:
         await cm.close()
         await asyncflow.shutdown()
@@ -206,10 +209,9 @@ async def _run_once(config: dict, seed_offset: int, policy_kind: str, log_path: 
     m["policy"] = policy_kind
     if dnf:
         m["dnf"] = True
-    if operator is not None:
-        m["decision_log"] = str(log_path)
-        if final_summary:
-            m["final_posteriors"] = final_summary
+    m["decision_log"] = str(log_path)
+    if final_summary:
+        m["final_posteriors"] = final_summary
 
     s5_finishes = sorted(
         e["t"]

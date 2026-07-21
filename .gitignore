@@ -42,6 +42,7 @@ campaigns/*/adr-logs/
 campaigns/*/plots/
 campaigns/*/telemetry-results-*/
 campaigns/*/*.npy
+campaigns/*/slurm-*
 
 # Editor / OS
 .DS_Store

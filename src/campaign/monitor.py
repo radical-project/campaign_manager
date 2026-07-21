@@ -93,6 +93,19 @@ class Monitor:
     def reset(self, stage_id: str, kind: DriftKind) -> None:
         self._reset(stage_id, kind)
 
+    def active_alerts(self) -> dict[str, list[str]]:
+        """Return {stage_id: [kind_name, …]} for all currently-breaching monitors.
+
+        A stage is breaching whenever its breach counter > 0.  The counter is
+        reset to 0 by _check() when the deviation falls back within bounds, so
+        only genuinely-active violations appear here.  Empty dict = no alerts.
+        """
+        result: dict[str, list[str]] = {}
+        for (stage_id, kind), count in self._counts.items():
+            if count > 0:
+                result.setdefault(stage_id, []).append(kind.value)
+        return result
+
     # ── internal ─────────────────────────────────────────────────────────────
 
     def _check(

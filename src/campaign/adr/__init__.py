@@ -1,20 +1,19 @@
 """ADR bridge — drive an AsyncCampaignManager from a radical.adr Policy.
 
 This subpackage lets a radical.adr ``Policy`` (rule-based or LLM-driven) make
-the campaign's adaptive scheduling decisions instead of the in-CM bandits.
-The CM keeps owning scheduling, execution lifecycle, and resources; the ADR
-``CampaignOperator`` only observes the campaign and advises it (the ADR
-"sacred boundary").
+the campaign's adaptive scheduling decisions.  The CM keeps owning scheduling,
+execution lifecycle, and resources; the ADR ``CampaignOperator`` only observes
+and advises (the ADR "sacred boundary").
 
-Quick start (supervised alongside a live CM)::
+Campaigns subclass ``CampaignOperator`` in ``campaigns/<name>/operator.py`` to
+declare their specific stopping goals and observation extensions::
 
-    from src.campaign.adr import (
-        CampaignView, CampaignOperator, run_supervised, make_scheduling_policy,
-    )
+    from src.campaign.adr import CampaignView, run_supervised, make_scheduling_policy
+    from campaigns.my_campaign.operator import MyCampaignOperator
 
-    view = CampaignView(cm, target=5)
-    op   = CampaignOperator(view, engine=cm._asyncflow)
-    op.policy = make_scheduling_policy(op, llm_api_key=API_KEY)  # rule + LLM
+    view = CampaignView(cm)
+    op   = MyCampaignOperator(view, engine=asyncflow, n_target=10)
+    op.policy = make_scheduling_policy(op, kind="rule")
     await cm.start()
     await run_supervised(cm, op)
 
@@ -24,10 +23,12 @@ additionally needs ``openai`` + ``instructor`` (imported lazily).
 
 from .operator import CampaignOperator, run_supervised
 from .policies import (
-    DEFAULT_SCHEDULING_PROMPT,
     BanditSchedulingPolicy,
     DownstreamFirstPolicy,
     LLMSchedulingPolicy,
+    LoggingPolicy,
+    NullSchedulingPolicy,
+    RuleCorrectionsPolicy,
     ScheduleDecision,
     make_scheduling_policy,
     resolve_system_prompt,
@@ -43,10 +44,12 @@ __all__ = [
     "run_supervised",
     "PolicyRecorder",
     "TelemetrySubscriber",
-    "DEFAULT_SCHEDULING_PROMPT",
     "DownstreamFirstPolicy",
     "BanditSchedulingPolicy",
     "LLMSchedulingPolicy",
+    "LoggingPolicy",
+    "NullSchedulingPolicy",
+    "RuleCorrectionsPolicy",
     "ScheduleDecision",
     "make_scheduling_policy",
     "resolve_system_prompt",

@@ -119,6 +119,7 @@ class Sharder:
     spec: ShardingSpec
 
     _buf: list = field(default_factory=list, init=False)
+    _max_score_seen: float = field(default=0.0, init=False)
     _upstream_done: bool = field(default=False, init=False)
     _shard_seq: int = field(default=0, init=False)
     _profile: Optional["ProfileWeights"] = field(default=None, init=False)
@@ -163,6 +164,8 @@ class Sharder:
         enqueue_time: Optional[float] = None,
     ) -> None:
         """Accept one candidate into the buffer."""
+        if score > self._max_score_seen:
+            self._max_score_seen = score
         self._buf.append(
             _CandidateEntry(
                 candidate_id=candidate_id,
@@ -186,6 +189,22 @@ class Sharder:
             release low-priority candidates that should never run.
         """
         self._upstream_done = True
+
+    def buffer_score_quality(self) -> float:
+        """Mean buffer score relative to the all-time high seen at this stage.
+
+        Used by BackpressureNegotiator.step() when score_slack > 0 to raise the
+        effective high-water mark for high-quality buffers.
+
+        Returns 0.5 (neutral) when the buffer is empty or no scored candidate has
+        been received yet — this leaves the BP threshold unchanged.
+        Clamped to [0, 1] so multiplying by score_slack never amplifies beyond
+        the configured ceiling.
+        """
+        if not self._buf or self._max_score_seen < 1e-9:
+            return 0.5
+        mean_score = sum(e.score for e in self._buf) / len(self._buf)
+        return max(0.0, min(1.0, mean_score / self._max_score_seen))
 
     def clear(self) -> None:
         """Drop all buffered candidates. Used when a stage is cancelled or
@@ -389,14 +408,10 @@ class Sharder:
                 top_scores,
             )
         if self._log_fn is not None:
-            cand_str = "  ".join(
-                f"{e.candidate_id}(s={e.score:.3f} p={ps:.3f} sc={e.scaffold_class})"
-                for e, ps in zip(top_entries, top_scores, strict=False)
-            )
             self._log(
                 f"  Sharder [{self.name}] shard={self._shard_seq}: "
                 f"dispatched {n}  profile={self.spec.profile}  "
-                f"buffered={len(self._buf)} remaining\n    {cand_str}"
+                f"buffered={len(self._buf)} remaining"
             )
 
         return dispatched

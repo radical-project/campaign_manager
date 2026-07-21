@@ -1,29 +1,43 @@
-"""CampaignOperator — an ADR Operator that supervises an AsyncCampaignManager.
+"""CampaignOperator — generic ADR Operator base for AsyncCampaignManager campaigns.
 
-This is the "agent layer" seam: instead of the SchedulingBandit/ShardBandit
-deciding *inside* the CM, a CampaignOperator runs the ADR Run→Observe→Decide→Act
-loop *alongside* a running CM and nudges its scheduling levers (priority, batch
-size, dependent triggers).  The CM still owns scheduling, execution lifecycle,
-and resources — the operator only observes and advises (the ADR sacred boundary).
+Campaign-specific logic (goals, observation extensions, default policy) lives in
+``campaigns/<name>/operator.py`` subclasses.  This module only owns the generic
+scheduling levers and the observation mechanics that are common to all campaigns.
 
-The operator is decoupled from the CM via ``CampaignView`` (see view.py), so it
-unit-tests against a fake view with no live CM, no engine, and no LLM key.
+Typical usage::
 
-Typical use (supervised alongside a live CM)::
+    # In campaigns/my_campaign/operator.py:
+    from src.campaign.adr import CampaignOperator
+    from radical.adr import goals, observe
+    from radical.adr.goals import Goal
 
-    from src.campaign.adr import CampaignView, CampaignOperator
-    from src.campaign.adr import make_scheduling_policy
+    class MyCampaignOperator(CampaignOperator):
+        n_target: int = 10
 
-    view = CampaignView(cm, target=5)
-    op   = CampaignOperator(view, engine=cm._asyncflow)
-    op.policy = make_scheduling_policy(op)          # rule + optional LLM
+        def __init__(self, view, engine=None, *, n_target=10, **kwargs):
+            super().__init__(view, engine=engine, **kwargs)
+            self.n_target = int(n_target)
+            self._validate_stopping_condition()
+
+        @goals
+        def criteria(self):
+            if self.n_target <= 0:
+                return []
+            return Goal(name="done", metric="n_hits",
+                        threshold=self.n_target - 0.5, direction="maximize")
+
+    # In run_campaign.py:
+    view = CampaignView(cm)
+    op   = MyCampaignOperator(view, engine=asyncflow, n_target=10)
+    op.policy = make_scheduling_policy(op, kind="rule")
     await cm.start()
-    await run_supervised(cm, op)                     # see run_supervised below
+    await run_supervised(cm, op)
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Optional
 
 from radical.adr import Operator, act, goals, observe
@@ -31,57 +45,145 @@ from radical.adr.goals import Goal
 
 from .view import CampaignViewProtocol
 
+log = logging.getLogger(__name__)
+
 
 class CampaignOperator(Operator):
-    """ADR Operator whose acts mutate an AsyncCampaignManager's scheduling state."""
+    """Generic ADR Operator base that supervises an AsyncCampaignManager.
 
-    # ── State (proxied to state.objectives, persisted across cycles) ────────
-    target: int = 0  # goal threshold (terminal-stage completions)
+    Subclass this in ``campaigns/<name>/operator.py`` and override:
+      - ``@goals def criteria(self)`` — declare campaign-specific stopping goals
+      - ``@observe def extract(self, snapshot)`` — extend obs with campaign metrics
+        (call ``super().extract(snapshot)`` to get the base fields first)
+      - ``default_policy(self)`` — return the campaign's preferred policy when the
+        config doesn't specify one (returns None by default → no ADR supervision)
+
+    The base ``@observe`` already computes:
+      obs["n_hits"]  — total finished replicas across all terminal stages
+      obs["cycle"]   — current ADR cycle number
+
+    The base ``@goals`` returns [] (no stopping condition).  Campaigns MUST
+    override ``@goals`` or pass ``max_cycles`` to avoid running forever.
+    """
+
+    # ── ADR registry inheritance ────────────────────────────────────────────────
+    # Operator.__init_subclass__ resets _adl_act_registry / _adl_observe_fn /
+    # _adl_goals_fn to empty/None for every new subclass, scanning only that
+    # class's own vars().  We restore proper inheritance here so campaign
+    # subclasses automatically get the base @act / @observe / @goals methods
+    # without having to redeclare them.
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        # Merge act registry from parent classes (deepest MRO wins first).
+        for base in cls.__mro__[1:]:
+            parent_reg = getattr(base, "_adl_act_registry", {})
+            for name, fn in parent_reg.items():
+                if name not in cls._adl_act_registry:
+                    cls._adl_act_registry[name] = fn
+        # Inherit @observe if not overridden in this class.
+        if cls._adl_observe_fn is None:
+            for base in cls.__mro__[1:]:
+                fn = getattr(base, "_adl_observe_fn", None)
+                if fn is not None:
+                    cls._adl_observe_fn = fn
+                    break
+        # Inherit @goals if not overridden in this class.
+        if cls._adl_goals_fn is None:
+            for base in cls.__mro__[1:]:
+                fn = getattr(base, "_adl_goals_fn", None)
+                if fn is not None:
+                    cls._adl_goals_fn = fn
+                    break
+
+    # ── Constructor ─────────────────────────────────────────────────────────────
 
     def __init__(
         self,
         view: CampaignViewProtocol,
         engine: Any = None,
         *,
-        target: Optional[int] = None,
         policy=None,
         observer=None,
         max_cycles: Optional[int] = None,
     ) -> None:
         super().__init__(engine, policy=policy, observer=observer, max_cycles=max_cycles)
-        # _view is a plain instance attr (not an annotated state key).
         object.__setattr__(self, "_view", view)
-        # Seed the goal threshold: explicit arg wins, else the view's inference.
-        if target is None:
-            target = int(view.observe().get("target", 0) or 0)
-        self.target = int(target)
 
     @property
     def view(self) -> CampaignViewProtocol:
         return object.__getattribute__(self, "_view")
 
-    # ── Goals ───────────────────────────────────────────────────────────────
+    # ── Stopping condition validation ───────────────────────────────────────────
+
+    def _validate_stopping_condition(self) -> None:
+        """Raise ValueError if this operator has no stopping condition at all.
+
+        Call this at the END of a subclass __init__ (after setting all state)
+        so that @goals can see the fully-initialised operator state.
+        """
+        goals_fn = type(self)._adl_goals_fn
+        has_goals = False
+        if goals_fn is not None:
+            raw = goals_fn(self)
+            static = raw if isinstance(raw, list) else [raw]
+            has_goals = bool(static)
+        has_max = object.__getattribute__(self, "_max_cycles") is not None
+        if not has_goals and not has_max:
+            raise ValueError(
+                f"{type(self).__name__} has no stopping condition: "
+                "override @goals to declare campaign goals or pass max_cycles."
+            )
+
+    # ── Default policy (campaigns override) ────────────────────────────────────
+
+    def default_policy(self):
+        """Return this campaign's preferred policy when the config omits 'policy'.
+
+        Return None to disable ADR supervision by default.  Subclasses override
+        this to provide a sensible default without forcing every user to configure
+        a policy explicitly.
+        """
+        return None
+
+    def rule_policy(self):
+        """Return this campaign's rule-based policy for ``policy: rule`` in config.
+
+        Return None to fall back to the generic DownstreamFirstPolicy.
+        Subclasses override this to supply a campaign-specific deterministic rule
+        instead of the shared depth-first heuristic.
+
+        Example::
+
+            def rule_policy(self):
+                return MyCampaignRulePolicy(self)
+        """
+        return None
+
+    # ── Goals (empty — campaigns declare their own) ─────────────────────────────
 
     @goals
     def criteria(self):
-        # target <= 0 → no early-stop goal (let the CM finish naturally).
-        if self.target <= 0:
-            return []
-        # Goal.satisfied uses strict '>'; subtract 0.5 so integer hit-counts
-        # satisfy at exactly `target` (hits >= target).
-        return Goal(
-            name="target_reached", metric="hits", threshold=self.target - 0.5, direction="maximize"
-        )
+        return []
 
-    # ── Observe ─────────────────────────────────────────────────────────────
+    # ── Observe ─────────────────────────────────────────────────────────────────
 
     @observe
     def extract(self, snapshot) -> dict:
         obs = self.view.observe()
         obs["cycle"] = snapshot.cycle
+        stages = obs.get("stages", {})
+        # n_hits: terminal-stage finished count — the primary campaign progress signal.
+        obs["n_hits"] = sum(
+            stages.get(t, {}).get("finished", 0)
+            for t in obs["terminal"]
+        )
+        # n_sims: total finished replicas across ALL stages.  Useful as a compute
+        # budget proxy (Goal metric="n_sims") when campaign cost scales with total work.
+        obs["n_sims"] = sum(s.get("finished", 0) for s in stages.values())
         return obs
 
-    # ── Act levers (delegate to the view) ───────────────────────────────────
+    # ── Act levers (delegate to the view) ───────────────────────────────────────
 
     @act
     async def set_priority(self, stage: str, priority: int) -> dict:
@@ -92,6 +194,11 @@ class CampaignOperator(Operator):
     async def set_batch_size(self, stage: str, size: int) -> dict:
         ok = self.view.set_batch_size(stage, size)
         return {"lever": "set_batch_size", "stage": stage, "size": size, "ok": ok}
+
+    @act
+    async def set_score_cutoff(self, stage: str, value: float) -> dict:
+        ok = self.view.set_score_cutoff(stage, value)
+        return {"lever": "set_score_cutoff", "stage": stage, "value": value, "ok": ok}
 
     @act
     async def trigger(self, stage: str, replicas: int) -> dict:
@@ -106,14 +213,23 @@ async def run_supervised(
 ) -> None:
     """Run a CampaignOperator's decision loop alongside a running CM.
 
-    The CM is started by the caller.  This drives the operator one cycle per
-    ``tick_s`` until the CM completes (``cm.wait()``) or the operator's goal
-    fires.  Cancels the operator loop cleanly when the campaign ends.
+    The CM must already be started by the caller.  This drives the operator one
+    cycle per ``tick_s`` until the CM completes naturally OR the operator's goal
+    fires — whichever comes first.  When the goal fires, ``cm.stop()`` is called
+    to signal the CM to stop accepting new work.
     """
 
     async def _drive() -> None:
         async for _snapshot in operator.run():
             await asyncio.sleep(tick_s)
+        # Operator exited (goal satisfied or manual shutdown).
+        # Propagate stop to the CM if it supports it.
+        if hasattr(cm, "stop") and callable(cm.stop):
+            try:
+                await cm.stop()
+                log.info("run_supervised: ADR goal reached — CM stop() signalled")
+            except Exception as exc:  # noqa: BLE001
+                log.warning("run_supervised: cm.stop() raised %s", exc)
 
     drive_task = asyncio.ensure_future(_drive())
     try:

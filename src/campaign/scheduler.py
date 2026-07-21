@@ -182,7 +182,9 @@ class SchedulerMixin:
                     g = self._workflows[bp_name]
                     queue_depth = max(0, g.replicas - g.started_count)
                     old_state = bp_ctrl.state
-                    bp_ctrl.step(queue_depth)
+                    sh = self._sharders.get(bp_name)
+                    q = sh.buffer_score_quality() if sh is not None else 0.5
+                    bp_ctrl.step(queue_depth, score_quality=q)
                     if bp_ctrl.state != old_state:
                         # Suppress the trivial HOLD→WIDEN at startup (empty queue
                         # always triggers this; it carries no actionable information).
@@ -301,7 +303,7 @@ class SchedulerMixin:
                 for g in self._workflows.values()
             )
             res_line = f"  {self._resources.usage_str()}"
-            self._log.info(
+            self._log.debug(
                 f"Scheduling: [{summary}]  viz=[{viz}]\n" + group_lines + "\n" + res_line
             )
 

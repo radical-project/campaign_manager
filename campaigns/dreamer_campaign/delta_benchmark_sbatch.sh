@@ -4,10 +4,10 @@
 #
 # All stages run in dreamer stub mode (total_gpus=0, no real GPU use):
 #   s1=0.5s(10000 reps, cap=30), s2=0.5s(cap=16), s3=1.0s(cap=12),
-#   s4=2.0s(cap=8), s5=2.0s(cap=6, campaign_target=5).
+#   s4=2.0s(cap=8), s5=2.0s(cap=6, cm.adr.goals.n_target=5).
 # Campaign early-stops when s5 produces 5 leads; all stages overlap in pipeline.
 # Pipeline latency s1→s5: ~6s; measured wall time per run: ~8-10s.
-# Total benchmark (5 runs × 3 policies: none/rule/bandit): ~3min.
+# Total benchmark (1 run × 4 policies: none/rule/bandit/llm): ~1min.
 #
 # Submit: sbatch delta_benchmark_sbatch.sh
 # Logs:   slurm-<jobid>.out  (stdout+stderr, streamed live)
@@ -17,7 +17,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=64
-#SBATCH --time=00:15:00
+#SBATCH --time=01:00:00
 #SBATCH --job-name=dreamer_bench
 #SBATCH --mail-user=mariya.goliyad@rutgers.edu
 #SBATCH --mail-type=ALL
@@ -53,12 +53,13 @@ rm -rf dreamer-profiles telemetry-results
 
 echo "=== Dreamer benchmark: $(date) ==="
 echo "    Node: ${SLURMD_NODENAME}  CPUs: ${SLURM_CPUS_PER_TASK}"
-echo "    Config: config.yaml  Runs: 5"
+echo "    Config: config.yaml  Runs: 1 per policy  Policies: none/rule/bandit/llm"
 echo "    Stage durations (stub): s1=0.5s(10000 reps) s2=0.5s s3=1.0s s4=2.0s s5=2.0s"
-echo "    Campaign early-stops when s5 completes 5 leads (campaign_target=5)"
-echo "    Expected: ~9s/run, total ~3min (5 runs x 3 policies: none/rule/bandit)"
+echo "    Campaign early-stops when s5 completes 5 leads (cm.adr.goals.n_target=5)"
+echo "    Expected: ~9s/run, total ~1min (1 run x 4 policies: none/rule/bandit/llm)"
 
-python benchmark.py --config config.yaml --runs 5 --out benchmark_results.json
+python benchmark.py --config config_stall.yaml 
+#--runs 1 --out benchmark_results.json
 
 echo "=== Benchmark done: $(date) ==="
 

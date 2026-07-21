@@ -28,8 +28,84 @@ from pydantic import BaseModel, Field
 log = logging.getLogger(__name__)
 
 from radical.adr import Decision, LLMPolicy, Policy, decide  # noqa: E402
+from radical.adr.decision import Action, ActionKind  # noqa: E402
 
 from ..bandit import SchedulingBandit  # noqa: E402
+
+
+class BlendPolicy(Policy):
+    """Blend two policies' numeric lever actions by averaging.
+
+    When both policies emit the same (task_name, stage) pair for a blendable
+    lever, a single averaged action is emitted instead of two conflicting writes.
+
+    Blendable levers: set_priority→priority, set_batch_size→size,
+    set_score_cutoff→value. Non-blendable actions pass through deduplicated.
+    stop uses AND semantics; goals/remove_goals/directives are unioned.
+    """
+
+    _BLENDABLE: dict[str, str] = {
+        "set_priority":     "priority",
+        "set_batch_size":   "size",
+        "set_score_cutoff": "value",
+    }
+
+    def __init__(self, policies: list[Policy]) -> None:
+        if len(policies) != 2:
+            raise ValueError(f"BlendPolicy requires exactly 2 policies, got {len(policies)}")
+        super().__init__()
+        self._policies = policies
+
+    async def decide(self, obs: dict) -> Decision:
+        d0 = await self._policies[0].decide(obs)
+        d1 = await self._policies[1].decide(obs)
+
+        def _index(actions: list) -> tuple[dict, list]:
+            indexed: dict[tuple, Action] = {}
+            passthrough: list[Action] = []
+            for a in actions:
+                if (a.kind == ActionKind.SPAWN_TASK
+                        and a.task_name in BlendPolicy._BLENDABLE
+                        and "stage" in a.task_kwargs):
+                    indexed[(a.task_name, a.task_kwargs["stage"])] = a
+                else:
+                    passthrough.append(a)
+            return indexed, passthrough
+
+        idx0, pass0 = _index(d0.actions)
+        idx1, pass1 = _index(d1.actions)
+        blended: list[Action] = []
+
+        for key in set(idx0) | set(idx1):
+            task_name, stage = key
+            val_key = BlendPolicy._BLENDABLE[task_name]
+            if key in idx0 and key in idx1:
+                v0 = idx0[key].task_kwargs[val_key]
+                v1 = idx1[key].task_kwargs[val_key]
+                avg = (v0 + v1) / 2
+                merged_val = int(round(avg)) if val_key in ("priority", "size") else avg
+                merged_kwargs = {**idx0[key].task_kwargs, val_key: merged_val}
+                blended.append(Action(kind=ActionKind.SPAWN_TASK, task_name=task_name,
+                                      task_kwargs=merged_kwargs))
+                log.debug("BlendPolicy: %s(stage=%s)  p0=%g  p1=%g  → blended=%g",
+                          task_name, stage, v0, v1, merged_val)
+            else:
+                blended.append(idx0.get(key) or idx1[key])
+
+        seen: set = set()
+        for a in pass0 + pass1:
+            dedup_key = (a.kind, a.task_name, a.param_key)
+            if dedup_key not in seen:
+                seen.add(dedup_key)
+                blended.append(a)
+
+        return Decision(
+            actions=blended,
+            stop=d0.stop and d1.stop,
+            goals=d0.goals + d1.goals,
+            remove_goals=list(set(d0.remove_goals) | set(d1.remove_goals)),
+            directives={**d0.directives, **d1.directives},
+        )
 
 # ── Shared helpers ─────────────────────────────────────────────────────────
 
@@ -104,7 +180,8 @@ class DownstreamFirstPolicy(Policy):
         gpu_util = float(obs.get("gpu_util", 0.0))
         cpu_util = float(obs.get("cpu_util", 0.0))
 
-        depth = _stage_depth(stages)
+        # Run in a thread so Lustre cold-page-fault stalls don't block the event loop.
+        depth = await asyncio.to_thread(_stage_depth, stages)
         # Deepest-first: highest priority to the most downstream stage.
         order = sorted(stages, key=lambda s: depth[s], reverse=True)
         n = len(order)
@@ -293,61 +370,13 @@ class ScheduleDecision(BaseModel):
             "Omit stages that need no change. May be omitted entirely."
         ),
     )
-    stop: bool = Field(False, description="True only when the campaign target is already reached.")
-
-
-_SYSTEM_PROMPT = (
-    "You schedule a multi-stage scientific pipeline to produce as many terminal "
-    "'hits' as possible. The pipeline is a cascade: each stage feeds the next, and "
-    "only the deepest (terminal) stage produces hits. Resources are scarce and "
-    "oversubscribed — only a few stages can run at once.\n\n"
-    "Each cycle you receive the live state of every stage:\n"
-    "  running    — replicas currently executing\n"
-    "  cap        — max replicas this stage can run at once\n"
-    "  pending    — replicas WAITING to start (blocked on resources)\n"
-    "  starved    — true when the stage has pending work but is running BELOW cap\n"
-    "  is_source  — true for the SOURCE stage (no upstream); its pending is the raw "
-    "input library, NOT a bottleneck\n"
-    "  bp_state   — backpressure: HOLD | THROTTLE (overloaded) | WIDEN (room for more)\n\n"
-    "You also receive live hardware telemetry (present on HPC runs, 0 when unavailable):\n"
-    "  gpu_util             — EWA GPU utilisation % averaged across devices (0–100)\n"
-    "  cpu_util             — EWA node CPU utilisation % (0–100)\n"
-    "  mem_util             — EWA node memory utilisation % (0–100)\n"
-    "  gpu_utils_per_device — latest GPU % per device id\n"
-    "  task_fail_rate       — fraction of completed tasks that failed (0–1)\n"
-    "  avg_task_duration_s  — rolling mean of task wall-clock seconds (None = no data)\n\n"
-    "USE telemetry to modulate your decisions:\n"
-    "  gpu_util > 85%  → shrink batch sizes; avoid over-dispatching to saturated GPUs\n"
-    "  gpu_util < 40%  → grow batch sizes; fill idle GPU capacity\n"
-    "  task_fail_rate > 0.2 → reduce priorities of failing stages; investigate stalls\n"
-    "  avg_task_duration unusually long → discount that stage's throughput estimate\n\n"
-    "STRATEGY — start from the proven default, then make small evidence-based nudges:\n\n"
-    "DEFAULT (use this unless you have a clear reason not to): DOWNSTREAM-FIRST. "
-    "Rank stages by depth — the deepest (terminal) stage highest, the source stage "
-    "lowest. This keeps the leading edge of work flowing all the way to hits and is "
-    "near-optimal for a balanced cascade. Concretely for a 5-stage line: "
-    "s5 > s4 > s3 > s2 > s1.\n\n"
-    "WHY this default is strong and hard to beat: hits only come out of the terminal "
-    "stage, so keeping the terminal stages high ensures finished work converts to hits "
-    "immediately instead of piling up. Cheap downstream stages need only a few slots; "
-    "giving them priority does NOT waste resources (when they have no work they simply "
-    "don't run, and the slots flow upstream automatically).\n\n"
-    "CONSERVATIVE NUDGES (only when the evidence is clear):\n"
-    "  * Never put the is_source stage above a downstream stage — its huge pending is "
-    "just the raw library; running it faster only enlarges downstream backlogs.\n"
-    "  * If a non-source stage is starved=true with a LARGE and GROWING pending while "
-    "the deeper stages are idle (pending=0, low running), raise that starved stage a "
-    "little — but keep the terminal stages high enough to keep draining its output. "
-    "Do NOT give a shallow stage the single highest priority; that starves the drain "
-    "path and hits stop coming.\n"
-    "  * Otherwise keep the downstream-first order.\n\n"
-    "BATCH SIZES (optional): THROTTLE → shrink; WIDEN → grow; HOLD → omit.\n\n"
-    "Return a priority for EVERY stage shown (higher = scheduled first; only relative "
-    "order matters). Set stop=true only when hits >= target."
-)
-
-# Public alias — the built-in default used when cm.adr.system_prompt is unset.
-DEFAULT_SCHEDULING_PROMPT = _SYSTEM_PROMPT
+    stop: bool = Field(
+        False,
+        description=(
+            "Set to True to signal the operator to stop the campaign. "
+            "The condition for stopping is defined in your system prompt."
+        ),
+    )
 
 
 def resolve_system_prompt(adr_cfg: dict, config_dir=None) -> Optional[str]:
@@ -356,22 +385,33 @@ def resolve_system_prompt(adr_cfg: dict, config_dir=None) -> Optional[str]:
     Precedence:
       1. ``system_prompt``      — inline string in the config (wins)
       2. ``system_prompt_file`` — path to a text file (relative to ``config_dir``)
-      3. None                   — caller falls back to DEFAULT_SCHEDULING_PROMPT
+      3. None                   — no prompt configured; LLMSchedulingPolicy will raise
+
+    The shared observation schema (``src/campaign/adr/prompts/observation_schema.txt``)
+    is automatically appended when a campaign-specific prompt is found, so campaign
+    prompts can focus on topology and goals without duplicating field documentation.
 
     Returns the prompt string, or None if neither key is set.
     """
+    from pathlib import Path
+
     inline = adr_cfg.get("system_prompt")
     if inline:
-        return str(inline)
-    path = adr_cfg.get("system_prompt_file")
-    if path:
-        from pathlib import Path
-
+        prompt = str(inline)
+    else:
+        path = adr_cfg.get("system_prompt_file")
+        if not path:
+            return None
         p = Path(path)
         if config_dir is not None and not p.is_absolute():
             p = Path(config_dir) / p
-        return p.read_text()
-    return None
+        prompt = p.read_text()
+
+    schema_path = Path(__file__).parent / "prompts" / "observation_schema.txt"
+    if schema_path.exists():
+        prompt = prompt.rstrip() + "\n\n" + schema_path.read_text()
+
+    return prompt
 
 
 class LLMSchedulingPolicy(LLMPolicy):
@@ -383,11 +423,11 @@ class LLMSchedulingPolicy(LLMPolicy):
     every exception that escapes run(), so the only way to avoid log spam on a
     down endpoint is to never raise from run() at all.
 
-    The system prompt is configurable: set ``cm.adr.system_prompt`` (inline) or
-    ``cm.adr.system_prompt_file`` (path) in the campaign config.
+    ``system_prompt`` is required: set ``cm.adr.system_prompt`` (inline) or
+    ``cm.adr.system_prompt_file`` (path) in the campaign config.  Every campaign
+    has different pipeline semantics and stopping criteria, so a single built-in
+    prompt cannot be correct for all of them.
     """
-
-    system_prompt = _SYSTEM_PROMPT
 
     def __init__(
         self,
@@ -410,10 +450,15 @@ class LLMSchedulingPolicy(LLMPolicy):
                 "LLMSchedulingPolicy requires 'openai' and 'instructor'. "
                 "Install: pip install openai instructor"
             ) from e
+        if not system_prompt:
+            raise ValueError(
+                "LLMSchedulingPolicy requires a system_prompt. "
+                "Set cm.adr.system_prompt (inline) or cm.adr.system_prompt_file "
+                "(path to a .txt file) in your campaign config."
+            )
         self._act = op.get_actions()
         self._model = model
-        if system_prompt:
-            self.system_prompt = system_prompt
+        self.system_prompt = system_prompt
         self._timeout_s = timeout_s
         # instructor re-prompts on schema-validation failure; each retry is a
         # full inference.  Default to 1 so a bad response fails fast to the
@@ -510,6 +555,214 @@ class LLMSchedulingPolicy(LLMPolicy):
         return Decision(actions=actions, stop=sd.stop)
 
 
+# ── Null policy (goal-only supervision, no scheduling changes) ──────────────
+
+
+class NullSchedulingPolicy(Policy):
+    """No-op policy for goal-only supervision.
+
+    Makes no scheduling decisions but satisfies the Policy interface so that
+    ``operator.run()`` can proceed and evaluate ``@goals`` each cycle.
+    Use when ``policy: none`` is set in config but campaign goals are still
+    declared (``cm.adr.goals.n_target``), so early stopping still fires.
+    """
+
+    @decide
+    async def run(self, obs: dict) -> Decision:
+        return Decision(actions=[])
+
+
+# ── Logging wrapper ─────────────────────────────────────────────────────────
+
+
+class LoggingPolicy(Policy):
+    """Wraps any policy and prints a one-line ADR decision summary each cycle.
+
+    Extracts priority and batch-size assignments from ``Decision.actions`` and
+    shows only what changed vs. the previous cycle, so the log stays readable
+    over many cycles.  Reads ``inner._regime`` when present (e.g. DdSimRulePolicy)
+    to surface which decision branch was taken.
+
+    Example output::
+
+        [ADR c=  4]  n_hits=3  [NORMAL]  | analysis(r=4/4 p=1 H)  ddsim_a(r=3/4 p=7 H)  ddsim_b(r=1/4 p=5 H)  | priorities: ddsim_b=101→102
+        [ADR c=  7]  n_hits=5  [STARVED] | analysis(r=0/4 p=0 H)  ddsim_a(r=3/4 p=4 H)  ddsim_b(r=2/4 p=3 H)  | priorities: ddsim_a=101→105  | STOP
+    """
+
+    def __init__(self, inner: Policy, *, log_every: int = 1) -> None:
+        super().__init__()
+        self._inner = inner
+        self._log_every = log_every
+        self._prev_priorities: dict[str, int] = {}
+
+    @decide
+    async def run(self, obs: dict) -> Decision:
+        d = await self._inner.decide(obs)
+        cycle = obs.get("cycle", 0)
+        if cycle % self._log_every != 0 and not d.stop:
+            return d
+
+        # Parse decision actions into readable dicts.
+        new_priorities: dict[str, int] = {}
+        new_batch: dict[str, int] = {}
+        for a in d.actions:
+            name = getattr(a, "task_name", None)
+            kw   = getattr(a, "task_kwargs", {})
+            if name == "set_priority":
+                new_priorities[kw["stage"]] = kw["priority"]
+            elif name == "set_batch_size":
+                new_batch[kw["stage"]] = kw["size"]
+
+        # Stage status — compact: name(r=running/cap p=pending BP_initial)
+        stages = obs.get("stages", {})
+        stage_str = "  ".join(
+            f"{name}(r={s.get('running', 0)}/{s.get('cap', '?')}"
+            f" p={s.get('pending', 0)}"
+            f" {s.get('bp_state', 'HOLD')})"
+            for name, s in stages.items()
+        )
+
+        # Priority diff — only show stages whose priority changed.
+        prio_parts = []
+        for stage in sorted(new_priorities):
+            new_p = new_priorities[stage]
+            old_p = self._prev_priorities.get(stage)
+            if old_p is None:
+                prio_parts.append(f"{stage}={new_p}")
+            elif old_p != new_p:
+                prio_parts.append(f"{stage}={old_p}→{new_p}")
+        prio_str = "  ".join(prio_parts) if prio_parts else "(unchanged)"
+
+        # Batch size changes.
+        batch_str = "  ".join(f"{s}={v}" for s, v in sorted(new_batch.items()))
+
+        # Optional regime label set by the inner policy (e.g. DdSimRulePolicy).
+        regime = getattr(self._inner, "_regime", None)
+
+        n_hits = obs.get("n_hits", 0)
+        parts = [f"[ADR c={cycle:>3}]  n_hits={n_hits}"]
+        if regime:
+            parts.append(f"[{regime}]")
+        parts.append(f"|  {stage_str}")
+        parts.append(f"|  priorities: {prio_str}")
+        if batch_str:
+            parts.append(f"|  batch: {batch_str}")
+        if d.stop:
+            parts.append("|  STOP")
+
+        print("  ".join(parts))
+        self._prev_priorities.update(new_priorities)
+        return d
+
+
+# ── Rule-corrections wrapper ────────────────────────────────────────────────
+
+
+class RuleCorrectionsPolicy(Policy):
+    """Post-hoc priority corrections applied on top of rule or bandit inner policies.
+
+    Applied per stage each cycle (corrections are relative to the inner policy's
+    this-cycle assignment, or the live obs priority for stages inner didn't touch):
+
+      stalls  (correct_stalls=True):
+          +2 per 3 consecutive scheduler stall cycles, capped at +6.
+          A stalling stage is losing slot contention — boost it to compete.
+
+      frozen  (correct_budget=True):
+          -1 when BudgetController for this stage is frozen (surrogate accuracy
+          drifted). Frozen stages waste GPU hours on poor candidates.
+
+      budget_burn  (correct_budget=True):
+          -1 when Monitor has an active budget_burn alert for this stage.
+          Overspending stages get a mild brake without hard-stopping them.
+
+    Corrections stack freely; no net cap is applied.  A compact [corrections]
+    line is printed only when at least one correction fires.
+    Forwards ``_regime`` from the inner policy so LoggingPolicy can read it.
+    """
+
+    def __init__(
+        self,
+        inner: Policy,
+        op,
+        *,
+        correct_stalls: bool = True,
+        correct_budget: bool = True,
+    ) -> None:
+        super().__init__()
+        self._inner = inner
+        self._act = op.get_actions()
+        self._correct_stalls = correct_stalls
+        self._correct_budget = correct_budget
+        # Cycles where at least one correction fired — readable by benchmarks.
+        self.correction_cycles: int = 0
+
+    @property
+    def _regime(self):
+        return getattr(self._inner, "_regime", None)
+
+    @decide
+    async def run(self, obs: dict) -> Decision:
+        d = await self._inner.decide(obs)
+        stages = obs.get("stages", {})
+        if not stages:
+            return d
+
+        # Separate set_priority actions from everything else (batch sizes, triggers).
+        inner_priorities: dict[str, int] = {}
+        other_actions = []
+        for a in d.actions:
+            name = getattr(a, "task_name", None)
+            kw = getattr(a, "task_kwargs", {})
+            if name == "set_priority" and "stage" in kw and "priority" in kw:
+                inner_priorities[kw["stage"]] = int(kw["priority"])
+            else:
+                other_actions.append(a)
+
+        bc_map = obs.get("budget_controllers", {})
+        monitor_alerts = obs.get("monitor_alerts", {})
+
+        # Compute per-stage correction deltas.
+        deltas: dict[str, int] = {}
+        for stage, info in stages.items():
+            delta = 0
+
+            if self._correct_stalls:
+                stalls = int(info.get("stalls", 0))
+                delta += min(2 * (stalls // 3), 6)
+
+            if self._correct_budget:
+                if bc_map.get(stage, {}).get("frozen", False):
+                    delta -= 1
+                if "budget_burn" in monitor_alerts.get(stage, []):
+                    delta -= 1
+
+            if delta != 0:
+                deltas[stage] = delta
+
+        if not deltas:
+            return d
+
+        self.correction_cycles += 1
+        print(f"[corrections] {' '.join(f'{s}{v:+d}' for s, v in sorted(deltas.items()))}")
+
+        # Rebuild priority actions with corrections; keep all non-priority actions.
+        corrected_actions = list(other_actions)
+        remaining = set(deltas)
+        for stage, base in inner_priorities.items():
+            adj = deltas.get(stage, 0)
+            corrected_actions.append(self._act.set_priority(stage=stage, priority=base + adj))
+            remaining.discard(stage)
+        # Stages not touched by inner policy but needing correction: use live obs priority.
+        for stage in remaining:
+            base = int(stages[stage].get("priority", 0))
+            corrected_actions.append(
+                self._act.set_priority(stage=stage, priority=base + deltas[stage])
+            )
+
+        return Decision(actions=corrected_actions, stop=d.stop)
+
+
 # ── Composition factory ─────────────────────────────────────────────────────
 
 
@@ -523,25 +776,58 @@ def make_scheduling_policy(
     """Build a scheduling policy for a CampaignOperator.
 
     kind:
-      - ``"rule"``   → DownstreamFirstPolicy (deterministic; default)
-      - ``"bandit"`` → BanditSchedulingPolicy (Thompson-sampling; A/B compare)
-      - ``"llm"``    → LLMSchedulingPolicy with embedded rule fallback;
-                       requires ``llm_api_key``
+      - ``"null"``            → NullSchedulingPolicy (goals only, no scheduling)
+      - ``"rule"``            → op.rule_policy() if defined, else DownstreamFirstPolicy
+      - ``"downstream_first"``→ DownstreamFirstPolicy unconditionally (explicit generic)
+      - ``"bandit"``          → BanditSchedulingPolicy (Thompson-sampling; A/B compare)
+      - ``"llm"``             → LLMSchedulingPolicy with embedded rule fallback;
+                                 requires ``llm_api_key``
 
     Extra kwargs are forwarded to the chosen policy's constructor.
     Common kwargs:
-      rule:   base_priority, batch_base, batch_lo, batch_hi
-      bandit: warmstart, seed, base_priority, long_task_threshold_s
-      llm:    min_call_interval_s, timeout_s, system_prompt
+      rule/downstream_first: base_priority, batch_base, batch_lo, batch_hi
+      bandit:                warmstart, seed, base_priority, long_task_threshold_s
+      llm:                   min_call_interval_s, timeout_s, system_prompt
     """
+    if kind in ("null", "none"):
+        return NullSchedulingPolicy()
     if kind == "rule":
-        return DownstreamFirstPolicy(op, **kw)
+        # Delegate to the campaign's own rule first; fall back to the generic
+        # depth-first heuristic so existing campaigns keep working unchanged.
+        custom = op.rule_policy() if hasattr(op, "rule_policy") else None
+        inner = custom if custom is not None else DownstreamFirstPolicy(op, **kw)
+        return RuleCorrectionsPolicy(inner, op, correct_stalls=True, correct_budget=True)
+    if kind == "downstream_first":
+        # Explicit alias: always use the generic rule regardless of campaign.
+        inner = DownstreamFirstPolicy(op, **kw)
+        return RuleCorrectionsPolicy(inner, op, correct_stalls=True, correct_budget=True)
     if kind == "bandit":
-        return BanditSchedulingPolicy(op, **kw)
+        # Bandit handles budget-freeze signals poorly (it would keep updating
+        # on frozen-stage outcomes); stall boost is still useful for contention.
+        inner = BanditSchedulingPolicy(op, **kw)
+        return RuleCorrectionsPolicy(inner, op, correct_stalls=True, correct_budget=False)
     if kind == "llm":
         if not llm_api_key:
             raise ValueError("kind='llm' requires llm_api_key")
-        # LLMSchedulingPolicy embeds its own silent rule fallback; no outer
-        # Policy(primary, fallback) wrapping is needed.
+        # LLMSchedulingPolicy embeds its own silent rule fallback and receives
+        # the full observation including budget/monitor fields — no outer
+        # corrections wrapper needed.
         return LLMSchedulingPolicy(llm_api_key, op, model=model, **kw)
-    raise ValueError(f"unknown policy kind {kind!r} (rule | bandit | llm)")
+    if kind == "blend":
+        if not llm_api_key:
+            raise ValueError("kind='blend' requires llm_api_key (for the LLM sub-policy)")
+        # Extract bandit-specific kwargs before forwarding the rest to LLMSchedulingPolicy.
+        seed      = kw.pop("seed",      0)
+        warmstart = kw.pop("warmstart", False)
+        bandit = BanditSchedulingPolicy(op, seed=seed, warmstart=warmstart)
+        llm    = LLMSchedulingPolicy(llm_api_key, op, model=model, **kw)
+        # Wrap the blend in RuleCorrectionsPolicy so budget/stall overrides still fire
+        # on the final averaged decision.
+        return RuleCorrectionsPolicy(
+            BlendPolicy([bandit, llm]), op,
+            correct_stalls=True, correct_budget=False,
+        )
+    raise ValueError(
+        f"unknown policy kind {kind!r} "
+        "(null | rule | downstream_first | bandit | llm | blend)"
+    )

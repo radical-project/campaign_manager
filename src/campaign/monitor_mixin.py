@@ -53,7 +53,6 @@ class MonitorMixin:
     async def _tick_monitor(self) -> None:
         """Snapshot all groups and run health checks. Acquires the lock."""
         async with self._lock:
-            self._log.info("── Monitor tick ───")
             for name, g in self._workflows.items():
                 if g.replicas == 0:
                     continue  # not yet activated

@@ -130,10 +130,13 @@ echo "── Step 2: Bootstrapping pip ──"
 echo ""
 echo "── Step 3: Async backend (rhapsody + radical.asyncflow) ──"
 "${PIP}" install -q \
-    "rhapsody-py>=0.2.0" \
+    "rhapsody-py[telemetry,dragon]>=0.2.0" \
     "radical.asyncflow>=0.3.1" \
     "pyyaml" \
-    "numpy>=1.26.3,<2.0.0"
+    "numpy>=1.26.3,<2.0.0" \
+    "openai" \
+    "matplotlib" \
+    "instructor"
 
 # ── 4. radical.dreamer ────────────────────────────────────────────────────────
 echo ""

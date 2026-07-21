@@ -1,0 +1,54 @@
+OBSERVATION SCHEMA — fields delivered to the policy each cycle
+══════════════════════════════════════════════════════════════════════════════════
+
+TOP-LEVEL FIELDS
+  cycle     int       — current operator cycle counter
+  terminal  list[str] — terminal (deepest) stage ids; campaign completes when these are done
+  free_cpus int       — available CPU slots right now
+  free_gpus int       — available GPU slots right now
+  n_hits    int       — total finished replicas across all terminal stages; use for stop conditions
+
+PER-STAGE  (stages[stage_id])
+  running        int        — replicas currently executing
+  cap            int        — max replicas allowed concurrently; priority boosts only help when running < cap
+  pending        int        — replicas waiting to start (resource-blocked or backpressure-blocked)
+  finished       int        — cumulative replicas completed
+  starved        bool       — pending > 0 and running < cap; a priority boost can relieve this
+  is_source      bool       — no upstream deps or trigger routing; pending counts raw input library, not pipeline backlog
+  requires_gpu   bool       — stage needs a GPU slot; GPU-util and batch rules apply only to these stages
+  bp_state       str        — downstream queue pressure: HOLD | THROTTLE (full, slow down) | WIDEN (draining, speed up)
+  stalls         int        — consecutive scheduler cycles where no new replica started (resets on first start)
+                              Boost priority when stalls >= 3 — the stage is losing slot contention
+  avg_duration_s float|None — mean wall-clock seconds per finished replica (None until first finish)
+                              Values >= 2x typical suggest I/O stall or resource contention; do not raise priority
+  score_p50      float|None — median candidate score from recent dispatches (None until >= 5 scored)
+  score_p90      float|None — 90th-pct candidate score; large p50->p90 gap signals high-variance candidates
+
+MONITOR ALERTS  monitor_alerts: {stage_id: [kind, ...]}  (present when drift monitor is enabled)
+  budget_burn  — stage spending faster than plan; demote slightly until spend normalises, do not cut off
+  pass_through — observed filter rate diverges from plan; review batch-size and cap decisions
+
+BUDGET CONTROLLERS  budget_controllers: {stage_id: {...}}  (present when budget feature is enabled)
+  frozen              bool       — BudgetController paused dispatch; surrogate accuracy drifted
+                                   Demote a frozen stage; boosting it wastes resources on poor predictions
+  consecutive_bound_hits int     — consecutive cycles the burn-rate cap has triggered
+  burn_ratio          float|None — actual / expected node-hours (> 1.0 = over-budget)
+  progress            float|None — finished / target (0-1)
+  score_at_bound      bool       — triage nudge has hit its limit; further priority boosts won't improve yield
+  score_cutoff        float      — current triage score gate; candidates below are rejected (present when triage active)
+  score_cutoff_bounds [lo, hi]   — clamp range for score_cutoff; use set_score_cutoff to adjust
+                                   BudgetController re-nudges the cutoff each cycle, so assert the target every tick
+
+SURROGATE RECALL  surrogate_recall: {stage_id: {...}}  (present when a surrogate model is configured)
+  recall_at_k  float — fraction of true top-k the surrogate ranks correctly (target >= 0.90)
+  mae          float — mean absolute score error
+  drift_active bool  — surrogate flagged for retraining; reduce reliance on score_p50 / score_p90
+
+HARDWARE TELEMETRY  (present only on HPC runs with TelemetrySubscriber; all zero when absent)
+  gpu_util             float      — EWA GPU utilisation % across devices (0-100); 0 = no telemetry
+  cpu_util             float      — EWA node CPU utilisation % (0-100)
+  mem_util             float      — EWA node memory utilisation % (0-100)
+  gpu_utils_per_device dict       — latest GPU % per device id
+  task_fail_rate       float      — fraction of completed tasks that failed (0-1)
+  avg_task_duration_s  float|None — rolling mean task wall-clock seconds
+  When gpu_util = 0: telemetry unavailable — skip all GPU-util-based decisions.
