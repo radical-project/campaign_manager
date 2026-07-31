@@ -45,7 +45,8 @@ if [ -z "${RADICAL_ORBIT_BROKER_URL:-}" ]; then
     exit 1
 fi
 echo "Broker: ${RADICAL_ORBIT_BROKER_URL}"
-python run_campaign.py --config config.yaml
+#python run_campaign.py --config config.yaml
+python run_noDDSim_campaign.py --config config.yaml
 
 echo "=== DDSim campaign done: $(date) ==="
 

@@ -1,0 +1,78 @@
+# =============================================================================
+# orbit_ddsim Campaign
+# =============================================================================
+#
+# Two-stage search → refine pipeline.  Each replica submits num_sims
+# independent simulation.py tasks to orbit in a single batch — orbit runs
+# them all in parallel, so per-replica wall time ≈ one sim's duration (~15s).
+#
+# search:  10 replicas, up to concurrency_cap running at once.  Each scores
+#          mean(|y|) across its sim outputs.  Candidates below
+#          refine_threshold trigger a refine replica.
+#
+# refine:  triggered at runtime by search; same simulation, separate dir.
+#          Campaign stops when campaign_target refine replicas finish.
+#
+# Prerequisites:
+#   export RADICAL_ORBIT_BROKER_URL=https://dt-login03.delta.ncsa.illinois.edu:8020
+#   # Terminal 1 (login node): ./bin/radical-orbit-broker.py --port 8020
+#   # Terminal 2 (compute node): ./bin/radical-orbit-endpoint.py -p rhapsody
+#
+# Run:
+#   python run_campaign.py --config config.yaml
+# =============================================================================
+
+engine: concurrent   # asyncflow backend for CM internals
+
+resources:
+  total_cpus: 0   # 0 = unlimited
+  total_gpus: 0
+
+# ── Workflow groups ───────────────────────────────────────────────────────────
+
+workflows:
+
+  search:
+    replicas:          10
+    concurrency_cap:   2   # 2 replicas × 4 batches of 5 = manageable load on endpoint
+    concurrency_floor: 1
+    priority:          10
+    required_cpus:     0
+    required_gpus:     0
+    refine_threshold:  0.5
+    trigger_refine:    refine
+    # Paths — must be accessible from both login and compute nodes
+    python_exe:    "/u/mgoliyad1/ve/orbit_campaign/bin/python"
+    work_dir:      "/scratch/bblj/mgoliyad1/DeepDriveSim/workflows/dummy_workflow"
+    sim_output_dir: "/scratch/bblj/mgoliyad1/orbit_ddsim_output"
+    num_sims:      5    # sims per replica; all run in parallel — keep cap×num_sims ≤ 10
+    sim_batch_size: 5  # submit all at once (num_sims == sim_batch_size)
+
+  refine:
+    replicas:          0   # triggered at runtime by search via _trigger_dependent
+    concurrency_cap:   2
+    concurrency_floor: 1
+    priority:          8
+    required_cpus:     0
+    required_gpus:     0
+    campaign_target:   5
+    # Paths — must be accessible from both login and compute nodes
+    python_exe:    "/u/mgoliyad1/ve/orbit_campaign/bin/python"
+    work_dir:      "/scratch/bblj/mgoliyad1/DeepDriveSim/workflows/dummy_workflow"
+    sim_output_dir: "/scratch/bblj/mgoliyad1/orbit_ddsim_output"
+    num_sims:      5
+    sim_batch_size: 5
+
+# ── Campaign manager ──────────────────────────────────────────────────────────
+
+cm:
+  features:
+    backpressure: false
+    sharder:      false
+    monitor:      false
+
+# ── Workflow registry ─────────────────────────────────────────────────────────
+
+workflow_registry:
+  search: orbit_workflow.OrbitWorkflow
+  refine: orbit_workflow.OrbitWorkflow
