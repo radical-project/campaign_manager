@@ -6,8 +6,8 @@ by a Beta-posterior sample so the most-promising stage is scheduled first.
 
 It is **not** wired into the CM scheduler — the scheduler orders eligible
 groups by ``group.priority``.  The bandit is consumed by the ADR layer's
-``BanditSchedulingPolicy`` (``src/campaign/adr/policies.py``), which drives
-that priority lever.  This module therefore only provides the learning
+``BanditSchedulingPolicy`` (``src/campaign/adr/policies/bandit.py``), which
+drives that priority lever.  This module therefore only provides the learning
 primitive; the in-loop shard / resource / scheduling bandits were removed.
 
 Algorithm

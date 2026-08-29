@@ -20,9 +20,12 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from .view import CampaignViewProtocol
+
+if TYPE_CHECKING:
+    from ..metrics import CampaignMetrics
 
 
 class PolicyRecorder:
@@ -34,13 +37,20 @@ class PolicyRecorder:
         self.policy_kind = policy_kind
         self._view: Optional[CampaignViewProtocol] = None
         self._policy = None
+        self._metrics: Optional[CampaignMetrics] = None
         self._fh = None
         self._t0 = 0.0
 
-    def bind(self, view: CampaignViewProtocol, policy) -> None:
-        """Attach the live view + policy so on_cycle can read state/posteriors."""
+    def bind(
+        self,
+        view: CampaignViewProtocol,
+        policy,
+        metrics: Optional[CampaignMetrics] = None,
+    ) -> None:
+        """Attach live view, policy, and optional metrics recorder."""
         self._view = view
         self._policy = policy
+        self._metrics = metrics
 
     # ── ObserverBase hooks ──────────────────────────────────────────────────
 
@@ -48,7 +58,11 @@ class PolicyRecorder:
         self._t0 = time.monotonic()
         self._fh = open(self.path, "w")
 
-    def on_cycle(self, snapshot, decision) -> None:
+    def on_cycle(self, snapshot, obs_or_decision=None, decision=None) -> None:
+        # Operator API was updated: on_cycle(snapshot, obs, decision).
+        # Accept both old two-arg and new three-arg call signatures.
+        if decision is None:
+            decision = obs_or_decision
         if self._fh is None:
             return
         priorities = {
@@ -70,9 +84,10 @@ class PolicyRecorder:
             }
             for s, info in obs.get("stages", {}).items()
         }
+        t = round(time.monotonic() - self._t0, 3)
         row = {
             "cycle": snapshot.cycle,
-            "t": round(time.monotonic() - self._t0, 3),
+            "t": t,
             "policy": self.policy_kind,
             "priorities": priorities,
             "summary": summary,
@@ -81,6 +96,17 @@ class PolicyRecorder:
         }
         self._fh.write(json.dumps(row) + "\n")
         self._fh.flush()
+        if self._metrics is not None:
+            actions = [
+                {"name": a.task_name, **a.task_kwargs}
+                for a in decision.actions
+            ]
+            self._metrics.record_decision(
+                cycle=snapshot.cycle,
+                t=t,
+                policy=self.policy_kind,
+                actions=actions,
+            )
 
     def on_stop(self, final, reason: str) -> None:
         if self._fh is not None:

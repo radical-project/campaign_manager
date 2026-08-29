@@ -6,7 +6,11 @@ engine, and no LLM key required.
 
 import pytest
 
-from radical.adr import Decision, Policy, decide
+pytest.importorskip("radical.adr")
+
+from radical.adr import Decision, Policy, decide  # noqa: E402
+from radical.adr import goals as _goals  # noqa: E402
+from radical.adr.goals import Goal  # noqa: E402
 
 from src.campaign.adr import (
     BanditSchedulingPolicy,
@@ -19,7 +23,8 @@ from src.campaign.adr import (
     make_scheduling_policy,
     resolve_system_prompt,
 )
-from src.campaign.adr.policies import _batch_for_bp, _downstream_bp, _stage_depth
+from src.campaign.adr.policies import _batch_for_bp, _stage_depth
+from src.campaign.adr.policies.bandit import _downstream_bp
 from src.campaign.monitor import Monitor
 
 pytestmark = pytest.mark.anyio
@@ -129,10 +134,6 @@ class _ConstantPriorityPolicy(Policy):
 
 
 # ── Concrete test operator (CampaignOperator is a base class — no goals alone) ──
-
-
-from radical.adr import goals as _goals
-from radical.adr.goals import Goal
 
 
 class _TestOp(CampaignOperator):
@@ -285,7 +286,6 @@ class TestOperatorCycle:
 
     async def test_n_hits_computed_from_terminal_stage(self):
         """Base @observe computes n_hits from terminal stage finished count."""
-        from radical.adr.state import Snapshot
 
         view = FakeView(_cascade(s3={"finished": 7}))
         op = _TestOp(view, engine=None, n_target=10)
@@ -430,13 +430,13 @@ class TestRuleCorrectionsPolicy:
         policy = RuleCorrectionsPolicy(inner, op)
         d = await policy.run(FakeView(stages).observe())
         pr = _priorities_from(d)
-        assert pr["s2"] == 104   # 102 + 2 (stalls=3 → +2)
+        assert pr["s2"] == 108   # 102 + 6 (stalls=3 → +6 with formula min(2*stalls,6))
         assert pr["s1"] == 101   # no stalls
         assert pr["s3"] == 103   # no stalls
 
     async def test_stall_boost_proportional_and_capped(self):
-        # +2 per 3 stalls, capped at +6
-        for stalls, expected_delta in [(0, 0), (3, 2), (6, 4), (9, 6), (12, 6), (99, 6)]:
+        # min(2*stalls, 6): fires at stall 1 (+2), reaches cap at stall 3 (+6)
+        for stalls, expected_delta in [(0, 0), (1, 2), (2, 4), (3, 6), (4, 6), (99, 6)]:
             stages = _cascade(s2={"stalls": stalls})
             op = self._op(stages)
             inner = _ConstantPriorityPolicy(op, {"s2": 100})
@@ -493,7 +493,7 @@ class TestRuleCorrectionsPolicy:
         policy = RuleCorrectionsPolicy(inner, op, correct_stalls=True, correct_budget=True)
         d = await policy.run(obs)
         pr = _priorities_from(d)
-        assert pr["s2"] == 103   # 102 + 2 (stalls=3) - 1 (frozen) = 103
+        assert pr["s2"] == 107   # 102 + 6 (stalls=3) - 1 (frozen) = 107
 
     async def test_correct_budget_false_ignores_frozen_and_burn(self):
         stages = _cascade()
@@ -538,7 +538,7 @@ class TestRuleCorrectionsPolicy:
         batches = [a for a in d.actions if a.task_name == "set_batch_size"]
         assert len(batches) == 1
         assert batches[0].task_kwargs["size"] == 25
-        assert _priorities_from(d)["s2"] == 104  # corrected
+        assert _priorities_from(d)["s2"] == 108  # corrected: 102 + 6 (stalls=3)
 
     async def test_stage_not_in_inner_uses_live_obs_priority(self):
         # Inner only assigns s3; s2 has stalls but inner didn't touch it.
@@ -548,7 +548,7 @@ class TestRuleCorrectionsPolicy:
         policy = RuleCorrectionsPolicy(inner, op)
         d = await policy.run(FakeView(stages).observe())
         pr = _priorities_from(d)
-        assert pr["s2"] == 52    # 50 (live obs) + 2 (stalls=3)
+        assert pr["s2"] == 56    # 50 (live obs) + 6 (stalls=3)
         assert pr["s3"] == 103   # untouched
 
     async def test_corrections_log_line_emitted(self, capsys):
@@ -559,7 +559,7 @@ class TestRuleCorrectionsPolicy:
         await policy.run(FakeView(stages).observe())
         out = capsys.readouterr().out
         assert "[corrections]" in out
-        assert "s2+2" in out
+        assert "s2+6" in out
 
     async def test_no_log_line_when_no_corrections(self, capsys):
         stages = _cascade()  # all stalls=0, no alerts
@@ -686,7 +686,7 @@ class TestLLMTimeoutFallback:
             async def run(self, obs):
                 raise asyncio.TimeoutError("simulated hung LLM call")
 
-        composed = Policy(primary=_TimeoutPrimary(), fallback=DownstreamFirstPolicy(op))
+        composed = Policy(primary=_TimeoutPrimary(), fallback=DownstreamFirstPolicy(op), timeout=1.0)
         decision = await composed.decide(view.observe())
         pr = {
             a.task_kwargs["stage"]: a.task_kwargs["priority"]
@@ -739,6 +739,7 @@ class _FakeWf:
         self.ready = ready
         self.status = status
         self._consecutive_stalls = stalls
+        self.failed_replicas = 0
         self.workflow_config = workflow_config
 
 
@@ -1079,7 +1080,7 @@ class TestCampaignViewTriggerRouting:
     def test_no_note_warning_in_stage_dict(self):
         # Regression: starved must be correct without any NOTE workaround
         obs = self._view_trigger().observe()
-        for name, st in obs["stages"].items():
+        for _name, st in obs["stages"].items():
             assert "starved" in st
             assert isinstance(st["starved"], bool)
 
@@ -1194,3 +1195,4 @@ class TestBudgetControllersObWithTriage:
         for field in ("frozen", "consecutive_bound_hits", "burn_ratio",
                       "progress", "score_at_bound"):
             assert field in bc_obs
+

@@ -144,12 +144,12 @@ def reset_class_state():
 async def acm():
     """AsyncCampaignManager with a mock asyncflow engine.
 
-    asyncflow lifecycle is caller-owned: start() requires _asyncflow to be set,
+    asyncflow lifecycle is caller-owned: start() requires _engine to be set,
     so we inject a mock directly. The test workflows execute their run()/start()
     via the CM and never touch the engine, so a mock is sufficient.
     """
     cm = AsyncCampaignManager()
-    cm._asyncflow = AsyncMock()
+    cm._engine = AsyncMock()
     yield cm
     await cm.close()
 
@@ -600,7 +600,7 @@ class TestAsyncCampaignManagerResources:
     async def racm(self):
         """AsyncCampaignManager with 4 CPUs and 2 GPUs, asyncflow mocked."""
         cm = AsyncCampaignManager(total_cpus=4, total_gpus=2)
-        cm._asyncflow = AsyncMock()
+        cm._engine = AsyncMock()
         yield cm
         await cm.close()
 
@@ -747,3 +747,320 @@ class TestCampaignManagerResources:
         assert s["resources"]["total_gpus"] == 4
         assert s["groups"]["a"]["required_cpus"] == 8
         assert s["groups"]["a"]["required_gpus"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Pattern 6 — asyncio.Semaphore concurrency ceiling (warm pool)
+# ---------------------------------------------------------------------------
+
+
+class CountingWorkflow(BaseWorkflow):
+    """Records peak concurrent executions via a ClassVar counter."""
+
+    workflow_id = "counting"
+    _active: int = 0
+    _peak: int = 0
+
+    @classmethod
+    def reset(cls) -> None:
+        cls._active = 0
+        cls._peak = 0
+
+    async def run(self, replica_id: str) -> None:
+        CountingWorkflow._active += 1
+        CountingWorkflow._peak = max(CountingWorkflow._peak, CountingWorkflow._active)
+        await asyncio.sleep(0.02)
+        CountingWorkflow._active -= 1
+
+
+class TestSemaphoreConcurrencyCeiling:
+    def setup_method(self):
+        CountingWorkflow.reset()
+
+    async def test_cap_zero_no_semaphore_created(self):
+        cm = AsyncCampaignManager()
+        cm.register_workflow("w", CountingWorkflow, replicas=4, concurrency_cap=0)
+        wf_info = cm._workflows["w"]
+        assert wf_info._semaphore is None
+
+    async def test_cap_positive_semaphore_created(self):
+        cm = AsyncCampaignManager()
+        cm.register_workflow("w", CountingWorkflow, replicas=4, concurrency_cap=2)
+        wf_info = cm._workflows["w"]
+        assert wf_info._semaphore is not None
+
+    async def test_concurrency_cap_enforced(self):
+        """Peak concurrent executions must never exceed concurrency_cap."""
+        cap = 2
+        replicas = 6
+        cm = AsyncCampaignManager()
+        cm._engine = AsyncMock()
+        cm.register_workflow("w", CountingWorkflow, replicas=replicas, concurrency_cap=cap)
+        await cm.start()
+        await cm.wait()
+        await cm.close()
+        assert CountingWorkflow._peak <= cap
+        assert CountingWorkflow._peak > 0
+
+    async def test_all_replicas_complete_with_cap(self):
+        """concurrency_cap must not cause replicas to be skipped or lost."""
+        cap = 2
+        replicas = 5
+        cm = AsyncCampaignManager()
+        cm._engine = AsyncMock()
+        cm.register_workflow("w", CountingWorkflow, replicas=replicas, concurrency_cap=cap)
+        await cm.start()
+        await cm.wait()
+        await cm.close()
+        s = cm.status()
+        assert s["groups"]["w"]["replicas_finished"] == replicas
+
+    async def test_unlimited_cap_runs_all_concurrently(self):
+        """concurrency_cap=0 (unlimited) should allow all replicas to start."""
+        replicas = 5
+        cm = AsyncCampaignManager()
+        cm._engine = AsyncMock()
+        cm.register_workflow("w", CountingWorkflow, replicas=replicas, concurrency_cap=0)
+        await cm.start()
+        await cm.wait()
+        await cm.close()
+        s = cm.status()
+        assert s["groups"]["w"]["replicas_finished"] == replicas
+        # With no cap, all replicas could start simultaneously; peak should be > 1
+        assert CountingWorkflow._peak > 1
+
+    async def test_queued_count_invariant_after_run(self):
+        """After a complete run, _queued_count == replicas and validate() passes."""
+        cm = AsyncCampaignManager()
+        cm._engine = AsyncMock()
+        cm.register_workflow("w", CountingWorkflow, replicas=4, concurrency_cap=2)
+        await cm.start()
+        await cm.wait()
+        wf_info = cm._workflows["w"]
+        assert wf_info._queued_count == 4
+        assert wf_info.started_count == 4
+        assert wf_info.finished_replicas == 4
+        wf_info.validate()
+        await cm.close()
+
+    async def test_running_count_never_exceeds_cap(self):
+        """running_count = started_count - finished_replicas must stay <= cap."""
+        cap = 2
+        violations: list[int] = []
+
+        class CheckingWorkflow(BaseWorkflow):
+            workflow_id = "checking"
+
+            async def run(self, replica_id: str) -> None:
+                await asyncio.sleep(0.02)
+
+            async def on_replica_done(self, replica_id, cm, final_state):
+                rc = cm._workflows["w"].running_count
+                if rc > cap:
+                    violations.append(rc)
+
+        cm = AsyncCampaignManager()
+        cm._engine = AsyncMock()
+        cm.register_workflow("w", CheckingWorkflow, replicas=6, concurrency_cap=cap)
+        await cm.start()
+        await cm.wait()
+        await cm.close()
+        assert violations == [], f"running_count exceeded cap: {violations}"
+
+
+# ---------------------------------------------------------------------------
+# Pattern 4 — register_workflow enforcement warnings
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterWorkflowEnforcement:
+    """Verify developer-guidance warnings emitted by register_workflow."""
+
+    def _make_cm(self):
+        cm = AsyncCampaignManager()
+        cm._engine = AsyncMock()
+        return cm
+
+    def test_base_workflow_id_logs_warning(self, capsys):
+        """workflow_id='base' (the default) triggers a warning."""
+        class ForgottenId(BaseWorkflow):
+            async def run(self, replica_id): pass  # workflow_id not overridden → "base"
+
+        cm = self._make_cm()
+        cm.register_workflow("g", ForgottenId, replicas=1)
+        assert "workflow_id='base'" in capsys.readouterr().out
+
+    def test_unique_workflow_id_no_base_warning(self, capsys):
+        """A unique workflow_id generates no base-id warning."""
+        class ProperWorkflow(BaseWorkflow):
+            workflow_id = "my_unique_workflow"
+            async def run(self, replica_id): pass
+
+        cm = self._make_cm()
+        cm.register_workflow("g", ProperWorkflow, replicas=1)
+        assert "workflow_id='base'" not in capsys.readouterr().out
+
+    def test_misspelled_hook_logs_warning(self, capsys):
+        """on_replica_dnoe (typo) triggers an unknown-hook warning."""
+        class TypoWorkflow(BaseWorkflow):
+            workflow_id = "typo"
+            async def run(self, replica_id): pass
+            async def on_replica_dnoe(self, replica_id, cm, final_state): pass  # typo
+
+        cm = self._make_cm()
+        cm.register_workflow("g", TypoWorkflow, replicas=1)
+        assert "on_replica_dnoe" in capsys.readouterr().out
+
+    def test_known_hook_on_replica_done_no_warning(self, capsys):
+        """on_replica_done is a known hook — no misspelling warning."""
+        class CorrectDone(BaseWorkflow):
+            workflow_id = "correct_done"
+            async def run(self, replica_id): pass
+            async def on_replica_done(self, replica_id, cm, final_state): pass
+
+        cm = self._make_cm()
+        cm.register_workflow("g", CorrectDone, replicas=1)
+        out = capsys.readouterr().out
+        assert "Possible misspelling" not in out
+
+    def test_known_hook_on_replica_failed_no_warning(self, capsys):
+        """on_replica_failed is a known hook — no misspelling warning."""
+        class CorrectFailed(BaseWorkflow):
+            workflow_id = "correct_failed"
+            async def run(self, replica_id): pass
+            async def on_replica_failed(self, replica_id, cm, exc): pass
+
+        cm = self._make_cm()
+        cm.register_workflow("g", CorrectFailed, replicas=1)
+        out = capsys.readouterr().out
+        assert "Possible misspelling" not in out
+
+    def test_multiple_misspelled_hooks_each_warned(self, capsys):
+        """Each unknown on_replica_* hook gets its own warning."""
+        class MultiTypo(BaseWorkflow):
+            workflow_id = "multi_typo"
+            async def run(self, replica_id): pass
+            async def on_replica_statr(self, *a): pass   # typo of "start"
+            async def on_replica_fnish(self, *a): pass  # typo of "finish"
+
+        cm = self._make_cm()
+        cm.register_workflow("g", MultiTypo, replicas=1)
+        out = capsys.readouterr().out
+        assert "on_replica_statr" in out
+        assert "on_replica_fnish" in out
+
+    def test_inherited_known_hook_not_warned(self, capsys):
+        """Inherited on_replica_done (not in __dict__) must not trigger warning."""
+        class Parent(BaseWorkflow):
+            workflow_id = "parent"
+            async def run(self, replica_id): pass
+            async def on_replica_done(self, replica_id, cm, final_state): pass
+
+        class Child(Parent):
+            workflow_id = "child"
+            # run and on_replica_done are inherited — not in Child.__dict__
+
+        cm = self._make_cm()
+        cm.register_workflow("g", Child, replicas=1)
+        out = capsys.readouterr().out
+        assert "Possible misspelling" not in out
+
+
+# ---------------------------------------------------------------------------
+# Retry behaviour (fixes for infinite-retry and fail_rate inflation)
+# ---------------------------------------------------------------------------
+
+
+class TestRetryBehaviour:
+    """Tests for executor retry logic.
+
+    Covers:
+    - Retry chain terminates at max_retries (infinite-retry bug fix).
+    - failed_replicas counts only terminal failures, not intermediate attempts.
+    """
+
+    @pytest.fixture
+    async def rcm(self):
+        cm = AsyncCampaignManager()
+        cm._engine = AsyncMock()
+        yield cm
+        await cm.close()
+
+    async def test_retry_terminates_at_max_retries(self, rcm):
+        """Campaign completes after max_retries+1 attempts; does not loop forever."""
+        attempts = []
+
+        class AlwaysFailWorkflow(BaseWorkflow):
+            workflow_id = "always_fail"
+
+            async def run(self, replica_id: str) -> None:
+                attempts.append(replica_id)
+                raise RuntimeError("deliberate failure")
+
+        rcm.register_workflow("f", AlwaysFailWorkflow, replicas=1, max_retries=2)
+        await rcm.start()
+        # Campaign must complete within a generous timeout — if the retry loop
+        # were infinite it would hang here.
+        assert await rcm.wait(timeout=5.0), "campaign hung — likely infinite retry loop"
+        # 1 original + 2 retries = 3 total attempts.
+        assert len(attempts) == 3
+
+    async def test_failed_replicas_counts_terminal_failures_only(self, rcm):
+        """failed_replicas reflects terminal failures, not intermediate retry attempts."""
+
+        class AlwaysFailWorkflow(BaseWorkflow):
+            workflow_id = "always_fail2"
+
+            async def run(self, replica_id: str) -> None:
+                raise RuntimeError("deliberate failure")
+
+        rcm.register_workflow("f", AlwaysFailWorkflow, replicas=1, max_retries=2)
+        await rcm.start()
+        await rcm.wait(timeout=5.0)
+        # Only the final exhausted attempt counts as a terminal failure.
+        # failed_replicas is internal state; access directly on the group info.
+        assert rcm._workflows["f"].failed_replicas == 1
+
+
+# ---------------------------------------------------------------------------
+# Scheduler GPU starvation (Fix 2: concurrency_cap caps in-flight allocations)
+# ---------------------------------------------------------------------------
+
+
+class TestSchedulerGPUStarvation:
+    """Group A with concurrency_cap < replicas must not hold all GPUs and
+    starve Group B from ever starting.
+    """
+
+    @pytest.fixture
+    async def rcm(self):
+        # 2 GPUs total; Group A has cap=1 but replicas=3 so without the fix
+        # it would queue all 3 tasks (each grabbing a GPU) before B could start.
+        cm = AsyncCampaignManager(total_gpus=2)
+        cm._engine = AsyncMock()
+        yield cm
+        await cm.close()
+
+    async def test_capped_group_does_not_starve_other_group(self, rcm):
+        """Group B (1 GPU each) must start even while Group A is running."""
+        b_started = asyncio.Event()
+
+        class SlowWorkflow(BaseWorkflow):
+            workflow_id = "slow"
+
+            async def run(self, replica_id: str) -> None:
+                await asyncio.sleep(0.05)
+
+        class SignalWorkflow(BaseWorkflow):
+            workflow_id = "signal"
+
+            async def run(self, replica_id: str) -> None:
+                b_started.set()
+
+        # Group A: cap=1, 3 replicas, 1 GPU each.  Only 1 should hold a GPU
+        # at a time; the second GPU must remain available for B.
+        rcm.register_workflow("a", SlowWorkflow, replicas=3, concurrency_cap=1, required_gpus=1)
+        rcm.register_workflow("b", SignalWorkflow, replicas=1, required_gpus=1)
+        await rcm.start()
+        assert await rcm.wait(timeout=5.0)
+        assert b_started.is_set(), "Group B never started — GPU was starved by Group A"

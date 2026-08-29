@@ -119,8 +119,8 @@ echo "── Step 4: campaign_manager[adr] (editable) ──"
 
 # ── 5. Plotting ───────────────────────────────────────────────────────────────
 echo ""
-echo "── Step 5: matplotlib ──"
-"${PIP}" install -q matplotlib
+echo "── Step 5: matplotlib + telemetry + llm ──"
+"${PIP}" install -q matplotlib openai instructor "rhapsody-py[telemetry,dragon]"
 
 # ── 6. Verify ─────────────────────────────────────────────────────────────────
 echo ""

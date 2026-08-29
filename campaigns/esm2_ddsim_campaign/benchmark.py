@@ -170,7 +170,7 @@ async def _run_once(
 
     registry = _build_registry(cfg)
     cm = CampaignManager.from_config(
-        cfg, registry, asyncflow=asyncflow, engine_dragon=engine_dragon
+        cfg, registry, engine=asyncflow, engine_dragon=engine_dragon
     )
 
     # ── Build ADR operator ────────────────────────────────────────────────────

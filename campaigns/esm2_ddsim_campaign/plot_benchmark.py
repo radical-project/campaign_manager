@@ -32,16 +32,18 @@ import numpy as np
 # ── ADR policy palette ────────────────────────────────────────────────────────
 
 CFG_COLORS = {
-    "none": "#9e9e9e",
-    "rule": "#4caf50",
-    "bandit": "#9c27b0",
-    "llm": "#00838f",
+    "none":           "#9e9e9e",
+    "rule":           "#4caf50",
+    "rule_telemetry": "#2196f3",
+    "bandit":         "#9c27b0",
+    "llm":            "#00838f",
 }
 CFG_DISPLAY = {
-    "none": "no ADR (static)",
-    "rule": "rule",
-    "bandit": "bandit",
-    "llm": "llm",
+    "none":           "no ADR (static)",
+    "rule":           "rule",
+    "rule_telemetry": "rule + telemetry",
+    "bandit":         "bandit",
+    "llm":            "llm",
 }
 _EXCLUDE: set[str] = set()
 
@@ -130,7 +132,7 @@ def plot_wall_time(results: dict, out_dir: Path) -> None:
         ax.scatter(
             [i] * len(wts), wts, color="white", edgecolors="black", zorder=3, s=22, linewidths=0.8
         )
-    for bar, m, cfg in zip(bars, medians, cfgs, strict=False):
+    for bar, m, cfg in zip(bars, medians, cfgs):
         if m is not None:
             label = f"{m:.0f}s"
             if have_base and cfg != BASELINE_KEY:
@@ -201,7 +203,7 @@ def plot_time_to_miniapps(results: dict, out_dir: Path) -> None:
         x, [_z(m) for m in medians], color=[GROUP_COLORS["miniapps"]] * len(cfgs), alpha=0.85
     )
     # policy-colored outline
-    for bar, cfg in zip(bars, cfgs, strict=False):
+    for bar, cfg in zip(bars, cfgs):
         bar.set_edgecolor(CFG_COLORS.get(cfg, "#888"))
         bar.set_linewidth(2.5)
     for i, cfg in enumerate(cfgs):
@@ -213,7 +215,7 @@ def plot_time_to_miniapps(results: dict, out_dir: Path) -> None:
         ax.scatter(
             [i] * len(vals), vals, color="white", edgecolors="black", zorder=3, s=22, linewidths=0.8
         )
-    for bar, m, cfg in zip(bars, medians, cfgs, strict=False):
+    for bar, m, cfg in zip(bars, medians, cfgs):
         if m is not None:
             label = f"{m:.0f}s"
             if have_base and cfg != BASELINE_KEY:
@@ -350,7 +352,7 @@ def plot_throughput(results: dict, out_dir: Path) -> None:
             color=CFG_COLORS.get(cfg, "#888"),
             alpha=0.85,
         )
-        for bar, v in zip(bars, vals, strict=False):
+        for bar, v in zip(bars, vals):
             if v:
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,

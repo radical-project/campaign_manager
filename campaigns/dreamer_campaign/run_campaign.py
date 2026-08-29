@@ -414,7 +414,7 @@ async def main(config_file: str, policy_override=None, record_override=None) -> 
     cm = CampaignManager.from_config(
         config,
         registry,
-        asyncflow=asyncflow,
+        engine=asyncflow,
         engine_dragon=engine_dragon,
     )
 

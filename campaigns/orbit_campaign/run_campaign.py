@@ -58,7 +58,7 @@ async def main(config_file: str) -> None:
     print("ConcurrentExecutionBackend started (asyncflow)")
 
     registry = _build_registry(config)
-    cm = CampaignManager.from_config(config, registry, asyncflow=asyncflow)
+    cm = CampaignManager.from_config(config, registry, engine=asyncflow)
 
     groups = config.get("workflows", {})
     print(

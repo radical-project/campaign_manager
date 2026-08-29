@@ -2,17 +2,18 @@
 
 Goals
 -----
-Scientific (number of runs):
-    md_pipeline_complete  — miniapps_finished ≥ n_md_runs (4).
-    All MD trajectories have been analyzed by ML.  The ADR policies compete
-    on *how fast* this is achieved (time-to-first-miniapps, all-complete).
-    Expressed as a count of runs so it is meaningful regardless of timing.
+Scientific (all GPU stages complete):
+    all_stages_complete  — campaign_complete == 1.
+    True when ALL n_md_runs miniapps AND n_inference_runs inference replicas
+    have finished.  cm.stop() fires immediately at ttt; close() cancels any
+    in-flight dummies.  Dummies are bookkeeping — no reason to wait for them
+    after the GPU pipeline is done.
+    The ADR policies compete on *how fast* this is achieved (ttt).
 
 Budget / efficiency:
     gpus_fully_utilized  — free_gpus < 1 (minimize).
-    Under policy=none, after md finishes, miniapps waits while inference
-    holds the pass-2 GPU slot — one GPU idles and compute budget is wasted.
-    A policy that satisfies this goal is provably more resource-efficient.
+    Under policy=rule, inference holds all 4 GPUs, leaving miniapps starved.
+    A policy that satisfies this goal keeps GPUs occupied with useful work.
 
 Operational health:
     low_task_failures  — task_fail_rate < max_fail_rate (5 %).
@@ -20,13 +21,14 @@ Operational health:
     a hardware or config problem, not a scheduling decision.
 
 Config knobs (all under cm.adr in the campaign YAML):
-    n_md_runs:      int    expected miniapps completions (= md.replicas, default 4)
-    max_fail_rate:  float  failure rate ceiling         (default 0.05)
+    n_md_runs:        int    expected miniapps completions  (= miniapps.replicas, default 4)
+    n_inference_runs: int    expected inference completions (= inference.replicas, default 8)
+    max_fail_rate:    float  failure rate ceiling           (default 0.05)
 
 Usage
 -----
     operator = DDSimCampaignOperator(view, engine=asyncflow,
-                                     n_md_runs=4, max_fail_rate=0.05)
+                                     n_md_runs=4, n_inference_runs=8, max_fail_rate=0.05)
     operator.policy = make_scheduling_policy(operator, kind="rule")
     await run_supervised(cm, operator)
 """
@@ -55,6 +57,7 @@ class DDSimCampaignOperator(CampaignOperator):
         engine: Any = None,
         *,
         n_md_runs: int = 4,
+        n_inference_runs: int = 8,
         max_fail_rate: float = 0.05,
         policy=None,
         observer=None,
@@ -68,19 +71,22 @@ class DDSimCampaignOperator(CampaignOperator):
             max_cycles=max_cycles,
         )
         self._n_md_runs = int(n_md_runs)
+        self._n_inference_runs = int(n_inference_runs)
         self._max_fail_rate = float(max_fail_rate)
         self._validate_stopping_condition()
 
     # ── Observation ────────────────────────────────────────────────────────
 
-    # Logical DAG topology for ADR depth calculations.
-    # Config dependencies were removed in favour of _on_completion DAG routing,
-    # but the ADR policies (DownstreamFirstPolicy depth ordering, BanditSchedulingPolicy
-    # warmstart priors) need topology to work correctly.  Injecting it here fixes the
-    # ADR observation without touching the CM config or scheduling at all.
+    # Logical DAG topology declared here so ADR policies can compute stage depths
+    # and starvation correctly.  miniapps is an independent CM group (no config
+    # dependency) but is downstream of inference semantically — it processes
+    # inference outputs.  Declaring the dep here makes is_source=False for
+    # miniapps, which the starvation check requires:
+    #   starved = pending > 0 AND running < cap AND NOT is_source
+    # Without this, miniapps would be treated as a source (is_source=True) and
+    # starved would always be False, preventing the telemetry boost from firing.
     _LOGICAL_DEPS: dict[str, list[str]] = {
-        "miniapps": ["md"],
-        "dummy": ["inference", "miniapps"],
+        "miniapps": ["inference"],
     }
 
     @observe
@@ -91,20 +97,19 @@ class DDSimCampaignOperator(CampaignOperator):
         stages = obs.get("stages", {})
 
         # Restore logical topology so _stage_depth() computes correct depths:
-        #   inference=0, md=0, miniapps=1, dummy=2
+        #   inference=0, miniapps=0, dummy=1
         # CampaignView.observe() computes `starved` before we inject these deps
         # (it checks w.dependencies, which is [] for all groups when _on_completion
         # routing is used).  We recompute `starved` here after topology is known.
         for name, info in stages.items():
-            logical = self._LOGICAL_DEPS.get(name, [])
-            if logical and not info.get("deps"):
-                info["deps"] = logical
+            if name in self._LOGICAL_DEPS and not info.get("deps"):
+                info["deps"] = self._LOGICAL_DEPS[name]
                 info["is_source"] = False
 
         # Recompute `starved` using corrected is_source.
         # starved = has waiting replicas AND below concurrency cap AND not a source.
-        # Source stages (inference, md) are never "starved" in the pipeline sense —
-        # their pending count is the pre-loaded work library, not a dependency stall.
+        # True sources (inference) are never starved — their pending queue is the
+        # pre-loaded work library, not a resource stall.
         for _name, info in stages.items():
             if info.get("is_source", True):
                 info["starved"] = False
@@ -119,6 +124,17 @@ class DDSimCampaignOperator(CampaignOperator):
         for name, info in stages.items():
             obs[f"{name}_finished"] = info.get("finished", 0)
 
+        # campaign_complete: True when all 4 miniapps replicas finish.
+        # ttt = miniapps_done.  Inference may still be running; cm.stop() cancels
+        # remaining inference replicas as bookkeeping — they are not the scientific goal.
+        # Under rule (NullSchedulingPolicy): inference holds all GPUs; miniapps waits
+        # until all 16 inference done → TTT_rule ≈ 328s.
+        # Under rule_telemetry: starved boost fires → miniapps overlaps inference
+        # → TTT_tel ≈ 202s (≈38% faster).
+        obs["campaign_complete"] = float(
+            obs.get("miniapps_finished", 0) >= self._n_md_runs
+        )
+
         return obs
 
     # ── Goals ──────────────────────────────────────────────────────────────
@@ -126,16 +142,15 @@ class DDSimCampaignOperator(CampaignOperator):
     @goals
     def criteria(self):
         return [
-            # ── Scientific: number-of-runs completion ─────────────────────
-            # All MD trajectories analyzed by ML.  n_md_runs completed
-            # miniapps replicas is the core pipeline-B scientific output.
-            # The ADR policies compete on how fast this is reached
-            # (time-to-first-miniapps) and whether they get all n here.
+            # ── Scientific: all GPU stages complete (ttt) ─────────────────
+            # campaign_complete fires when BOTH inference (n_inference_runs)
+            # AND miniapps (n_md_runs) replicas have finished.
+            # run_supervised calls cm.stop(); close() cancels remaining dummies.
+            # ttt = max(inference_done, miniapps_done).
             Goal(
-                name="md_pipeline_complete",
-                metric="miniapps_finished",
-                # subtract 0.5 so integer counts satisfy at exactly n_md_runs
-                threshold=self._n_md_runs - 0.5,
+                name="all_stages_complete",
+                metric="campaign_complete",
+                threshold=0.5,
                 direction="maximize",
             ),
             # ── Budget / efficiency: no idle GPUs ─────────────────────────

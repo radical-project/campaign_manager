@@ -29,12 +29,12 @@ class CampaignManager:
     def __init__(
         self,
         max_workers: Optional[int] = None,
-        engine: str = "concurrent",
+        engine_type: str = "concurrent",
         total_cpus: int = 0,
         total_gpus: int = 0,
         num_workers: Optional[int] = None,
         debug: bool = False,
-        asyncflow=None,
+        engine=None,
         engine_dragon=None,
         features: Optional[dict] = None,
         _acm: Optional[AsyncCampaignManager] = None,
@@ -46,12 +46,12 @@ class CampaignManager:
         if _acm is None:
             self._acm = AsyncCampaignManager(
                 max_workers=max_workers,
-                engine=engine,
+                engine_type=engine_type,
                 total_cpus=total_cpus,
                 total_gpus=total_gpus,
                 num_workers=num_workers,
                 debug=debug,
-                asyncflow=asyncflow,
+                engine=engine,
                 engine_dragon=engine_dragon,
                 features=features,
             )

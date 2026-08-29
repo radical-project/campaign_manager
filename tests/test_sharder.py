@@ -3,8 +3,7 @@
 import pytest
 
 from src.campaign.backpressure import BackpressureNegotiator, BPState
-from src.campaign.sharder import ShardingSpec, Sharder, _percentile_rank
-
+from src.campaign.sharder import Sharder, ShardingSpec, _percentile_rank
 
 # ── _percentile_rank ──────────────────────────────────────────────────────────
 
@@ -32,9 +31,11 @@ class TestPercentileRank:
         assert min(result) == pytest.approx(0.0)
         assert max(result) == pytest.approx(1.0)
 
-    def test_tied_values_get_identical_ranks(self):
+    def test_tied_values_preserve_stable_order(self):
+        # Equal values get positional ranks in input order (stable argsort),
+        # not averaged ranks — ties break by position so signal isn't collapsed.
         result = _percentile_rank([5.0, 5.0, 5.0])
-        assert result[0] == result[1] == result[2]
+        assert result == pytest.approx([0.0, 0.5, 1.0])
 
     def test_output_length_matches_input(self):
         for n in (3, 7, 10):

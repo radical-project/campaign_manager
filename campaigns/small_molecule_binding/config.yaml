@@ -1,0 +1,111 @@
+# =============================================================================
+# Small Molecule Binding Campaign
+# =============================================================================
+#
+# Runs multiple SmallMoleculeBindingPipeline instances under ADR supervision.
+# Each cycle launches n "explore" and m "exploit" replicas.  All replicas use
+# the same input JSON for now (dummy policy); future versions will generate
+# varied inputs for the exploit group based on completed pipeline scores.
+#
+# Pipeline stages:
+#   RFD3 → ProteinMPNN+PackMin (cycles) → FastRelax → FilterShape → AlphaFold2
+#
+# Quick test (mock mode, no GPU):
+#   mock: true   in the explore/exploit workflow sections below
+#
+# Run:
+#   python run_campaign.py --config config.yaml
+# =============================================================================
+
+engine: dragon    # dragon = multi-node GPU runs; concurrent = local mock/testing
+
+resources:
+  total_cpus: 0   # 0 = unlimited
+  total_gpus: 0   # managed per-replica via required_gpus
+
+# ── Workflow groups ───────────────────────────────────────────────────────────
+# Both groups use the same SmMolBindingWorkflow class (registered below).
+# replicas: 0  — the ADR operator triggers them each cycle.
+
+workflows:
+
+  explore:
+    replicas:          0       # triggered by ADR operator each cycle
+    concurrency_cap:   2       # run at most 2 explore pipelines simultaneously
+    concurrency_floor: 1
+    priority:          10
+    required_cpus:     0
+    required_gpus:     1
+    # Pipeline config forwarded to SmMolBindingWorkflow.run()
+    input_dir: p1_in   # relative to SM_BINDING_EXAMPLES_DIR
+    work_dir: runs
+    mock: false
+    # -- Integration-test sizing (minimal compute, just verify the full pipeline) --
+    diffusion_batch_size: 1    # backbones per rfd3 call  (prod: 2)
+    num_refine_cycles:    1    # mpnn+packmin cycles       (prod: 3)
+    num_seqs:             1    # sequences per mpnn call   (prod: 4)
+    mpnn_ensemble_size:   1    # mpnn batches on cycle 0   (prod: 1)
+    max_tasks:            5    # ensemble budget            (prod: 300)
+    # -- Quality thresholds: relax to always-pass for integration --
+    backbone_max_ca_deviation: 10.0   # prod: 1.0
+    backbone_min_ss_fraction:  0.0    # prod: 0.5
+    fastrelax_max_fa_rep:      1e6    # prod: 100.0
+    fastrelax_max_total_score: 1e6    # prod: 0.0  (Rosetta scores are negative, so 1e6 always passes)
+    fastrelax_max_interact:    1e6    # prod: 0.0
+    interface_min_sc:          0.0    # prod: 0.35
+    fold_min_plddt:            0.0    # prod: 70.0
+
+  exploit:
+    replicas:          0       # triggered by ADR operator each cycle
+    concurrency_cap:   1
+    concurrency_floor: 1
+    priority:          9
+    required_cpus:     0
+    required_gpus:     1
+    # Pipeline config forwarded to SmMolBindingWorkflow.run()
+    input_dir: p1_in
+    work_dir: runs
+    mock: false
+    # -- Integration-test sizing --
+    diffusion_batch_size: 1
+    num_refine_cycles:    1
+    num_seqs:             1
+    mpnn_ensemble_size:   1
+    max_tasks:            5
+    # -- Quality thresholds: relax to always-pass for integration --
+    backbone_max_ca_deviation: 10.0
+    backbone_min_ss_fraction:  0.0
+    fastrelax_max_fa_rep:      1e6
+    fastrelax_max_total_score: 1e6
+    fastrelax_max_interact:    1e6
+    interface_min_sc:          0.0
+    fold_min_plddt:            0.0
+
+# ── Campaign manager ──────────────────────────────────────────────────────────
+
+cm:
+  features:
+    backpressure: false
+    sharder:      false
+    monitor:      false
+
+  adr:
+    policy:  rule    # "rule" uses SmMolBindingPolicy (dummy explore/exploit cycles)
+    tick_s:  1.0
+    terminal: [explore, exploit]   # both groups are terminal — no downstream stages
+
+    # ── Campaign stopping goal ─────────────────────────────────────────────
+    # max_cycles:  total ADR explore/exploit cycles to run
+    # explore_n:   explore pipelines per cycle
+    # exploit_m:   exploit pipelines per cycle
+    # Campaign stops when max_cycles × (explore_n + exploit_m) pipelines finish.
+    goals:
+      max_cycles: 1
+      explore_n:  2
+      exploit_m:  1
+
+# ── Workflow registry ─────────────────────────────────────────────────────────
+
+workflow_registry:
+  explore: sm_binding_workflow.SmMolBindingWorkflow
+  exploit: sm_binding_workflow.SmMolBindingWorkflow

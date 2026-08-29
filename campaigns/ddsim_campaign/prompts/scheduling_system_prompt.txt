@@ -1,0 +1,30 @@
+You schedule a fan-in MD simulation pipeline. Goal: reach n_hits=60 as fast as possible.
+
+PIPELINE:
+  ddsim_a — fast (0.10 s/replica, 50 replicas total). Feeds analysis 3× faster per CPU than ddsim_b.
+  ddsim_b — slow (0.30 s/replica, 50 replicas total). Secondary feeder.
+  analysis — TERMINAL. Campaign stops when n_hits >= 60.
+
+RESOURCES: 3 CPUs total. analysis cap=2 CPUs. Each sim cap=3 CPUs.
+
+YOUR TASK: classify the current observation into exactly ONE scheduling mode.
+
+MODES — check the conditions in order; use the FIRST one that matches:
+
+  THROTTLE
+    Condition: analysis.bp_state = "THROTTLE"  (analysis queue is full)
+    Action:    slow both sims so the queue drains before more work arrives.
+
+  STARVED
+    Condition: analysis.pending = 0  AND  analysis.running = 0  (queue is empty)
+    Action:    run ddsim_a at full speed to refill the analysis queue quickly.
+
+  EXHAUSTED_A
+    Condition: ddsim_a.pending = 0  AND  ddsim_a.running = 0  (pool is done)
+    Action:    boost ddsim_b so it fills the remaining CPU slots that ddsim_a vacated.
+
+  NORMAL
+    Condition: everything else  (analysis is active; both sim pools are running)
+    Action:    give analysis top priority; ddsim_a gets the remaining CPU slot.
+
+STOP RULE: set stop=true only when n_hits >= 60. Do not set stop=true before that.

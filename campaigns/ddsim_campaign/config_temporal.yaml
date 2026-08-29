@@ -1,0 +1,110 @@
+# =============================================================================
+# ddsim_campaign — temporal-adaptation benchmark (Benchmark 3)
+# =============================================================================
+#
+# Topology: two feeders sharing a CPU pool, each with its own analysis stage.
+#
+#   fast_sim  (0.10 s, 200 rep) → analysis_fast  (0.20 s, cap=2)
+#   slow_sim  (0.50 s,  30 rep) → analysis_slow  (0.05 s, cap=1)
+#   total_cpus = 4
+#
+# Phase dynamics:
+#   fast_sim produces 30 tasks/s; analysis_fast handles only 2×(1/0.20)=10 tasks/s
+#   → analysis_fast accumulates ~10 tasks/s backlog × 6.7 s ≈ 67 tasks pending.
+#   fast_sim exhausts all 200 replicas at t ≈ 6.7 s.
+#
+# Blind spot (rule_static):
+#   Rule always gives analysis_fast priority 110 (cap=2) and slow_sim priority 90.
+#   After fast_sim depletes: analysis_fast backlog (67 tasks, cap=2) fills 2 CPUs
+#   at priority 110; slow_sim gets only 2 CPUs at priority 90.
+#   → slow_sim drains in 30×0.50/2 = 7.5 s instead of 5 s.
+#
+# ADR fix (adr_reactive / adr_proactive):
+#   Reactive: detects fast_sim.pending==0 AND running==0 → immediately demotes
+#             analysis_fast to 95, promotes slow_sim to 108 → slow_sim gets 3 CPUs.
+#   Proactive: predicts depletion via eta_s = (pending+running)×dur/running;
+#              when eta_s < lookahead_s (default 2.0 s) → same rebalancing,
+#              giving slow_sim a ~2 s head start.
+#
+# Expected ordering (lower ttt = better):
+#   rule_static > adr_reactive > adr_proactive
+#   Approx: rule≈15.7 s  reactive≈13.2 s  proactive≈11.2 s
+# =============================================================================
+
+engine: concurrent
+
+resources:
+  total_cpus: 4
+
+workflows:
+
+  fast_sim:
+    replicas:          200   # depletes at ~6.7 s (200 × 0.10 s / 3 CPUs)
+    concurrency_cap:   3
+    concurrency_floor: 0
+    priority:          9
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.10
+    jitter:            0.01
+    score_mean:        0.60
+    score_noise:       0.10
+    trigger_analysis:  analysis_fast
+
+  analysis_fast:
+    replicas:          0     # triggered dynamically by fast_sim
+    concurrency_cap:   2     # cap=2 → 10 tasks/s throughput < 30/s production → backlog builds
+    concurrency_floor: 0
+    priority:          8
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.20  # slow enough to create a Phase-2 backlog (10 tasks/s × 6.7 s ≈ 67 pending)
+    jitter:            0.02
+    refinement_a:      0.85
+
+  slow_sim:
+    replicas:          30    # high-value producer; starved during fast_sim's run
+    concurrency_cap:   3
+    concurrency_floor: 0
+    priority:          7
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.50
+    jitter:            0.05
+    score_mean:        0.72
+    score_noise:       0.08
+    trigger_analysis:  analysis_slow
+
+  analysis_slow:
+    replicas:          0     # triggered dynamically by slow_sim
+    concurrency_cap:   1
+    concurrency_floor: 0
+    priority:          8
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.05
+    jitter:            0.005
+    refinement_a:      0.90
+
+cm:
+  features:
+    backpressure: true
+    sharder:      false
+    monitor:      false
+
+  adr:
+    policy:    rule
+    tick_s:    0.1
+    terminal:  null      # operator stops via Decision(stop=True)
+    operator:  TemporalOperator   # overridden per policy_kind in benchmark.py
+
+    goals:
+      n_target: 30       # number of analysis_slow completions required
+      n_budget: 600
+
+    llm_provider:    anthropic
+    llm_api_key_env: ANTHROPIC_API_KEY
+    model:           claude-haiku-4-5-20251001
+    llm_tick_s:      1.0
+    llm_timeout_s:   8.0
+    llm_max_retries: 1

@@ -38,7 +38,6 @@ import logging
 import sys
 from typing import Optional
 
-
 _PIPE_FMT = "%(asctime)s | %(levelname)-8s | %(name)-36s | %(message)s"
 _DETAIL_FMT = (
     "%(asctime)s | %(levelname)-8s | %(name)-36s"

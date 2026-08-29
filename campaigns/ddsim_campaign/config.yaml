@@ -68,7 +68,6 @@ workflows:
     priority:          8
     required_cpus:     0
     required_gpus:     0
-    campaign_target:   15     # stop when 15 analyses finish
     # Analysis config
     duration:          0.15
     jitter:            0.03
@@ -84,9 +83,30 @@ cm:
     monitor:      false
 
   adr:
-    policy:    none   # none | rule | bandit | llm
+    policy:    rule  # none | rule | downstream_first | bandit | llm
+                      # none            = goals-only, no scheduling changes
+                      # rule            = campaign's rule_policy() or DownstreamFirstPolicy fallback
+                      # downstream_first= generic depth-first rule unconditionally
+                      # bandit          = Thompson-sampling online learner
+                      # llm             = LLM-driven with silent rule fallback
+                      # (absent = use DdSimCampaignOperator.default_policy() = None)
     tick_s:    0.5
-    terminal:  analysis
+    terminal:  analysis   # explicit: CM uses _on_completion routing, no config deps
+
+    # ── Campaign stopping goal ─────────────────────────────────────────────
+    # n_target: stop when this many analysis-stage replicas have finished.
+    # (Was campaign_target on the analysis workflow before this refactor.)
+    goals:
+      n_target: 15
+
+    system_prompt_file: prompts/scheduling_system_prompt.txt
+    llm_tick_s:   2.0
+    llm_timeout_s: 15.0
+    llm_max_retries: 1
+
+    base_url: https://router.huggingface.co/v1
+    model: meta-llama/Llama-3.3-70B-Instruct
+    llm_api_key_env: HF_TOKEN
 
 # ── Workflow registry ─────────────────────────────────────────────────────────
 

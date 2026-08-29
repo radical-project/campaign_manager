@@ -4,7 +4,6 @@ import pytest
 
 from src.campaign.profiles import PROFILES, ProfileWeights, get_profile
 
-
 # ── ProfileWeights ────────────────────────────────────────────────────────────
 
 

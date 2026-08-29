@@ -9,8 +9,8 @@ to reach the score_p50 computation path.
 """
 
 import sys
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -19,7 +19,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.campaign.adr.view import CampaignView
 from src.campaign.metrics import ShardEvent
-
 
 # ── Fake CM state ─────────────────────────────────────────────────────────────
 
@@ -36,6 +35,7 @@ class _FakeWorkflow:
     ready: bool = True
     required_gpus: int = 0
     _consecutive_stalls: int = 0
+    failed_replicas: int = 0
     workflow_config: dict = field(default_factory=dict)
 
 

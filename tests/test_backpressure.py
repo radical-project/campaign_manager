@@ -13,7 +13,6 @@ import pytest
 from src.campaign.backpressure import BackpressureNegotiator, BPState
 from src.campaign.sharder import Sharder, ShardingSpec
 
-
 # ── BackpressureNegotiator score_slack ─────────────────────────────────────────
 
 

@@ -2,10 +2,12 @@
 CampaignMetrics — lightweight in-process event recorder.
 
 Records timestamped events during a campaign run:
-  - ReplicaEvent    per-replica start/finish with timing
-  - BPEvent         backpressure state transitions per edge
-  - ShardEvent      sharder dispatch metadata (shard quality)
-  - SchedulingEvent scheduling decisions (which stage chosen, bandit scores)
+  - ReplicaEvent       per-replica start/finish with timing
+  - BPEvent            backpressure state transitions per edge
+  - ShardEvent         sharder dispatch metadata (shard quality)
+  - SchedulingEvent    scheduling decisions (which stage chosen, bandit scores)
+  - DecisionTraceEvent one entry per ADR tick: policy, full action list, elapsed time
+  - ArtifactManifest   provenance records for remote artifacts (Pattern 7)
 
 All timestamps are wall-clock seconds via time.time().
 to_dict() serialises to JSON-compatible dicts for benchmark aggregation.
@@ -13,7 +15,7 @@ to_dict() serialises to JSON-compatible dicts for benchmark aggregation.
 
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 
 @dataclass
@@ -25,6 +27,8 @@ class ReplicaEvent:
     candidate_id: Optional[str] = None
     score: Optional[float] = None
     duration_s: Optional[float] = None  # set on finish event
+    retry_of: Optional[str] = None      # original replica_id this is a retry of
+    attempt: int = 0                    # 0 = first attempt, 1 = first retry, …
 
 
 @dataclass
@@ -64,6 +68,23 @@ class SchedulingEvent:
 
 
 @dataclass
+class DecisionTraceEvent:
+    """One ADR tick decision — travels with the campaign JSON via CampaignMetrics.to_dict().
+
+    Supplements (does not replace) the per-cycle JSONL written by PolicyRecorder.
+    The JSONL is consumed by plot scripts; this trace is for post-run inspection
+    without having to correlate a separate file.
+    """
+
+    cycle: int
+    t: float                       # seconds since campaign start
+    policy: str                    # e.g. "rule", "llm", "consensus"
+    actions: list[dict]            # [{"name": "set_priority", "stage": "s", "priority": 9}, ...]
+    llm_prompt_tokens: Optional[int] = None      # Phase 2: filled by LLM policy
+    llm_completion_tokens: Optional[int] = None  # Phase 2: filled by LLM policy
+
+
+@dataclass
 class BudgetEventRecord:
     """One BudgetController.evaluate outcome, serialized for replay & plots.
 
@@ -99,6 +120,8 @@ class CampaignMetrics:
         self.shard_events: list[ShardEvent] = []
         self.scheduling_events: list[SchedulingEvent] = []
         self.budget_events: list[BudgetEventRecord] = []
+        self.decision_events: list[DecisionTraceEvent] = []
+        self.manifest_events: list[dict] = []
         self._replica_starts: dict[str, float] = {}  # replica_id → start time
         self._stage_wall_s: dict[str, float] = {}  # group → cumulative wall-time seconds
 
@@ -110,6 +133,8 @@ class CampaignMetrics:
         replica_id: str,
         candidate_id: Optional[str] = None,
         score: Optional[float] = None,
+        retry_of: Optional[str] = None,
+        attempt: int = 0,
     ) -> None:
         t = time.time()
         self._replica_starts[replica_id] = t
@@ -121,6 +146,8 @@ class CampaignMetrics:
                 timestamp=t,
                 candidate_id=candidate_id,
                 score=score,
+                retry_of=retry_of,
+                attempt=attempt,
             )
         )
 
@@ -238,6 +265,36 @@ class CampaignMetrics:
             )
         )
 
+    def record_decision(
+        self,
+        cycle: int,
+        t: float,
+        policy: str,
+        actions: list[dict],
+        llm_prompt_tokens: Optional[int] = None,
+        llm_completion_tokens: Optional[int] = None,
+    ) -> None:
+        self.decision_events.append(
+            DecisionTraceEvent(
+                cycle=cycle,
+                t=t,
+                policy=policy,
+                actions=actions,
+                llm_prompt_tokens=llm_prompt_tokens,
+                llm_completion_tokens=llm_completion_tokens,
+            )
+        )
+
+    def record_manifest(self, manifest: "Any") -> None:
+        """Append an ArtifactManifest to the persistent record.
+
+        Accepts any object with a to_dict() method so metrics.py stays
+        import-free of artifacts.py at runtime (avoids circular imports).
+        """
+        d = manifest.to_dict()
+        d["_recorded_at"] = time.time() - self.start_time
+        self.manifest_events.append(d)
+
     def finish(self) -> None:
         self.end_time = time.time()
 
@@ -338,6 +395,7 @@ class CampaignMetrics:
                     "t": e.timestamp - self.start_time,
                     "dur": e.duration_s,
                     "score": e.score,
+                    **({"retry_of": e.retry_of, "attempt": e.attempt} if e.retry_of else {}),
                 }
                 for e in self.replica_events
             ],
@@ -359,4 +417,16 @@ class CampaignMetrics:
                 }
                 for e in self.budget_events
             ],
+            "decision_events": [
+                {
+                    "cycle": e.cycle,
+                    "t": e.t,
+                    "policy": e.policy,
+                    "actions": e.actions,
+                    **({"llm_prompt_tokens": e.llm_prompt_tokens} if e.llm_prompt_tokens is not None else {}),
+                    **({"llm_completion_tokens": e.llm_completion_tokens} if e.llm_completion_tokens is not None else {}),
+                }
+                for e in self.decision_events
+            ],
+            "manifest_events": list(self.manifest_events),
         }

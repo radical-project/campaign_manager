@@ -36,16 +36,21 @@ Typical usage::
 
 from __future__ import annotations
 
-import asyncio
+import json
 import logging
+from pathlib import Path
 from typing import Any, Optional
 
 from radical.adr import Operator, act, goals, observe
-from radical.adr.goals import Goal
 
+from .supervisor import CampaignAbortedError, run_supervised  # noqa: F401
 from .view import CampaignViewProtocol
 
 log = logging.getLogger(__name__)
+
+# Version written by radical.adr.Operator.save_checkpoint that this CM release
+# has been validated against.  A mismatch triggers a warning but not an abort.
+_CHECKPOINT_VERSION = 1
 
 
 class CampaignOperator(Operator):
@@ -135,6 +140,71 @@ class CampaignOperator(Operator):
                 "override @goals to declare campaign goals or pass max_cycles."
             )
 
+    # ── Checkpoint helpers ──────────────────────────────────────────────────────
+
+    def save_extra(self) -> dict:
+        """Return campaign-specific state to persist alongside the ADR checkpoint.
+
+        Override in subclasses to save state that lives outside radical.adr's
+        artifacts/runtime dicts (e.g. operator instance variables).  The returned
+        dict is written to ``<checkpoint>.extra.json`` by save_checkpoint_full().
+        Return {} (the default) to skip the sidecar file entirely.
+        """
+        return {}
+
+    def load_extra(self, data: dict) -> None:
+        """Restore campaign-specific state saved by save_extra().
+
+        Called by load_checkpoint_full() when a ``.extra.json`` sidecar exists.
+        Override alongside save_extra() in subclasses that persist custom state.
+        """
+
+    def save_checkpoint_full(self, path: str) -> None:
+        """Save ADR checkpoint + campaign-specific extra state.
+
+        Calls the radical.adr base save_checkpoint(), then writes save_extra()
+        to a sidecar file next to the checkpoint if the subclass returns any data.
+        """
+        self.save_checkpoint(path)
+        extra = self.save_extra()
+        if extra:
+            sidecar = Path(path).with_suffix(".extra.json")
+            with open(sidecar, "w") as f:
+                json.dump(extra, f, indent=2)
+            log.info("extra checkpoint state saved to %s", sidecar)
+
+    def load_checkpoint_full(self, path: str) -> None:
+        """Version-checked checkpoint load + campaign-specific extra state.
+
+        Reads the checkpoint version and warns if it differs from the version
+        this CM release was validated against.  Always attempts the load so that
+        additive schema changes (new fields with safe defaults) still work.
+        Calls load_extra() with the sidecar data if a ``.extra.json`` file exists.
+        """
+        try:
+            with open(path) as f:
+                data = json.load(f)
+            version = data.get("version", 0)
+            if version != _CHECKPOINT_VERSION:
+                log.warning(
+                    "Checkpoint version mismatch: file has version=%d, "
+                    "CM expects version=%d.  State may not load correctly.",
+                    version, _CHECKPOINT_VERSION,
+                )
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            log.warning(
+                "Could not read version from checkpoint %s (not JSON) "
+                "— loading without version check.",
+                path,
+            )
+        self.load_checkpoint(path)
+        sidecar = Path(path).with_suffix(".extra.json")
+        if sidecar.exists():
+            with open(sidecar) as f:
+                extra = json.load(f)
+            self.load_extra(extra)
+            log.info("extra checkpoint state loaded from %s", sidecar)
+
     # ── Default policy (campaigns override) ────────────────────────────────────
 
     def default_policy(self):
@@ -206,39 +276,3 @@ class CampaignOperator(Operator):
         return {"lever": "trigger", "stage": stage, "replicas": n}
 
 
-async def run_supervised(
-    cm,
-    operator: CampaignOperator,
-    tick_s: float = 1.0,
-) -> None:
-    """Run a CampaignOperator's decision loop alongside a running CM.
-
-    The CM must already be started by the caller.  This drives the operator one
-    cycle per ``tick_s`` until the CM completes naturally OR the operator's goal
-    fires — whichever comes first.  When the goal fires, ``cm.stop()`` is called
-    to signal the CM to stop accepting new work.
-    """
-
-    async def _drive() -> None:
-        async for _snapshot in operator.run():
-            await asyncio.sleep(tick_s)
-        # Operator exited (goal satisfied or manual shutdown).
-        # Propagate stop to the CM if it supports it.
-        if hasattr(cm, "stop") and callable(cm.stop):
-            try:
-                await cm.stop()
-                log.info("run_supervised: ADR goal reached — CM stop() signalled")
-            except Exception as exc:  # noqa: BLE001
-                log.warning("run_supervised: cm.stop() raised %s", exc)
-
-    drive_task = asyncio.ensure_future(_drive())
-    try:
-        await cm.wait()
-    finally:
-        await operator.shutdown()
-        if not drive_task.done():
-            drive_task.cancel()
-            try:
-                await drive_task
-            except asyncio.CancelledError:
-                pass

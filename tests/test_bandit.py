@@ -6,7 +6,6 @@ import pytest
 
 from src.campaign.bandit import BanditArm, SchedulingBandit
 
-
 # ── BanditArm ─────────────────────────────────────────────────────────────────
 
 
@@ -65,7 +64,8 @@ class TestBanditArmUpdate:
         arm.update(1.0)
         arm.update(0.0)
         arm.update(0.5)
-        assert arm.alpha == pytest.approx(3.5)
+        # prior=1, +1.0+0.0+0.5 = 2.5; β: prior=1, +0.0+1.0+0.5 = 2.5
+        assert arm.alpha == pytest.approx(2.5)
         assert arm.beta == pytest.approx(2.5)
 
     def test_pulls_counts_updates(self):

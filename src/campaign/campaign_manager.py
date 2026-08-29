@@ -56,23 +56,23 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
     def __init__(
         self,
         max_workers: Optional[int] = None,
-        engine: str = "concurrent",
+        engine_type: str = "concurrent",
         total_cpus: int = 0,
         total_gpus: int = 0,
         total_memory_gb: float = 0.0,
         num_workers: Optional[int] = None,
         debug: bool = False,
-        asyncflow=None,
+        engine=None,
         engine_dragon=None,
         features: Optional[dict] = None,
     ) -> None:
         self._log = Logger(name="AsyncCampaignManager", use_colors=True)
         self._seq = itertools.count()
         self._lock = asyncio.Lock()
-        self._engine_type = engine
+        self._engine_type = engine_type
         self._num_workers = num_workers
         self._debug = debug
-        self._asyncflow = asyncflow
+        self._engine = engine
         self._engine_dragon = engine_dragon
         self._gpu_pool: list[tuple[str, int]] = []
         self._free_gpu_ids: list[int] = []
@@ -148,7 +148,7 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
         cls,
         config: dict,
         workflow_registry: dict[str, type[BaseWorkflow]],
-        asyncflow=None,
+        engine=None,
         engine_dragon=None,
     ) -> "AsyncCampaignManager":
         """Build an AsyncCampaignManager from a config dict + workflow registry.
@@ -179,13 +179,13 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
 
         cm = cls(
             max_workers=config.get("max_workers"),
-            engine=config.get("engine", "concurrent"),
+            engine_type=config.get("engine", "concurrent"),
             total_cpus=int(res_cfg.get("total_cpus", 0)),
             total_gpus=int(res_cfg.get("total_gpus", 0)),
             total_memory_gb=float(res_cfg.get("total_memory_gb", 0.0)),
             num_workers=int(num_workers) if num_workers is not None else None,
             debug=bool(config.get("debug", False)),
-            asyncflow=asyncflow,
+            engine=engine,
             engine_dragon=engine_dragon,
             features=dict(features) if features else {},
         )
@@ -206,6 +206,7 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
             "required_cpus",
             "required_gpus",
             "required_memory_gb",
+            "max_retries",
             "sharding",
         }
 
@@ -234,6 +235,7 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
                 required_cpus=int(wf_cfg.get("required_cpus", 0)),
                 required_gpus=int(wf_cfg.get("required_gpus", 0)),
                 required_memory_gb=float(wf_cfg.get("required_memory_gb", 0.0)),
+                max_retries=int(wf_cfg.get("max_retries", 0)),
                 config={k: v for k, v in wf_cfg.items() if k not in _cm_keys} or None,
             )
 
@@ -487,6 +489,7 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
         required_gpus: int = 0,
         required_memory_gb: float = 0.0,
         config: Optional[dict] = None,
+        max_retries: int = 0,
         # Legacy aliases — accepted for backward compatibility.
         min_replicas: Optional[int] = None,
         max_replicas: Optional[int] = None,
@@ -499,6 +502,38 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
 
         entry_point = self._resolve_entry_point(workflow_class)
         effective_max = concurrency_cap if concurrency_cap > 0 else replicas
+
+        # ── Developer-guidance checks ─────────────────────────────────────────
+        # workflow_id "base" means the subclass forgot to declare a unique ID.
+        wf_id = getattr(workflow_class, "workflow_id", "base")
+        if wf_id == "base":
+            self._log.warning(
+                f"Workflow class {workflow_class.__name__!r} has workflow_id='base' "
+                "(the default). Set a unique workflow_id class attribute to avoid "
+                "ambiguous labels in plots and asyncflow task names."
+            )
+
+        # Detect likely-misspelled on_replica_* hook overrides in the subclass.
+        # A method in the class's own __dict__ (not inherited) that starts with
+        # 'on_replica_' but isn't a known hook is almost certainly a typo.
+        _known_replica_hooks = {"on_replica_done", "on_replica_failed"}
+        for attr_name, attr_val in workflow_class.__dict__.items():
+            if (
+                attr_name.startswith("on_replica_")
+                and callable(attr_val)
+                and attr_name not in _known_replica_hooks
+            ):
+                self._log.warning(
+                    f"Workflow class {workflow_class.__name__!r} defines "
+                    f"'{attr_name}' which is not a known CM hook "
+                    f"(known: {sorted(_known_replica_hooks)}). "
+                    "Possible misspelling — the hook will never fire."
+                )
+
+        # Per-group semaphore enforces the concurrency ceiling inside _run_replica.
+        # Only created when the user set an explicit cap (concurrency_cap > 0).
+        # cap=0 (unlimited) has no semaphore — all queued tasks run immediately.
+        _sem = asyncio.Semaphore(concurrency_cap) if concurrency_cap > 0 else None
 
         self._workflows[name] = _WorkflowInfo(
             name=name,
@@ -515,6 +550,8 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
             required_memory_gb=required_memory_gb,
             dep_threshold=dep_threshold,
             entry_point=entry_point,
+            max_retries=max_retries,
+            _semaphore=_sem,
         )
         self._stats[name] = WorkflowStats()
         self._log.info(
@@ -538,16 +575,16 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
         """Sync CM resource state against the pre-built asyncflow engine.
 
         Called once from start(). The caller (run_campaign.py) is responsible
-        for creating the backend and WorkflowEngine before passing asyncflow=
+        for creating the backend and WorkflowEngine before passing engine=
         to from_config() / __init__. This method only does CM-side setup:
         debug logging, GPU pool discovery, and ResourcePool cap correction.
 
-        Raises RuntimeError if asyncflow was not provided.
+        Raises RuntimeError if engine was not provided.
         """
-        if self._asyncflow is None:
+        if self._engine is None:
             raise RuntimeError(
-                "asyncflow engine not provided — create the backend and "
-                "WorkflowEngine in your run script and pass asyncflow= to from_config()"
+                "workflow engine not provided — create the backend and "
+                "WorkflowEngine in your run script and pass engine= to from_config()"
             )
 
         if self._debug:
@@ -655,7 +692,7 @@ class AsyncCampaignManager(SchedulerMixin, ExecutorMixin, MonitorMixin):
                 t.cancel()
             await asyncio.gather(*pending, return_exceptions=True)
         self._replica_tasks.clear()
-        self._asyncflow = None
+        self._engine = None
         self._metrics.finish()
         self._log.info("AsyncCampaignManager closed")
 

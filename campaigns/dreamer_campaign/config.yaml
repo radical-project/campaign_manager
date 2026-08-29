@@ -264,29 +264,29 @@ edges:
   # Throttle when depth ≥ high_water; widen when depth ≤ low_water.
   - name:       lib_to_s1
     upstream:   library
-    downstream: s1_ligand_filter        # total=2000
+    downstream: s1_ligand_filter        # total=10000
     profile:    round_robin
     backpressure: { high_water: 2250, low_water: 1000 }
   - name:       s1_to_s2
     upstream:   s1_ligand_filter
-    downstream: s2_ml_affinity          # total≈325 (500 × 0.65 — score_threshold=0.35 in dreamer)
+    downstream: s2_ml_affinity          # total≈4000 (10000 × 40% pass — s1 score_threshold=0.60)
     profile:    diverse_top
     # Debug-scale BP: set high_water above total expected so throttle only fires on genuine
     # overflow; sharding benefit comes from priority ranking, not queue control in debug runs.
     backpressure: { high_water: 500, low_water: 200 }
   - name:       s2_to_s3
     upstream:   s2_ml_affinity
-    downstream: s3_docking              # total≈195  (325 × 0.60 — score_threshold=0.40)
+    downstream: s3_docking              # total≈3000 (~75% of s2 inputs pass — s2 score_threshold=0.65)
     profile:    explore_exploit
     backpressure: { high_water: 300, low_water: 120 }
   - name:       s3_to_s4
     upstream:   s3_docking
-    downstream: s4_md_refinement        # total≈107  (195 × 0.55 — score_threshold=0.45)
+    downstream: s4_md_refinement        # total≈2550 (~85% of s3 inputs pass — s3 score_threshold=0.70)
     profile:    diverse_top
     backpressure: { high_water: 200, low_water: 80 }
   - name:       s4_to_s5
     upstream:   s4_md_refinement
-    downstream: s5_fep_ranking          # total≈107  (all pass, score_threshold=0.0)
+    downstream: s5_fep_ranking          # total≈2040 (~80% of s4 inputs pass — s4 score_threshold=0.75)
     profile:    pure_promise
     backpressure: { high_water: 200, low_water: 80 }
 
@@ -328,7 +328,7 @@ debug:
   # Fraction of stage-N total that becomes stage-N+1 total.
   # Gating is done by dreamer.score_threshold inside each workflow replica.
   # Each stage triggers downstream only when output_score >= score_threshold.
-  # Expected funnel: 200 s1 → ~130 s2 → ~78 s3 → ~43 s4 → ~24 s5 (stops at target=5)
+  # Expected funnel: 10000 s1 → ~4000 s2 → ~3000 s3 → ~2550 s4 → ~2040 s5 (stops at target=5)
 
 
 # ── SPHERICAL Campaign Manager runtime ───────────────────────────────────────
@@ -358,9 +358,8 @@ cm:
 
   # ── ADR supervision (radical.adr agent layer) ─────────────────────────────
   # Drives scheduling priority from a swappable radical.adr Policy. Choose the
-  # rule / bandit / LLM strategy and compare on equal footing.  Requires
-  # `pip install -e ".[adr]"` (llm also needs ".[llm]").  Override at runtime
-  # with `--policy {none|rule|bandit|llm}`.
+  # rule / bandit / LLM strategy and compare on equal footing.  Install with
+  # `pip install -e .`  Override at runtime with `--policy {none|rule|bandit|llm}`.
   adr:
     # Compare strategies by running each and recording (see plot_policy_comparison.py).
     # 'bandit' wraps the same Thompson-sampling SchedulingBandit as an ADR agent.
@@ -411,7 +410,7 @@ cm:
     model: meta-llama/Llama-3.3-70B-Instruct
     llm_api_key_env: HF_TOKEN
     #   Claude (best quality, ~cents/run): switch LLMSchedulingPolicy to
-    #     the Anthropic SDK and use model: claude-haiku-4-5 / claude-sonnet-4-6.
+    #     the Anthropic SDK and use model: claude-haiku-4-5 / claude-sonnet-5.
 
     record:    false       # true/auto → log per-cycle decisions to
                            #   adr-decisions-<policy>.jsonl (for plot_policy_comparison.py)

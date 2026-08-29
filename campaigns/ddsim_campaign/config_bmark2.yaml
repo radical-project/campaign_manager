@@ -1,0 +1,105 @@
+# =============================================================================
+# ddsim_campaign — pipeline-isolation concurrent-pipeline benchmark
+# =============================================================================
+#
+# Topology: two independent pipelines sharing a CPU pool.
+#
+#   Pipeline 1  fast_sim  (0.10 s) → analysis_fast  (0.05 s)   target: 30 hits
+#   Pipeline 2  slow_sim  (0.30 s) → analysis_slow  (0.05 s)   target: 30 hits
+#
+# Resource pressure:  total_cpus=4  (8 CPUs needed for full concurrency — tight intentionally)
+#
+# Key blind spot for flat policies:
+#   fast_sim generates analysis_fast work 3× faster than analysis_fast can
+#   consume it → analysis_fast THROTTLE fires while analysis_slow is fine.
+#   FlatGlobalRulePolicy reacts globally: demotes BOTH sims during any THROTTLE.
+#   → Pipeline 2 (slow) is unnecessarily stalled while Pipeline 1 is backed up.
+#
+# Isolated operators react independently:
+#   isolated_delegated detects analysis_fast THROTTLE → demotes fast_sim only.
+#   slow_sim ignores Pipeline 1 state → continues at full speed.
+#   → Both pipelines make progress concurrently, unaffected by each other's backpressure.
+#
+# Expected ordering (lower ttt = better):
+#   isolated_debounced ≈ isolated_centralized ≈ isolated_delegated  <<  flat_global
+# =============================================================================
+
+engine: concurrent
+
+resources:
+  total_cpus: 4   # tight: analysis(1)+fast_sim(3)=4 leaves 0 for slow in flat THROTTLE
+                  # hier THROTTLE: child1 demotes fast→95, child2 boosts slow→108 → 3 CPUs for slow
+
+workflows:
+
+  fast_sim:
+    replicas:          200   # sustained pressure: 200 × 0.10s / 3 CPUs ≈ 6.7s run → starves slow for full duration in flat
+    concurrency_cap:   3
+    concurrency_floor: 0
+    priority:          9
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.10
+    jitter:            0.01
+    score_mean:        0.60
+    score_noise:       0.10
+    trigger_analysis:  analysis_fast
+
+  analysis_fast:
+    replicas:          0     # triggered dynamically by fast_sim
+    concurrency_cap:   1
+    concurrency_floor: 0
+    priority:          8
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.05
+    jitter:            0.005
+    refinement_a:      0.85
+
+  slow_sim:
+    replicas:          30    # slow generator — 3 CPUs × 0.30 s = 3.0 s if uncontested
+    concurrency_cap:   3
+    concurrency_floor: 0
+    priority:          7
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.30
+    jitter:            0.03
+    score_mean:        0.72
+    score_noise:       0.08
+    trigger_analysis:  analysis_slow
+
+  analysis_slow:
+    replicas:          0     # triggered dynamically by slow_sim
+    concurrency_cap:   1
+    concurrency_floor: 0
+    priority:          8
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.05
+    jitter:            0.005
+    refinement_a:      0.90
+
+cm:
+  features:
+    backpressure: true
+    sharder:      false
+    monitor:      false
+
+  adr:
+    policy:    rule
+    tick_s:    0.1
+    terminal:  null      # parent stops via Decision(stop=True); no single terminal stage
+    operator:  PipelineIsolationOperator   # overridden per policy_kind in benchmark.py
+
+    goals:
+      n_target: 30       # per pipeline; each child uses this as its own stopping threshold
+      n_budget: 600
+
+    # LLM config inherited from Benchmark 1 for future flat_consensus extension.
+    llm_provider:    anthropic
+    llm_api_key_env: ANTHROPIC_API_KEY
+    model:           claude-haiku-4-5-20251001
+    llm_tick_s:      1.0
+    llm_timeout_s:   8.0
+    llm_max_retries: 1

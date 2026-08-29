@@ -42,13 +42,48 @@ class ExecutorMixin:
     async def _run_replica(self, group: _WorkflowInfo, replica_idx: int) -> None:
         """Execute one replica of a workflow group.
 
-        Wrapped in try/finally so _handle_replica_done always runs, even when
-        workflow construction, getattr(entry), or any setup step raises.
-        Without this guard, an exception before entry() would leak the CPU
-        and GPU resources allocated by _allocate_locked and never decrement
-        running_count, eventually deadlocking the group.
+        Concurrency ceiling: group._semaphore (asyncio.Semaphore) gates entry so
+        at most concurrency_cap replicas execute simultaneously.  Tasks are created
+        eagerly by the scheduler (limited only by resources and replicas quota) and
+        block here until a slot opens.  Within-group cycling no longer requires a
+        scheduler round-trip: a finishing replica releases the semaphore and the
+        next waiting task wakes directly.
+
+        started_count is incremented AFTER semaphore.acquire() so that
+        running_count = started_count - finished_replicas counts only executing
+        replicas, not tasks waiting in the semaphore queue.
+
+        If cancelled while waiting for the semaphore (shutdown path), the queued
+        reservation is undone and pre-allocated resources are returned.
         """
         replica_id = f"{group.name}_{replica_idx}"
+        _sem = group._semaphore
+
+        # Acquire execution slot — may block if concurrency_cap replicas are running.
+        # Cancellation here means the campaign is shutting down; undo the allocation.
+        if _sem is not None:
+            try:
+                await _sem.acquire()
+            except asyncio.CancelledError:
+                async with self._lock:
+                    group._queued_count -= 1
+                    self._resources.release(
+                        group.required_cpus, group.required_gpus, group.required_memory_gb
+                    )
+                    _freed = self._replica_gpu_assignments.pop(replica_id, [])
+                    self._free_gpu_ids.extend(_freed)
+                for _gid in _freed:
+                    try:
+                        group.running_gpu_ids.remove(_gid)
+                    except ValueError:
+                        pass
+                raise
+
+        # Now executing — mark as started.  Safe without the lock: asyncio is
+        # single-threaded; no await between semaphore acquire and this increment.
+        group.started_count += 1
+        self._stats[group.name].replicas_started = group.started_count
+
         final_state = "done"
         wf: Optional[BaseWorkflow] = None
 
@@ -100,15 +135,21 @@ class ExecutorMixin:
                     }
                 else:
                     replica_config = {**(replica_config or {}), "candidate_id": candidate_id}
+            lineage = group._retry_lineage.pop(replica_id, None)
+            if lineage:
+                retry_of, attempt, root_id = lineage
+            else:
+                retry_of, attempt, root_id = None, 0, replica_id
             self._metrics.record_replica_start(
-                group.name, replica_id, candidate_id=candidate_id, score=score
+                group.name, replica_id, candidate_id=candidate_id, score=score,
+                retry_of=retry_of, attempt=attempt,
             )
 
             wf = group.workflow_class(
                 config=replica_config,
                 _cm=self,
                 _group_name=group.name,
-                asyncflow=self._asyncflow,
+                asyncflow=self._engine,
                 policies=policies,
                 engine_dragon=self._engine_dragon,
             )
@@ -134,8 +175,12 @@ class ExecutorMixin:
             self._log.error(f"Replica {replica_id!r} setup failed: {type(exc).__name__}: {exc}")
             final_state = "failed"
         finally:
+            # Release the semaphore slot before cleanup so the next queued task
+            # can start executing without waiting for _handle_replica_done.
+            if _sem is not None:
+                _sem.release()
             try:
-                await self._handle_replica_done(wf, group, replica_id, replica_idx, final_state)
+                await self._handle_replica_done(wf, group, replica_id, replica_idx, final_state, root_id=root_id)
             except Exception as exc:
                 import sys as _sys
                 import traceback as _tb
@@ -153,22 +198,80 @@ class ExecutorMixin:
         replica_id: str,
         replica_idx: int,
         final_state: str,
+        *,
+        root_id: Optional[str] = None,
     ) -> None:
         """Call workflow hook, then update group state and re-schedule.
 
         wf is None when workflow construction failed before the instance was
-        built; in that case the on_replica_done hook is skipped and we go
-        straight to resource release via _on_replica_finished.
+        built; in that case hooks are skipped and we go straight to resource
+        release via _on_replica_finished.
 
-        DAG routing order:
-          1. on_replica_done — side-effects / logging hook (no return value used)
-          2. _on_completion  — primary next-step source; if it returns a non-None
-                               spec the CM triggers those groups directly
-          3. config fallback — if _on_completion returns None the existing
-                               dependencies + dependency_threshold scheduler path
-                               handles routing (unchanged behaviour)
+        For failed replicas the sequence is:
+          1. on_replica_failed  — dedicated failure hook; returns True to suppress
+                                  automatic retry, False to let executor retry
+          2. Automatic retry    — if on_replica_failed returned False, retries < max_retries,
+                                  and the failure is not a CancelledError; increments
+                                  group.replicas so the scheduler picks up the retry slot
+          3. on_replica_done    — fires on final outcome (success or exhausted retries);
+                                  skipped for intermediate retries
+          4. _on_completion     — DAG routing; skipped for intermediate retries
         """
-        if wf is not None:
+        retry_scheduled = False
+        # root_id tracks the original replica in a retry chain so _retry_counts
+        # uses a stable key regardless of how many retries have been attempted.
+        if root_id is None:
+            root_id = replica_id
+
+        if wf is not None and final_state == "failed":
+            # Step 1: dedicated failure hook
+            hook_handled = False
+            try:
+                fail_hook = wf.on_replica_failed
+                if asyncio.iscoroutinefunction(fail_hook):
+                    hook_handled = bool(await fail_hook(replica_id, self))
+                else:
+                    hook_handled = bool(fail_hook(replica_id, self))
+            except Exception as exc:
+                self._log.error(f"Replica {replica_id!r} on_replica_failed raised: {exc}")
+
+            # Step 2: automatic executor retry.
+            # Count under root_id (the original replica in this chain) so that
+            # each retry doesn't get a fresh zero count — which would cause
+            # infinite retries when max_retries >= 1.
+            # _queued_count and _retry_lineage are written inside self._lock to
+            # prevent a race when two replicas fail concurrently.
+            if not hook_handled and group.max_retries > 0:
+                attempts = group._retry_counts.get(root_id, 0)
+                if attempts < group.max_retries:
+                    group._retry_counts[root_id] = attempts + 1
+                    async with self._lock:
+                        new_replica_id = f"{group.name}_{group._queued_count}"
+                        group._retry_lineage[new_replica_id] = (replica_id, attempts + 1, root_id)
+                        group.replicas += 1
+                    retry_scheduled = True
+                    self._log.warning(
+                        f"Replica {replica_id!r} failed "
+                        f"(attempt {attempts + 1}/{group.max_retries + 1}) "
+                        f"— retry scheduled as {new_replica_id!r}"
+                    )
+                else:
+                    self._log.error(
+                        f"Replica {replica_id!r} failed after {attempts + 1} attempts "
+                        f"(max_retries={group.max_retries}) — giving up"
+                    )
+                    group._retry_counts.pop(root_id, None)
+
+        # Only count terminal failures (not intermediate retry attempts) so that
+        # fail_rate in the view reflects actual unrecoverable failures.
+        if final_state == "failed" and not retry_scheduled:
+            async with self._lock:
+                group.failed_replicas += 1
+
+        # Steps 3 & 4: run on_replica_done and _on_completion only for the
+        # final outcome — skip for intermediate retries so downstream stages
+        # are not triggered prematurely.
+        if wf is not None and not retry_scheduled:
             try:
                 hook = wf.on_replica_done
                 if asyncio.iscoroutinefunction(hook):
@@ -178,7 +281,6 @@ class ExecutorMixin:
             except Exception as exc:
                 self._log.error(f"Replica {replica_id!r} on_replica_done raised: {exc}")
 
-            # DAG routing: _on_completion is the primary next-step source.
             try:
                 completion_result = wf._on_completion(replica_id, self, final_state)
                 if asyncio.iscoroutine(completion_result):

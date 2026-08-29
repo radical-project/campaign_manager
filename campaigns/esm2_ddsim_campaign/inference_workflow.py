@@ -242,9 +242,7 @@ class InferenceWorkflow(BaseWorkflow):
     # ------------------------------------------------------------------ #
 
     async def on_replica_done(self, replica_id: str, cm, final_state: str) -> None:
-        """Queue 1 downstream replica per successful inference; teardown on last."""
-        # GPU was unavailable and we are not in debug/stub mode — inference was
-        # skipped entirely; nothing to trigger downstream.
+        """Trigger 1 miniapps per successful inference (first n_md_runs=4); teardown on last."""
         if InferenceWorkflow._gpu_unavailable and not (self.config or {}).get("debug", False):
             return
 
@@ -259,21 +257,12 @@ class InferenceWorkflow(BaseWorkflow):
             task_name=replica_id,
         )
 
-        if final_state == "done":
-            # Stub quality score for sharder candidate ranking.
-            # In production this would derive from embedding quality metrics
-            # (e.g. perplexity, confidence, or downstream affinity prediction).
-            score = random.uniform(0.5, 1.0)
-            surr_pred = score * 0.9 + random.gauss(0.0, 0.05)
-            surr_unc = 0.4 * (1.0 - score)
-            await self._trigger_dependent(
-                "dummy",
-                replicas=1,
-                score=max(0.0, min(1.0, score)),
-                surrogate_pred=max(0.0, min(1.0, surr_pred)),
-                surrogate_unc=max(0.0, surr_unc),
-                source_stage="inference",
-            )
+        # miniapps is now an independent group (replicas=4, no CM dependency).
+        # The policy-based scheduling benchmark requires genuine GPU contention:
+        # miniapps replicas must sit in the queue while inference holds all GPU slots.
+        # trigger_dependent bypassed the scheduler (GPU assigned immediately on trigger),
+        # making starved=False always and the telemetry boost unreachable.
+        # Miniapps handles data availability via internal file-watching (data/outputs/).
 
         if finished >= total:
             InferenceWorkflow._log.info(

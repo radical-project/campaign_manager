@@ -1,0 +1,111 @@
+# =============================================================================
+# ddsim_campaign — pipeline-isolation benchmark: antiphase oscillation variant
+# =============================================================================
+#
+# Topology: two pipelines with antiphase sinusoidal duration variation.
+#
+#   Pipeline 1  fast_sim  (0.20 s ± 0.08 s, period=1.5 s, phase=0.0)     → analysis_fast
+#   Pipeline 2  slow_sim  (0.20 s ± 0.08 s, period=1.5 s, phase=π)       → analysis_slow
+#   target: 30 hits each
+#
+# Design intent:
+#   Antiphase means when fast_sim is faster (leading), slow_sim is slower (lagging)
+#   and vice versa.  The hit-count gap oscillates between ~2–8% — persistently
+#   above isolated_centralized's 5% threshold but below isolated_debounced's 20%.
+#
+# Key contrast with config_bmark2_noisy.yaml:
+#   The imbalance is structural (real speed difference) but self-correcting (it
+#   reverses every half-period ≈ 0.75 s).  isolated_centralized fires REBALANCE
+#   at each peak, demoting fast_sim to priority 95 (0 CPUs with cap=1) for a
+#   full tick — amplifying the gap rather than correcting it.  The demoted phase
+#   then reverses, centralized fires in the opposite direction (a no-op due to
+#   cap=1 on fast_sim) so the penalty is one-sided.  isolated_debounced never
+#   fires; both pipelines run at natural oscillation with no added stalls.
+#
+# Expected ordering (lower ttt = better):
+#   isolated_debounced ≈ isolated_delegated  <<  isolated_centralized
+# =============================================================================
+
+engine: concurrent
+
+resources:
+  total_cpus: 4
+
+workflows:
+
+  fast_sim:
+    replicas:              80
+    concurrency_cap:       1     # cap=1: centralized demotion fully stalls pipeline 1
+    concurrency_floor:     0
+    priority:              9
+    required_cpus:         1
+    required_gpus:         0
+    duration:              0.20
+    jitter:                0.03
+    duration_amplitude_s:  0.08   # ±0.08 s sinusoidal variation
+    duration_period_s:     1.5
+    duration_phase_rad:    0.0    # pipeline 1 leads
+    score_mean:            0.65
+    score_noise:           0.10
+    trigger_analysis:      analysis_fast
+
+  analysis_fast:
+    replicas:          0
+    concurrency_cap:   1
+    concurrency_floor: 0
+    priority:          8
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.05
+    jitter:            0.005
+    refinement_a:      0.85
+
+  slow_sim:
+    replicas:              80
+    concurrency_cap:       3
+    concurrency_floor:     0
+    priority:              7
+    required_cpus:         1
+    required_gpus:         0
+    duration:              0.20
+    jitter:                0.03
+    duration_amplitude_s:  0.08   # ±0.08 s sinusoidal variation
+    duration_period_s:     1.5
+    duration_phase_rad:    3.14159   # antiphase — pipeline 2 lags when pipeline 1 leads
+    score_mean:            0.65
+    score_noise:           0.10
+    trigger_analysis:      analysis_slow
+
+  analysis_slow:
+    replicas:          0
+    concurrency_cap:   1
+    concurrency_floor: 0
+    priority:          8
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.05
+    jitter:            0.005
+    refinement_a:      0.90
+
+cm:
+  features:
+    backpressure: true
+    sharder:      false
+    monitor:      false
+
+  adr:
+    policy:    rule
+    tick_s:    0.1
+    terminal:  null
+    operator:  PipelineIsolationOperator
+
+    goals:
+      n_target: 30
+      n_budget: 600
+
+    llm_provider:    anthropic
+    llm_api_key_env: ANTHROPIC_API_KEY
+    model:           claude-haiku-4-5-20251001
+    llm_tick_s:      1.0
+    llm_timeout_s:   8.0
+    llm_max_retries: 1

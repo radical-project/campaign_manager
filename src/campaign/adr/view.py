@@ -238,6 +238,10 @@ class CampaignView:
                 # None until ≥5 scored candidates have been dispatched.
                 "score_p50": score_p50,
                 "score_p90": score_p90,
+                # Failed replica count and rate — expose so policies can react
+                # to transient SLURM preemption vs structural config errors.
+                "n_failed": w.failed_replicas,
+                "fail_rate": (w.failed_replicas / w.started_count) if w.started_count > 0 else 0.0,
             }
 
         obs = {

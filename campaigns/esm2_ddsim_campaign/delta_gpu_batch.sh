@@ -2,17 +2,18 @@
 #
 # SPHERICAL ESM2/DDSim Campaign — SLURM GPU batch script (Dragon backend)
 #
-# GPU stress scenario: inference (priority 9) competes with md (priority 4) for
-# 4 A40 GPUs.  inference.cap=4 × required_gpus=1 fills the entire pool under the
-# 'none' baseline, starving Pipeline B (md → miniapps) completely.
+# Telemetry benchmark: rule vs rule_telemetry.
+#   inference: priority=6, replicas=16, cap=4 → 4 running + 12 queued throughout
+#   miniapps:  priority=5, triggered by inference (1 per result, first 4); cap=4
+#   rule:           mini=102 > inf=101 (margin=1); batch-dispatch can occasionally
+#                   allocate extra slots to inference → miniapps slightly delayed
+#   rule_telemetry: mini=106 > inf=101 (margin=5+); miniapps wins every slot contest
+#                   → time_to_last_miniapps reliably lower than rule
 #
-#   --gpus=4  matches config.yaml resources.total_gpus=4
-#
-# Compare policies by changing cm.adr.policy in config.yaml:
-#   none   → miniapps=0  (inference monopolizes all 4 GPUs)
-#   rule   → miniapps>0  (ADR boosts md into pass-2 GPU allocation)
-#   bandit → miniapps>0  (converges within 3–5 cycles)
-#   llm    → miniapps>0  (if HF_TOKEN is valid)
+# GPU warm-up bias fix:
+#   A discarded warmup run fires before timing starts (--no-warmup to skip).
+#   Runs are interleaved (rule/rule_telemetry alternate each round) so both
+#   conditions see equivalent GPU thermal state (--no-interleave for block order).
 #
 # Account: set SBATCH_ACCOUNT=<project>-delta-gpu before calling sbatch
 #SBATCH --partition=gpuA40x4
@@ -21,9 +22,10 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --gpus=4
 #SBATCH --exclusive
-#SBATCH --time=01:30:00
-#SBATCH --job-name=campaign-gpu
+#SBATCH --time=02:00:00
+#SBATCH --job-name=campaign-gpu-tel
 #xSBATCH --mail-user=${USER}@institution.edu
+#SBATCH --mail-user=mg2347@soe.rutgers.edu
 #SBATCH --mail-type=ALL
 
 # HuggingFace token — set before submitting:  export HF_TOKEN=<token> && sbatch ...
@@ -65,6 +67,7 @@ export INF_DIR=${SPHERICAL_DIR}/workflows/esm2_inference
 
 export MD_HOME=${DDSIM_DIR}/workflows/ddmd_workflow
 export MD_INPUT=${MD_HOME}/data
+export CONDA_ENV=${VE_HOME}   # on Delta venvs live under VE_HOME; ddmd-openmm/ddmd-keras used by ddsim config
 export SGDES_DIR="${SGDES_DIR:-${SCRATCH}/${USER}/SGDES}"
 
 export WORK_DIR=${CM_DIR}/campaigns/esm2_ddsim_campaign
@@ -84,15 +87,15 @@ export TOTAL_GPUS=$(( SLURM_NNODES * GPUS_PER_NODE ))
 echo "Nodes: ${SLURM_NNODES}  GPUs/node: ${GPUS_PER_NODE}  Total GPUs: ${TOTAL_GPUS}"
 
 if [ "${SLURM_NNODES}" -gt 1 ]; then
-    dragon -m benchmark.py --config config.yaml \
-        --timeout 1200 --policies none rule bandit llm --runs 1 --out benchmark.json
+    dragon -m benchmark_telemetry.py --config config.yaml \
+        --runs 4 --timeout 1100 --out telemetry_benchmark_results.json
 else
-    dragon -s benchmark.py --config config.yaml \
-        --timeout 1200 --policies none rule bandit llm --runs 1 --out benchmark.json
+    dragon -s benchmark_telemetry.py --config config.yaml \
+        --runs 4 --timeout 1100 --out telemetry_benchmark_results.json
 fi
 
-echo "=== Benchmark done: $(date) ==="
+echo "=== Telemetry benchmark done: $(date) ==="
 
-python plot_benchmark.py --results benchmark.json --out-dir plots
-
-echo "=== Plots written: $(date) ==="
+# Original policy comparison benchmark (uncomment to run instead):
+# dragon -s benchmark.py --config config_stress_gpu.yaml \
+#     --timeout 1200 --policies none rule bandit llm --runs 1 --out benchmark.json

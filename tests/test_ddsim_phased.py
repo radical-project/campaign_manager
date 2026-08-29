@@ -12,7 +12,11 @@ Covers without any HPC infrastructure:
 
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
+
+import pytest
+
+pytest.importorskip("radical.adr")
 
 import pytest
 
@@ -22,15 +26,22 @@ sys.path.insert(
     str(Path(__file__).resolve().parent.parent / "campaigns" / "ddsim_campaign"),
 )
 
-from radical.adr.state import Snapshot
-
-from ddsim_operator_phased import (  # noqa: E402
-    Phase1Operator,
-    Phase2Operator,
-    PhasedParentOperator,
-    PhasedParentPolicy,
-    _PHASE1_ID,
+from ddsim_operator_phased import (
+    _STAGE1_ID as _PHASE1_ID,
 )
+from ddsim_operator_phased import (
+    ParentOperator as PhasedParentOperator,
+)
+from ddsim_operator_phased import (
+    ParentPolicy as PhasedParentPolicy,
+)
+from ddsim_operator_phased import (  # noqa: E402
+    Stage1Operator as Phase1Operator,
+)
+from ddsim_operator_phased import (
+    Stage2Operator as Phase2Operator,
+)
+from radical.adr.state import Snapshot
 
 pytestmark = pytest.mark.anyio
 
@@ -224,13 +235,13 @@ class TestPhasedParentWatch:
 
         # Value only in .observations — state.artifacts must NOT be updated.
         op.watch(_snapshot(observations={key: 0.9999}))
-        assert op.state.artifacts.get("phase1_best_score", 0.0) == pytest.approx(0.0), (
+        assert op.state.artifacts.get("stage1_best_score", 0.0) == pytest.approx(0.0), (
             "watch() must NOT read from snapshot.observations"
         )
 
         # Value only in .objectives — state.artifacts MUST be updated.
         op.watch(_snapshot(objectives={key: 0.7341}))
-        assert op.state.artifacts.get("phase1_best_score") == pytest.approx(0.7341), (
+        assert op.state.artifacts.get("stage1_best_score") == pytest.approx(0.7341), (
             "watch() must read from snapshot.objectives"
         )
 
@@ -240,34 +251,34 @@ class TestPhasedParentWatch:
         key = f"child:{_PHASE1_ID}:obj:best_score_p50"
 
         op.watch(_snapshot(objectives={key: 0.5}))
-        assert op.state.artifacts.get("phase1_best_score") == pytest.approx(0.5)
+        assert op.state.artifacts.get("stage1_best_score") == pytest.approx(0.5)
 
         # Lower value — artifact must keep the max.
-        op.watch(_snapshot(objectives={key: 0.3}, artifacts={"phase1_best_score": 0.5}))
-        assert op.state.artifacts.get("phase1_best_score") == pytest.approx(0.5)
+        op.watch(_snapshot(objectives={key: 0.3}, artifacts={"stage1_best_score": 0.5}))
+        assert op.state.artifacts.get("stage1_best_score") == pytest.approx(0.5)
 
         # Higher value — artifact must update.
-        op.watch(_snapshot(objectives={key: 0.8}, artifacts={"phase1_best_score": 0.5}))
-        assert op.state.artifacts.get("phase1_best_score") == pytest.approx(0.8)
+        op.watch(_snapshot(objectives={key: 0.8}, artifacts={"stage1_best_score": 0.5}))
+        assert op.state.artifacts.get("stage1_best_score") == pytest.approx(0.8)
 
     def test_phase_status_from_runtime(self):
         """watch() must return phase statuses from snapshot.runtime via the stored uids."""
         op = _parent_op()
         snap = _snapshot(
-            artifacts={"phase1_uid": "uid-p1", "phase2_uid": "uid-p2"},
+            artifacts={"stage1_uid": "uid-p1", "stage2_uid": "uid-p2"},
             runtime={"uid-p1": "DONE", "uid-p2": "RUNNING"},
         )
         obs = op.watch(snap)
-        assert obs["phase1_status"] == "DONE"
-        assert obs["phase2_status"] == "RUNNING"
+        assert obs["stage1_status"] == "DONE"
+        assert obs["stage2_status"] == "RUNNING"
 
     def test_no_uid_returns_not_started(self):
         op = _parent_op()
         obs = op.watch(_snapshot())
-        assert obs["phase1_status"] == "NOT_STARTED"
-        assert obs["phase2_status"] == "NOT_STARTED"
-        assert obs["phase1_uid"] is None
-        assert obs["phase2_uid"] is None
+        assert obs["stage1_status"] == "NOT_STARTED"
+        assert obs["stage2_status"] == "NOT_STARTED"
+        assert obs["stage1_uid"] is None
+        assert obs["stage2_uid"] is None
 
 
 # ── PhasedParentOperator.launch_phase2() ─────────────────────────────────────
@@ -277,11 +288,11 @@ class TestLaunchPhase2Cutoff:
     async def test_cutoff_is_p50_times_085(self):
         """Triage cutoff = max(0.10, p50 * 0.85), set on 'analysis'."""
         op = _parent_op(n_b=1)
-        op.state.artifacts["phase1_best_score"] = 0.7341
+        op.state.artifacts["stage1_best_score"] = 0.7341
         # Prevent _phase2.start() from hitting a real engine.
-        op._phase2.start = MagicMock(return_value=MagicMock(id="fake-uid"))
+        op._stage2.start = MagicMock(return_value=MagicMock(id="fake-uid"))
 
-        await op.launch_phase2()
+        await op.launch_stage2()
 
         view = op.view
         assert len(view.cutoff_calls) == 1
@@ -292,10 +303,10 @@ class TestLaunchPhase2Cutoff:
     async def test_cutoff_clamped_to_010_when_p50_is_zero(self):
         """When Phase1 never reported a score, cutoff must floor at 0.10."""
         op = _parent_op(n_b=1)
-        op.state.artifacts["phase1_best_score"] = 0.0
-        op._phase2.start = MagicMock(return_value=MagicMock(id="fake-uid"))
+        op.state.artifacts["stage1_best_score"] = 0.0
+        op._stage2.start = MagicMock(return_value=MagicMock(id="fake-uid"))
 
-        await op.launch_phase2()
+        await op.launch_stage2()
 
         _, cutoff = op.view.cutoff_calls[0]
         assert cutoff == pytest.approx(0.10)
@@ -303,10 +314,10 @@ class TestLaunchPhase2Cutoff:
     async def test_cutoff_clamped_when_p50_very_low(self):
         """0.08 * 0.85 = 0.068 → clamped to 0.10."""
         op = _parent_op(n_b=1)
-        op.state.artifacts["phase1_best_score"] = 0.08
-        op._phase2.start = MagicMock(return_value=MagicMock(id="fake-uid"))
+        op.state.artifacts["stage1_best_score"] = 0.08
+        op._stage2.start = MagicMock(return_value=MagicMock(id="fake-uid"))
 
-        await op.launch_phase2()
+        await op.launch_stage2()
 
         _, cutoff = op.view.cutoff_calls[0]
         assert cutoff == pytest.approx(0.10)
@@ -314,10 +325,10 @@ class TestLaunchPhase2Cutoff:
     async def test_ddsim_b_replicas_triggered(self):
         """launch_phase2() must trigger n_ddsim_b replicas of 'ddsim_b'."""
         op = _parent_op(n_b=20)
-        op.state.artifacts["phase1_best_score"] = 0.5
-        op._phase2.start = MagicMock(return_value=MagicMock(id="fake-uid"))
+        op.state.artifacts["stage1_best_score"] = 0.5
+        op._stage2.start = MagicMock(return_value=MagicMock(id="fake-uid"))
 
-        await op.launch_phase2()
+        await op.launch_stage2()
 
         assert ("ddsim_b", 20) in op.view.trigger_calls
 
@@ -334,12 +345,12 @@ def _obs(
     cycle=0,
 ):
     return {
-        "phase1_uid": phase1_uid,
-        "phase2_uid": phase2_uid,
-        "phase1_status": phase1_status,
-        "phase2_status": phase2_status,
-        "phase1_score": phase1_score,
-        "cycle": cycle,
+        "stage1_uid":    phase1_uid,
+        "stage2_uid":    phase2_uid,
+        "stage1_status": phase1_status,
+        "stage2_status": phase2_status,
+        "stage1_score":  phase1_score,
+        "cycle":         cycle,
     }
 
 
@@ -355,14 +366,14 @@ class TestPhasedParentPolicy:
         """cycle 0 with no phase1_uid → launch_phase1 action."""
         policy = self._policy()
         decision = await policy.run(_obs())
-        assert "launch_phase1" in self._action_names(decision)
+        assert "launch_stage1" in self._action_names(decision)
         assert not decision.stop
 
     async def test_transition1_fires_on_any_cycle_without_phase1_uid(self):
         """If phase1 was never launched (uid is None), always re-launch."""
         policy = self._policy()
         decision = await policy.run(_obs(cycle=5))
-        assert "launch_phase1" in self._action_names(decision)
+        assert "launch_stage1" in self._action_names(decision)
 
     async def test_transition2_launch_phase2_when_phase1_done(self):
         """phase1 DONE, no phase2_uid → launch_phase2 action."""
@@ -373,14 +384,14 @@ class TestPhasedParentPolicy:
             phase1_score=0.7341,
             cycle=7,
         ))
-        assert "launch_phase2" in self._action_names(decision)
+        assert "launch_stage2" in self._action_names(decision)
         assert not decision.stop
 
     async def test_transition2_does_not_fire_if_phase1_not_done(self):
         """phase1 still RUNNING — must not launch phase2."""
         policy = self._policy()
         decision = await policy.run(_obs(phase1_uid="uid-1", phase1_status="RUNNING"))
-        assert "launch_phase2" not in self._action_names(decision)
+        assert "launch_stage2" not in self._action_names(decision)
 
     async def test_transition2_does_not_fire_if_phase2_already_launched(self):
         """phase1 DONE but phase2 already has a uid — must stay idle."""
@@ -389,7 +400,7 @@ class TestPhasedParentPolicy:
             phase1_uid="uid-1", phase1_status="DONE",
             phase2_uid="uid-2", phase2_status="RUNNING",
         ))
-        assert "launch_phase2" not in self._action_names(decision)
+        assert "launch_stage2" not in self._action_names(decision)
         assert not decision.stop
 
     async def test_transition3_stop_when_phase2_done(self):
@@ -438,9 +449,9 @@ class TestLaunchPhase2CutoffEdgeCases:
 
     async def _launch_with_p50(self, p50: float) -> float:
         op = _parent_op(n_b=1)
-        op.state.artifacts["phase1_best_score"] = p50
-        op._phase2.start = MagicMock(return_value=MagicMock(id="fake-uid"))
-        await op.launch_phase2()
+        op.state.artifacts["stage1_best_score"] = p50
+        op._stage2.start = MagicMock(return_value=MagicMock(id="fake-uid"))
+        await op.launch_stage2()
         _, cutoff = op.view.cutoff_calls[0]
         return cutoff
 

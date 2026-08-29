@@ -1,0 +1,112 @@
+# =============================================================================
+# ddsim_campaign — phased hierarchical campaign (08 pattern)
+# =============================================================================
+#
+# Demonstrates a two-phase hierarchical ADR operator:
+#
+#   Phase 1  DdSim-A screening (fast/cheap)
+#            Phase1Operator supervises ddsim_a + analysis until all 20
+#            ddsim_a replicas finish.  It persists the best analysis score in
+#            state.objectives, which flows to the parent each cycle via SNAPSHOT.
+#
+#   Phase 2  DdSim-B refinement (slow/fine)
+#            Parent reads best_score_p50 from Phase 1 SNAPSHOT, tightens the
+#            analysis triage cutoff, triggers ddsim_b replicas, then launches
+#            Phase2Operator with Phase1's block Future as dep_future (native
+#            AsyncFlow DAG dependency).
+#
+# ADR concepts demonstrated:
+#   - child.start(dep_future)         operator as AsyncFlow block + DAG chaining
+#   - SNAPSHOT messaging              Phase1 reports best_score_p50 every cycle
+#   - dep_future chaining             Phase2 block starts after Phase1 block DONE
+#   - Information passing             parent seeds Phase2 triage from Phase1 score
+#
+# Run:
+#   cd campaigns/ddsim_campaign
+#   python run_campaign_phased.py --config config_phased.yaml
+# =============================================================================
+
+engine: concurrent
+
+resources:
+  total_cpus: 6
+  total_gpus: 0
+
+workflows:
+
+  ddsim_a:
+    replicas:          20
+    concurrency_cap:   4
+    concurrency_floor: 1
+    priority:          10
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.10   # fast / high-score → Phase 1 screener
+    jitter:            0.02
+    score_mean:        0.75
+    score_noise:       0.10
+    trigger_analysis:  analysis
+
+  ddsim_b:
+    replicas:          0      # Phase 2 only — parent triggers them when Phase 1 finishes
+    concurrency_cap:   4
+    concurrency_floor: 1
+    priority:          9
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.30   # slow / finer detail → Phase 2 refinement
+    jitter:            0.05
+    score_mean:        0.55   # seeded from Phase 1 best score via triage cutoff
+    score_noise:       0.05
+    trigger_analysis:  analysis
+
+  analysis:
+    replicas:          0      # triggered dynamically via _on_completion
+    concurrency_cap:   4
+    concurrency_floor: 0
+    priority:          8
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.3
+    jitter:            0.01
+    refinement_a:      0.85
+    refinement_b:      0.70
+
+    backpressure_high:         2
+    backpressure_low:          1
+    backpressure_score_slack:  0.3
+
+    sharding:
+      target_size:  5
+      min_size:     1
+      max_size:     20
+      stratify:     soft
+      top_fraction: 1.0
+      profile:      diverse_top
+
+    triage:
+      score_cutoff:        0.30
+      score_cutoff_bounds: [0.10, 0.70]
+      uncertainty_cutoff:  0.80
+
+cm:
+  features:
+    backpressure: true
+    sharder:      true
+    monitor:      false
+    budget:       true
+
+  adr:
+    tick_s:    0.5
+    terminal:  analysis
+    log_every: 1
+
+    # Phase-specific parameters read by run_campaign_phased.py.
+    phased:
+      n_ddsim_a: 20   # Phase 1 stops when this many ddsim_a replicas finish
+      n_ddsim_b: 20   # Phase 2 triggers this many ddsim_b replicas
+
+workflow_registry:
+  ddsim_a:  ddsim_workflow.DdSimWorkflow
+  ddsim_b:  ddsim_workflow.DdSimWorkflow
+  analysis: ddsim_workflow.AnalysisWorkflow

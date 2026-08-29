@@ -1,12 +1,13 @@
 """Campaign management for multi-workflow orchestration."""
 
-from .logging_setup import enable_logging
+from .artifacts import ArtifactManifest
 from .backpressure import BackpressureNegotiator, BPState
 from .bandit import BanditArm, SchedulingBandit
 from .base_workflow import BaseWorkflow
 from .budget_controller import BudgetController, BudgetEvent
 from .campaign_manager import AsyncCampaignManager
 from .candidate_log import CandidateHistory, CandidateLog, StageResult
+from .logging_setup import enable_logging
 from .monitor import DriftEvent, DriftKind, Monitor
 from .plan import (
     BackpressureEdge,
@@ -37,6 +38,7 @@ from .types import CampaignState, ResourcePool, WorkflowStats
 
 __all__ = [
     "enable_logging",
+    "ArtifactManifest",
     "AsyncCampaignManager",
     "CampaignManager",
     "BaseWorkflow",

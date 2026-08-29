@@ -1,0 +1,114 @@
+# =============================================================================
+# config_phased_neg.yaml — negative-path / analysis-starvation integration test
+#
+# All simulation scores are set to 0.05 (deterministic, noise=0), which forces
+# the worst-case Phase 2 outcome:
+#
+#   Phase 1  5 ddsim_a replicas each score 0.05
+#            → score_p50 = 0.05
+#            → cutoff = max(0.10, 0.05*0.85) = max(0.10, 0.043) = 0.10 (clamped)
+#            → Phase 1 analysis candidates: 0.05 < 0.30 cutoff → all triaged
+#              (Phase 1 analysis gets 0 candidates, best_analyzed stays at init)
+#
+#   Phase 2  Parent sets analysis triage cutoff to 0.10 (the clamped floor)
+#            then triggers 5 ddsim_b replicas each scoring 0.05
+#            → 0.05 < 0.10 triage cutoff → ALL ddsim_b candidates triaged
+#            → analysis receives 0 candidates from Phase 2
+#
+# The campaign DOES complete normally: Phase2Operator's goal is
+# ddsim_b_finished >= 4.5, which is satisfied as soon as all 5 ddsim_b
+# replicas finish execution regardless of triage outcome.
+#
+# What this tests:
+#   - Phase 2 completes successfully (DONE) with zero analysis output
+#   - PhasedParentPolicy sees phase2_status="DONE" → Decision(stop=True)
+#   - No 500-cycle hang; campaign exits cleanly
+#
+# Run:
+#   cd campaigns/ddsim_campaign
+#   python run_campaign_phased.py --config config_phased_neg.yaml
+# =============================================================================
+
+engine: concurrent
+
+resources:
+  total_cpus: 4
+  total_gpus: 0
+
+workflows:
+
+  ddsim_a:
+    replicas:          5       # minimum for score_p50
+    concurrency_cap:   4
+    concurrency_floor: 1
+    priority:          10
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.10
+    jitter:            0.0
+    score_mean:        0.05    # very low: all candidates below any triage cutoff
+    score_noise:       0.0     # deterministic — guaranteed to be triaged out
+    trigger_analysis:  analysis
+
+  ddsim_b:
+    replicas:          0       # triggered by parent
+    concurrency_cap:   4
+    concurrency_floor: 1
+    priority:          9
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.20
+    jitter:            0.0
+    score_mean:        0.05    # below 0.10 floor cutoff → all triaged out
+    score_noise:       0.0
+    trigger_analysis:  analysis
+
+  analysis:
+    replicas:          0
+    concurrency_cap:   4
+    concurrency_floor: 0
+    priority:          8
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.2
+    jitter:            0.0
+    refinement_a:      0.85
+    refinement_b:      0.70
+
+    backpressure_high:        2
+    backpressure_low:         1
+    backpressure_score_slack: 0.3
+
+    sharding:
+      target_size:  5
+      min_size:     1
+      max_size:     20
+      stratify:     soft
+      top_fraction: 1.0
+      profile:      diverse_top
+
+    triage:
+      score_cutoff:        0.30   # Phase 1 initial cutoff (0.05 < 0.30 → triaged)
+      score_cutoff_bounds: [0.10, 0.70]
+      uncertainty_cutoff:  0.80
+
+cm:
+  features:
+    backpressure: true
+    sharder:      true
+    monitor:      false
+    budget:       true
+
+  adr:
+    tick_s:    0.5
+    terminal:  analysis
+    log_every: 1
+
+    phased:
+      n_ddsim_a: 5
+      n_ddsim_b: 5
+
+workflow_registry:
+  ddsim_a:  ddsim_workflow.DdSimWorkflow
+  ddsim_b:  ddsim_workflow.DdSimWorkflow
+  analysis: ddsim_workflow.AnalysisWorkflow

@@ -5,7 +5,7 @@
 # ── Cluster Resources ─────────────────────────────────────────────────────────
 resources:
   total_cpus: 64   # CPU cores on the allocated node(s)
-  total_gpus: 8     # GPUs on the allocated node(s) — matches gpu_sbatch.sh --gpus=8
+  total_gpus: 4     # GPUs on the allocated node(s) — matches gpu_sbatch.sh --gpus=4
 
 # ── Engine ────────────────────────────────────────────────────────────────────
 engine:      dragon       # concurrent | dragon 
@@ -43,14 +43,15 @@ cm:
 
     # Terminal stage: the deepest stage whose completions are counted as "hits".
     # Required when DAG routing uses _on_completion (no config dependencies).
-    terminal:  dummy
+    terminal:  miniapps
 
     # DDSim campaign goals (used by DDSimCampaignOperator):
     #   n_md_runs      — expected miniapps completions (= md.replicas)
     #   max_fail_rate  — task failure rate ceiling (0–1); alert if exceeded
     goals:
-      n_md_runs:     4
-      max_fail_rate: 0.05
+      n_md_runs:        4     # all 4 miniapps replicas must complete
+      n_inference_runs: 8     # all 8 inference replicas must complete
+      max_fail_rate:    0.05
 
     # Custom LLM system prompt (relative to this config file's directory).
     # Describes the dual-pipeline topology and GPU contention to the LLM.
@@ -86,7 +87,6 @@ cm:
 # Maps config workflow names to "module.ClassName" strings.
 # Modules are resolved relative to the run_campaign directory.
 workflow_registry:
-  dummy:     dummy_workflow.DummyWrapperWorkflow
   md:        ddmd_workflow.DDMdWrapperWorkflow
   miniapps:  miniapps_workflow.MiniAppsWrapperWorkflow
   inference: inference_workflow.InferenceWorkflow
@@ -131,60 +131,53 @@ workflows:
   # ── ESM2 Inference ─────────────────────────────────────────────────────────
   # Independent: starts immediately on cm.start().
   # on_replica_done triggers 1 'dummy' replica per successful inference result.
+  # replicas=16 with cap=4: 4 inference always running, 12 queued — ensures a
+  # large inference backlog throughout the campaign, sustaining GPU contention
+  # with miniapps for all 4 miniapps slots.  The priority margin between
+  # rule (mini=102 vs inf=101, margin=1) and rule_telemetry (margin=5+) is
+  # wide enough to show up in batch-dispatch slot allocations.
   inference:
     priority:             6
-    replicas:             8
+    replicas:             16
     concurrency_floor:         1
     concurrency_cap:         4
     required_cpus:        4
     required_gpus:        1
     config_file:          "${INF_DIR}/config.yaml"
 
-  # ── DDSim ──────────────────────────────────────────────────────────────────
-  # Dependent on inference: stays at replicas=0 until InferenceWorkflow calls
-  # _trigger_dependent("dummy", replicas=1) for each successful result.
-  # To run independently: add 'replicas: N' and remove 'dependencies'.
-  dummy:
-    priority:             5
-    concurrency_floor:         2
-    concurrency_cap:         4
-    required_cpus:        4
-    required_gpus:        0
-    dependencies:         [inference]
-    config_file:          "${DUMMY_DIR}/config.yaml"
-    # Sharder: buffer inference→dummy triggers and batch-dispatch up to 4 at a time.
-    # Soft stratify allows partial batches (inference produces exactly 8 triggers total).
-    sharding: { target_size: 4, min_size: 1, max_size: 8, stratify: soft }
-    # Backpressure: throttle when 12 dummy replicas are queued; widen at 4.
-    backpressure_high: 12
-    backpressure_low:  4
-
   # ── DDMd (MD simulations) ──────────────────────────────────────────────────
   # Independent: starts immediately, runs in parallel with inference.
   # Each completed iteration calls _signal_done() → CM queues 1 miniapps replica.
-  md:
-    priority:      10
-    replicas:      2
-    concurrency_floor:  1
-    concurrency_cap:  1
-    required_cpus: 4
-    required_gpus: 1
-    config_file:   "${MD_DIR}/config.yaml"   # MD_DIR exported by gpu_sbatch.sh
+  # md:
+  #   priority:      10
+  #   replicas:      2
+  #   concurrency_floor:  1
+  #   concurrency_cap:  1
+  #   required_cpus: 4
+  #   required_gpus: 1
+  #   config_file:   "${MD_DIR}/config.yaml"   # MD_DIR exported by gpu_sbatch.sh
 
   # ── MiniApps ───────────────────────────────────────────────────────────────
-  # Dependent on md: stays at replicas=0 until DDMdWrapperWorkflow calls
-  # _trigger_dependent("miniapps", replicas=N) based on MD results.
-  # To run independently: add 'replicas: N' and remove 'dependencies'.
+  # Independent group: 4 replicas queued from t=0.
+  # Data availability is handled internally (miniapps_workflow polls data/outputs/).
+  # Priority=3 < inference priority=6 ensures inference fills all GPU slots under
+  # the "rule" baseline (NullSchedulingPolicy, no priority override).
+  #
+  # Scheduling contest throughout the campaign (all GPU slots contested):
+  #   rule           (NullSchedulingPolicy): config priority inference=6 > miniapps=3
+  #                  → inference holds all 4 GPUs until all 16 replicas done
+  #                  → miniapps runs only after inference completes (~168s)
+  #                  → TTT_rule ≈ 168 + 160 = 328s  starved_cycles=0
+  #   rule_telemetry (source-first base + starved boost):
+  #                  when miniapps.starved=True (pending>0, no GPU): boost fires
+  #                  → miniapps priority jumps above inference
+  #                  → miniapps overlaps with inference from t≈42s onward
+  #                  → TTT_tel ≈ 202s  starved_cycles > 0
   miniapps:
-    priority:      8
-    concurrency_floor:  1
-    concurrency_cap:  1
+    priority:      3
+    replicas:      4
+    concurrency_floor:  0
+    concurrency_cap:  4
     required_cpus: 4
     required_gpus: 1
-    dependencies:  [md]
     config_file:   "${MINAPPS_DIR}/config.yaml"
-    # Sharder: buffer md→miniapps triggers (md runs 2 replicas, each may trigger 1+).
-    sharding: { target_size: 1, min_size: 1, max_size: 4, stratify: soft }
-    # Backpressure: throttle when 4 miniapps replicas are queued; widen at 2.
-    backpressure_high: 4
-    backpressure_low:  2

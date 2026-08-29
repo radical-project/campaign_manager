@@ -74,6 +74,23 @@ class BaseWorkflow:
             f"{type(self).__name__}.run() not implemented (replica_id={replica_id!r})"
         )
 
+    def on_replica_failed(
+        self,
+        replica_id: str,
+        cm: "AsyncCampaignManager",
+    ) -> bool:
+        """Hook called when a replica ends with final_state="failed".
+
+        Return True to signal that this hook has handled the failure (e.g.
+        triggered a custom retry) and the executor should skip its own automatic
+        retry logic.  Return False (the default) to let the executor retry
+        automatically up to max_retries times.
+
+        Called before on_replica_done when final_state="failed", so campaigns
+        can distinguish failure-specific logic from general completion handling.
+        """
+        return False
+
     def on_replica_done(
         self,
         replica_id: str,

@@ -281,7 +281,7 @@ async def main(config_file: str) -> None:
     # registry points to (group names are "search" and "refine").
     registry = {name: NoDDSimWorkflow for name in config.get("workflows", {})}
 
-    cm = CampaignManager.from_config(config, registry, asyncflow=asyncflow)
+    cm = CampaignManager.from_config(config, registry, engine=asyncflow)
 
     groups = config.get("workflows", {})
     print(

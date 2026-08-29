@@ -130,7 +130,7 @@ async def _run_once(config: dict, seed_offset: int, policy_kind: str, log_path: 
     asyncflow = await WorkflowEngine.create(backend)
 
     registry = _build_registry(config)
-    cm = CampaignManager.from_config(config, registry, asyncflow=asyncflow)
+    cm = CampaignManager.from_config(config, registry, engine=asyncflow)
 
     # Build the operator for all policies — DreamerCampaignOperator owns the
     # @goals declaration so early-stop fires correctly for every policy kind.

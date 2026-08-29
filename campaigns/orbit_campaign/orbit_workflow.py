@@ -20,7 +20,7 @@ from typing import ClassVar
 
 import numpy as np
 
-from src.campaign import BaseWorkflow
+from src.campaign import ArtifactManifest, BaseWorkflow
 
 
 class OrbitWorkflow(BaseWorkflow):
@@ -34,16 +34,26 @@ class OrbitWorkflow(BaseWorkflow):
     _rh: ClassVar = None
     _lock: ClassVar[asyncio.Lock | None] = None
 
+    # Endpoint ID captured at connection time; written into manifests so
+    # refine replicas know which endpoint holds the search output files.
+    _endpoint_id: ClassVar[str] = ""
+
     # Campaign-level stats.
     _best_score: ClassVar[float] = float("inf")
     _n_evaluated: ClassVar[int] = 0
     _refine_scores: ClassVar[list] = []
+
+    # Manifest registry: candidate_id (= search replica_id) → ArtifactManifest.
+    # Search populates this in on_replica_done; refine looks it up by
+    # self.config["candidate_id"] to find the endpoint + path for its task.
+    _manifests: ClassVar[dict[str, ArtifactManifest]] = {}
 
     @classmethod
     def reset_state(cls) -> None:
         cls._best_score = float("inf")
         cls._n_evaluated = 0
         cls._refine_scores = []
+        cls._manifests = {}
 
     @classmethod
     async def _ensure_connected(cls, config: dict) -> None:
@@ -67,6 +77,7 @@ class OrbitWorkflow(BaseWorkflow):
                     batch_limit=batch_limit,
                 )
                 cls._session = rhapsody.Session(backends=[backend])
+                cls._endpoint_id = getattr(backend, "_endpoint_name", "")
                 print(
                     f"[OrbitWorkflow] Connected (rhapsody) → "
                     f"broker='{backend._broker_url}'  "
@@ -97,6 +108,7 @@ class OrbitWorkflow(BaseWorkflow):
                     rt.get_plugin, eid, "rhapsody", backends=["concurrent"]
                 )
                 cls._rt = rt
+                cls._endpoint_id = eid
                 print(f"[OrbitWorkflow] Connected (EndpointRuntime) → endpoint='{eid}'")
 
     @classmethod
@@ -203,26 +215,70 @@ class OrbitWorkflow(BaseWorkflow):
             return
 
         cfg = self.config or {}
-        replica_dir = str(Path(cfg["sim_output_dir"]) / replica_id)
-
-        score = await asyncio.to_thread(self._compute_score, replica_dir)
-
-        OrbitWorkflow._n_evaluated += 1
-        is_best = score < OrbitWorkflow._best_score
-        if is_best:
-            OrbitWorkflow._best_score = score
-        print(
-            f"[OrbitWorkflow] {replica_id}  score={score:.4f}"
-            f"  best={OrbitWorkflow._best_score:.4f}"
-            + ("  ★" if is_best else "")
-        )
 
         if self._group_name == "search":
+            replica_dir = str(Path(cfg["sim_output_dir"]) / replica_id)
+
+            score = await asyncio.to_thread(self._compute_score, replica_dir)
+
+            OrbitWorkflow._n_evaluated += 1
+            is_best = score < OrbitWorkflow._best_score
+            if is_best:
+                OrbitWorkflow._best_score = score
+            print(
+                f"[OrbitWorkflow] {replica_id}  score={score:.4f}"
+                f"  best={OrbitWorkflow._best_score:.4f}"
+                + ("  ★" if is_best else "")
+            )
+
+            # Build manifest for this replica's output files.
+            manifest = ArtifactManifest(
+                artifact_id=f"artifact_{replica_id}",
+                created_by=replica_id,
+                endpoint_id=OrbitWorkflow._endpoint_id,
+                path=replica_dir,
+                metadata={
+                    "score": score,
+                    "num_sims": int(cfg.get("num_sims", 20)),
+                    "group": self._group_name,
+                },
+            )
+            manifest.validate()
+            OrbitWorkflow._manifests[replica_id] = manifest
+            cm.metrics().record_manifest(manifest)
+
             threshold = float(cfg.get("refine_threshold", 0.5))
             trigger_group = cfg.get("trigger_refine", "refine")
             if score < threshold:
                 OrbitWorkflow._refine_scores.append(score)
-                await self._trigger_dependent(trigger_group, replicas=1)
+                await self._trigger_dependent(
+                    trigger_group,
+                    replicas=1,
+                    candidate_id=replica_id,
+                    score=score,
+                )
+
         else:
+            # Refine group: look up the search manifest to find remote files.
+            candidate_id = (self.config or {}).get("candidate_id", "")
+            manifest = OrbitWorkflow._manifests.pop(candidate_id, None)
+            if manifest is not None:
+                # Build a child manifest recording lineage of the refine output.
+                refine_manifest = ArtifactManifest(
+                    artifact_id=f"artifact_{replica_id}",
+                    created_by=replica_id,
+                    endpoint_id=manifest.endpoint_id,
+                    path=str(Path(manifest.path) / "refined"),
+                    parent_ids=[manifest.artifact_id],
+                    metadata={"source_score": manifest.metadata.get("score")},
+                )
+                refine_manifest.validate()
+                cm.metrics().record_manifest(refine_manifest)
+                # TODO: submit refine analysis orbit task to manifest.endpoint_id
+                # using manifest.path as input directory.
+                print(
+                    f"[OrbitWorkflow] {replica_id} refine stub — "
+                    f"endpoint={manifest.endpoint_id!r}  path={manifest.path!r}"
+                )
             if OrbitWorkflow._refine_scores:
                 OrbitWorkflow._refine_scores.pop(0)

@@ -32,10 +32,17 @@ class _WorkflowInfo:
     """Internal per-workflow runtime state.
 
     State-machine invariants (enforced by validate()):
-      0 <= finished_replicas <= started_count <= replicas
+      0 <= finished_replicas <= started_count <= _queued_count <= replicas
       replicas >= configured_replicas  (grows on signal_done / trigger_dependent)
       running_count = started_count - finished_replicas  (derived; never mutated directly)
       concurrency_floor <= concurrency_cap
+
+    Counter semantics with the warm-pool semaphore:
+      _queued_count  — tasks created as asyncio tasks by the scheduler
+                       (some may be waiting on _semaphore, some executing)
+      started_count  — tasks that have acquired _semaphore and are executing
+      finished_replicas — tasks that have completed (success or failure)
+      running_count  — tasks currently executing = started_count - finished_replicas
 
     Status transitions: pending → running → done.  Once "done", the workflow
     no longer schedules new replicas; downstream sharders are notified to
@@ -57,10 +64,18 @@ class _WorkflowInfo:
     dep_threshold: int = 1
     entry_point: str = "run"
     status: str = "pending"
+    # started_count: tasks currently executing (have acquired _semaphore).
+    # Incremented in _run_replica AFTER semaphore.acquire() returns.
     started_count: int = 0
     # finished_replicas counts BOTH successful and failed terminations — i.e.,
     # anything no longer running.  Failure stats live in CampaignMetrics.
     finished_replicas: int = 0
+    # failed_replicas: subset of finished_replicas that ended in final_state="failed".
+    # Exposed in view.observe() as n_failed so policies can react to failure rates.
+    failed_replicas: int = 0
+    # max_retries: how many times the executor will automatically re-submit a
+    # failed replica before giving up.  0 = no automatic retry.  Per-workflow.
+    max_retries: int = 0
     # Set to True when the workflow explicitly signals it has produced enough
     # data (via cm.signal_ready).  Takes precedence over dep_threshold check.
     ready: bool = False
@@ -77,6 +92,21 @@ class _WorkflowInfo:
     # and then every _STALL_WARN_EVERY-th consecutive stall to avoid flooding
     # the log when ADVANCE replicas cycle at sub-millisecond rates.
     _consecutive_stalls: int = field(default=0, repr=False)
+    # Maps original_replica_id → attempts_so_far for in-flight retry tracking.
+    # Cleared when the replica finally succeeds or exhausts max_retries.
+    _retry_counts: dict = field(default_factory=dict, repr=False)
+    # Maps new_replica_id → (original_replica_id, attempt_number) so the
+    # executor can tag the retry's metrics event with lineage at start time.
+    _retry_lineage: dict = field(default_factory=dict, repr=False)
+    # _queued_count: asyncio tasks created by the scheduler for this group.
+    # Replaces started_count in _allocate_locked as the task-creation index.
+    # The scheduler stops creating tasks when _queued_count >= replicas.
+    _queued_count: int = field(default=0, repr=False)
+    # _semaphore: per-group concurrency ceiling, created in register_workflow
+    # when concurrency_cap > 0 (explicit cap).  None means unlimited concurrency.
+    # Replaces the running_count < cap counter-check in _can_start_locked so
+    # within-group cycling no longer requires a scheduler lock round-trip.
+    _semaphore: Optional[Any] = field(default=None, repr=False)
 
     @property
     def running_count(self) -> int:
@@ -97,8 +127,12 @@ class _WorkflowInfo:
             f"{self.name}: started_count={self.started_count} < "
             f"finished_replicas={self.finished_replicas}"
         )
-        assert self.started_count <= self.replicas, (
-            f"{self.name}: started_count={self.started_count} > replicas={self.replicas}"
+        assert self._queued_count >= self.started_count, (
+            f"{self.name}: _queued_count={self._queued_count} < "
+            f"started_count={self.started_count}"
+        )
+        assert self._queued_count <= self.replicas, (
+            f"{self.name}: _queued_count={self._queued_count} > replicas={self.replicas}"
         )
         assert self.concurrency_floor >= 0
         assert self.concurrency_cap >= 0

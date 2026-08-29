@@ -1,0 +1,111 @@
+# =============================================================================
+# ddsim_campaign — Benchmark 4: multi-operator + hierarchical + budget control
+# =============================================================================
+#
+# Topology: two chains sharing a CPU pool with asymmetric quality.
+#
+#   Chain 1  fast_sim  (0.10 s, 200 rep) → analysis_fast   quality: score_mean ≈ 0.55
+#   Chain 2  slow_sim  (0.40 s,  30 rep) → analysis_slow   quality: score_mean ≈ 0.80
+#
+# Resource pressure: total_cpus = 4
+# CPU-time budget:   30 CPU-seconds  (≈ 70% of full-campaign cost ≈ 43.5 CPU-s)
+# Quality metric:    analysis_slow completions before budget is exhausted
+#
+# Three conditions (see ddsim_operator_bmark4.py):
+#
+#   flat_rule        — single operator; any analysis THROTTLE demotes BOTH sims.
+#                      Blind spot: fast chain's backpressure starves slow chain.
+#                      Budget hits when fast chain finishes; slow_sim barely started.
+#
+#   multi_specialized — two operators; each owns its full chain (sim + analysis).
+#                      FastChainOperator: per-chain rule for fast_sim + analysis_fast.
+#                      SlowChainOperator: per-chain rule for slow_sim + analysis_slow.
+#                      No cross-chain interference; both chains run concurrently.
+#
+#   hier_parent      — parent owns sim priorities + budget; two analysis children.
+#                      Parent boosts slow_sim above fast_sim from the start;
+#                      at budget exhaustion demotes fast_sim to near-zero.
+#                      Children (AnalysisChildOperator) own their analysis stage only.
+#
+# Expected ordering (higher quality_yield = better):
+#   flat_rule  <<  multi_specialized  <  hier_parent
+# =============================================================================
+
+engine: concurrent
+
+resources:
+  total_cpus: 4
+
+workflows:
+
+  fast_sim:
+    replicas:          200     # 200 × 0.10 s / 3 CPUs ≈ 6.7 s; burns budget on low-quality chain
+    concurrency_cap:   3
+    concurrency_floor: 0
+    priority:          9
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.10
+    jitter:            0.01
+    score_mean:        0.55    # low quality; most analyses below threshold 0.70
+    score_noise:       0.10
+    trigger_analysis:  analysis_fast
+
+  analysis_fast:
+    replicas:          0       # triggered dynamically by fast_sim
+    concurrency_cap:   1
+    concurrency_floor: 0
+    priority:          8
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.05
+    jitter:            0.005
+    refinement_default: 1.0   # no score suppression; raw score used directly
+
+  slow_sim:
+    replicas:          30      # 30 × 0.40 s / N CPUs — target chain for quality yield
+    concurrency_cap:   3
+    concurrency_floor: 0
+    priority:          7
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.40
+    jitter:            0.04
+    score_mean:        0.80    # high quality; most analyses above threshold 0.70
+    score_noise:       0.08
+    trigger_analysis:  analysis_slow
+
+  analysis_slow:
+    replicas:          0       # triggered dynamically by slow_sim
+    concurrency_cap:   1
+    concurrency_floor: 0
+    priority:          8
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.05
+    jitter:            0.005
+    refinement_default: 1.0
+
+cm:
+  features:
+    backpressure: true
+    sharder:      false
+    monitor:      false
+
+  adr:
+    policy:    rule
+    tick_s:    0.1
+    terminal:  null
+    operator:  FlatRuleBmark4Operator    # overridden per policy_kind in benchmark.py
+
+    goals:
+      n_target:     30     # slow analyses to complete (stopping condition)
+      n_budget:     600    # replica budget (never binding)
+      cpu_budget_s: 30.0   # CPU-time budget (seconds); quality_yield measured here
+
+    llm_provider:    anthropic
+    llm_api_key_env: ANTHROPIC_API_KEY
+    model:           claude-haiku-4-5-20251001
+    llm_tick_s:      1.0
+    llm_timeout_s:   8.0
+    llm_max_retries: 1

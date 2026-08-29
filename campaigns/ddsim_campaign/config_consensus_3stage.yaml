@@ -1,0 +1,102 @@
+# =============================================================================
+# ddsim_campaign — three-pool consensus benchmark (b-first redesign)
+# =============================================================================
+#
+# Rule's blind spot: DdSim3RulePolicy hard-codes a=108 in STARVED because it
+# was calibrated for a 2-pool world where "a" is always the fast feeder.
+# In this config ddsim_b is the fast feeder (0.10 s vs 0.30 s for a).
+# Rule never reads duration — it just pushes a=108 and wastes the first 3 s.
+#
+# Bandit: Beta(5,1) prior for b encodes the correct expectation immediately.
+# LLM:    system prompt describes b as the fast feeder.
+# Consensus (b+l 2/3): overrides rule's a-bias from cycle 1.
+#
+# No RuleCorrectionsPolicy in 3-stage: corrections would rescue rule from its
+# mistake within ~0.3 s by boosting the stalled b, masking the blind spot.
+#
+# Expected ordering (lower ttt = better):
+#   consensus ≈ bandit ≈ llm  <<  rule
+# =============================================================================
+
+engine: concurrent
+
+resources:
+  total_cpus: 5   # analysis(2) + 3 contested sim slots
+
+workflows:
+
+  ddsim_a:
+    replicas:          30    # slow feeder — rule incorrectly prioritises this
+    concurrency_cap:   3
+    concurrency_floor: 0
+    priority:          10
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.30  # slow (3× slower than ddsim_b)
+    jitter:            0.03
+    score_mean:        0.72  # high quality but slow throughput
+    score_noise:       0.08
+    trigger_analysis:  analysis
+
+  ddsim_b:
+    replicas:          50    # FAST feeder — optimal to run first
+    concurrency_cap:   3
+    concurrency_floor: 0
+    priority:          9
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.10  # fast (3× faster than ddsim_a)
+    jitter:            0.01
+    score_mean:        0.50
+    score_noise:       0.10
+    trigger_analysis:  analysis
+
+  ddsim_c:
+    replicas:          50
+    concurrency_cap:   3
+    concurrency_floor: 0
+    priority:          8
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.20  # medium feeder
+    jitter:            0.02
+    score_mean:        0.65
+    score_noise:       0.07
+    trigger_analysis:  analysis
+
+  analysis:
+    replicas:          0     # triggered dynamically by all three sim pools
+    concurrency_cap:   2
+    concurrency_floor: 0
+    priority:          8
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.05
+    jitter:            0.01
+    refinement_a:      0.90
+    refinement_b:      0.80
+    refinement_c:      0.85
+
+cm:
+  features:
+    backpressure: true
+    sharder:      false
+    monitor:      false
+
+  adr:
+    policy:    rule
+    tick_s:    0.1
+    terminal:  analysis
+    operator:  DdSim3CampaignOperator
+
+    goals:
+      n_target: 70
+      n_budget: 600
+
+    system_prompt_file: prompts/scheduling_system_prompt_3stage.txt
+    llm_provider:       anthropic
+    llm_api_key_env:    ANTHROPIC_API_KEY
+    model:              claude-haiku-4-5-20251001
+    llm_tick_s:         1.0
+    llm_timeout_s:      8.0
+    llm_max_retries:    1

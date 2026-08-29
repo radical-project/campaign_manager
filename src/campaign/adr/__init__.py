@@ -21,23 +21,31 @@ Requires ``radical.adr`` (pip install -e ../radical.adr). The LLM policy
 additionally needs ``openai`` + ``instructor`` (imported lazily).
 """
 
-from .operator import CampaignOperator, run_supervised
-from .policies import (
-    BanditSchedulingPolicy,
-    DownstreamFirstPolicy,
-    LLMSchedulingPolicy,
-    LoggingPolicy,
-    NullSchedulingPolicy,
-    RuleCorrectionsPolicy,
-    ScheduleDecision,
-    make_scheduling_policy,
-    resolve_system_prompt,
-)
-from .recorder import PolicyRecorder
-from .telemetry import TelemetrySubscriber
-from .view import CampaignView, CampaignViewProtocol
+from .supervisor import CampaignAbortedError, run_supervised
+
+try:
+    from .operator import CampaignOperator
+    from .policies import (
+        BanditSchedulingPolicy,
+        DownstreamFirstPolicy,
+        LLMSchedulingPolicy,
+        LoggingPolicy,
+        ModeDecision,
+        ModeLLMSchedulingPolicy,
+        NullSchedulingPolicy,
+        RuleCorrectionsPolicy,
+        ScheduleDecision,
+        make_scheduling_policy,
+        resolve_system_prompt,
+    )
+    from .recorder import PolicyRecorder
+    from .telemetry import TelemetrySubscriber
+    from .view import CampaignView, CampaignViewProtocol
+except ImportError:
+    pass
 
 __all__ = [
+    "CampaignAbortedError",
     "CampaignView",
     "CampaignViewProtocol",
     "CampaignOperator",
@@ -48,6 +56,8 @@ __all__ = [
     "BanditSchedulingPolicy",
     "LLMSchedulingPolicy",
     "LoggingPolicy",
+    "ModeDecision",
+    "ModeLLMSchedulingPolicy",
     "NullSchedulingPolicy",
     "RuleCorrectionsPolicy",
     "ScheduleDecision",

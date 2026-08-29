@@ -1,0 +1,110 @@
+# =============================================================================
+# config_phased_edge.yaml — edge-case integration test for the phased campaign
+#
+# Exercises the minimum-sample-count boundary for score_p50:
+#
+#   n_ddsim_a=5, score_mean=0.50, score_noise=0.0
+#
+#   All 5 ddsim_a replicas score exactly 0.50.  Because 0.50 > Phase 1
+#   triage cutoff (0.30), all 5 candidates pass triage and reach the sharder.
+#   After the 5th shard_event, CampaignView.observe() computes score_p50=0.50
+#   for the first time (n=4 → None; n=5 → 0.50).
+#
+#   Phase1Operator picks up best_score_p50=0.50 → parent sets:
+#     cutoff = max(0.10, 0.50 * 0.85) = 0.425
+#
+#   Phase 2: 5 ddsim_b replicas also score 0.50 > 0.425 → all pass triage
+#   → 5 analysis jobs run → campaign completes normally.
+#
+# Note: the triage-cutoff clamp scenario (score too low to pass Phase 1 triage
+# → score_p50 never computed → p50=0.0 → cutoff clamps to 0.10) is exercised
+# by config_phased_neg.yaml instead.
+#
+# Run:
+#   cd campaigns/ddsim_campaign
+#   python run_campaign_phased.py --config config_phased_edge.yaml
+# =============================================================================
+
+engine: concurrent
+
+resources:
+  total_cpus: 4
+  total_gpus: 0
+
+workflows:
+
+  ddsim_a:
+    replicas:          5       # minimum for score_p50 to appear at all
+    concurrency_cap:   4
+    concurrency_floor: 1
+    priority:          10
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.10
+    jitter:            0.0
+    score_mean:        0.50    # above triage cutoff (0.30) → all candidates reach sharder
+    score_noise:       0.0     # deterministic — all 5 replicas score exactly 0.50
+    trigger_analysis:  analysis
+
+  ddsim_b:
+    replicas:          0       # triggered by parent when Phase 1 finishes
+    concurrency_cap:   4
+    concurrency_floor: 1
+    priority:          9
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.20
+    jitter:            0.0
+    score_mean:        0.50    # above Phase 2 cutoff (0.425) → all candidates pass triage
+    score_noise:       0.0
+    trigger_analysis:  analysis
+
+  analysis:
+    replicas:          0
+    concurrency_cap:   4
+    concurrency_floor: 0
+    priority:          8
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.2
+    jitter:            0.0
+    refinement_a:      0.85
+    refinement_b:      0.70
+
+    backpressure_high:        2
+    backpressure_low:         1
+    backpressure_score_slack: 0.3
+
+    sharding:
+      target_size:  5
+      min_size:     1
+      max_size:     20
+      stratify:     soft
+      top_fraction: 1.0
+      profile:      diverse_top
+
+    triage:
+      score_cutoff:        0.30
+      score_cutoff_bounds: [0.10, 0.70]
+      uncertainty_cutoff:  0.80
+
+cm:
+  features:
+    backpressure: true
+    sharder:      true
+    monitor:      false
+    budget:       true
+
+  adr:
+    tick_s:    0.5
+    terminal:  analysis
+    log_every: 1
+
+    phased:
+      n_ddsim_a: 5    # must match workflows.ddsim_a.replicas
+      n_ddsim_b: 5    # Phase 2 triggers exactly 5 ddsim_b replicas
+
+workflow_registry:
+  ddsim_a:  ddsim_workflow.DdSimWorkflow
+  ddsim_b:  ddsim_workflow.DdSimWorkflow
+  analysis: ddsim_workflow.AnalysisWorkflow

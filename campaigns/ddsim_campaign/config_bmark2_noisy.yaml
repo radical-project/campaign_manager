@@ -1,0 +1,101 @@
+# =============================================================================
+# ddsim_campaign — pipeline-isolation benchmark: symmetric noisy variant
+# =============================================================================
+#
+# Topology: two symmetric pipelines with identical, high-jitter durations.
+#
+#   Pipeline 1  fast_sim  (0.20 s ± 0.14 s, 70% CV) → analysis_fast  (0.05 s)   target: 30 hits
+#   Pipeline 2  slow_sim  (0.20 s ± 0.14 s, 70% CV) → analysis_slow  (0.05 s)   target: 30 hits
+#
+# Design intent:
+#   Symmetric pipelines means no structural imbalance — both should finish at the
+#   same time on average.  High jitter (70% CV) causes the hit-count gap to breach
+#   isolated_centralized's 5% threshold nearly every cycle as pure noise.
+#
+# Key contrast with config_bmark2.yaml:
+#   isolated_centralized misfires constantly: every noise-driven gap above 5%
+#   triggers a REBALANCE that demotes one sim to priority 95 (0 CPUs), then
+#   immediately reverses next cycle — thrashing both pipelines alternately.
+#   isolated_debounced (20% threshold + streak ≥ 2) never triggers; stays NORMAL.
+#
+# Expected ordering (lower ttt = better):
+#   isolated_debounced ≈ isolated_delegated  <<  isolated_centralized
+# =============================================================================
+
+engine: concurrent
+
+resources:
+  total_cpus: 4
+
+workflows:
+
+  fast_sim:
+    replicas:          80
+    concurrency_cap:   3
+    concurrency_floor: 0
+    priority:          9
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.20
+    jitter:            0.14   # 70% CV — high noise
+    score_mean:        0.65
+    score_noise:       0.15
+    trigger_analysis:  analysis_fast
+
+  analysis_fast:
+    replicas:          0
+    concurrency_cap:   1
+    concurrency_floor: 0
+    priority:          8
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.05
+    jitter:            0.005
+    refinement_a:      0.85
+
+  slow_sim:
+    replicas:          80
+    concurrency_cap:   3
+    concurrency_floor: 0
+    priority:          7
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.20
+    jitter:            0.14   # 70% CV — same as fast_sim
+    score_mean:        0.65
+    score_noise:       0.15
+    trigger_analysis:  analysis_slow
+
+  analysis_slow:
+    replicas:          0
+    concurrency_cap:   1
+    concurrency_floor: 0
+    priority:          8
+    required_cpus:     1
+    required_gpus:     0
+    duration:          0.05
+    jitter:            0.005
+    refinement_a:      0.90
+
+cm:
+  features:
+    backpressure: true
+    sharder:      false
+    monitor:      false
+
+  adr:
+    policy:    rule
+    tick_s:    0.1
+    terminal:  null
+    operator:  PipelineIsolationOperator
+
+    goals:
+      n_target: 30
+      n_budget: 600
+
+    llm_provider:    anthropic
+    llm_api_key_env: ANTHROPIC_API_KEY
+    model:           claude-haiku-4-5-20251001
+    llm_tick_s:      1.0
+    llm_timeout_s:   8.0
+    llm_max_retries: 1

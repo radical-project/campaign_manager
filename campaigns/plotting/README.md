@@ -9,6 +9,45 @@ Campaign-specific benchmark plots live alongside each campaign:
 
 ---
 
+## `plot_gantt.py` — Replica execution Gantt from campaign metrics JSON
+
+Reads `replica_events` from a `CampaignMetrics.to_dict()` JSON and produces a
+Gantt chart with one swimlane per stage.  Concurrent replicas within a lane are
+packed greedily into rows so overlapping work is visible without bar overlap.
+
+Unlike `plot_dep_timeline.py` and `plot_timeline.py`, this script does not parse
+SLURM logs — it reads the structured JSON that the CM writes at the end of every
+run, so it works for any campaign type and any execution backend.
+
+```bash
+python plotting/plot_gantt.py campaign.json
+python plotting/plot_gantt.py bench_results.json --policy flat_rule --run 2
+python plotting/plot_gantt.py bench_results.json -o gantt.png --title "Benchmark 3"
+```
+
+| Argument            | Default                          | Description                                                                   |
+|---------------------|----------------------------------|-------------------------------------------------------------------------------|
+| `json_path` (positional) | required                    | Campaign metrics JSON (`metrics.to_dict()`) or benchmark results JSON         |
+| `--policy`          | first policy in the file         | Policy key — benchmark results JSON only                                      |
+| `--run`             | `0`                              | Run index within the selected policy — benchmark results JSON only            |
+| `--output` / `-o`   | `<stem>.gantt.png` next to input | Output PNG path                                                               |
+| `--title`           | derived from input filename      | Plot title                                                                    |
+
+**Output**: one PNG — stage swimlanes (Y) vs wall-clock seconds from campaign
+start (X).  Failed replicas are hatched; still-running replicas are dotted.
+
+**Diagnosing bottlenecks at a glance:**
+- Dense lane with no gaps → stage fully utilized (healthy or the bottleneck)
+- Sparse lane with gaps → starvation (waiting on upstream or resource limits)
+- Wide bars with few rows → long replicas throttling downstream stages
+
+**Input formats supported:**
+1. Direct metrics JSON — `metrics.to_dict()` output, `replica_events` at top level
+2. Benchmark results JSON — `{policy: [{run}, ...]}` from `benchmark.py`; use
+   `--policy` and `--run` to select which run to plot
+
+---
+
 ## `plot_dep_timeline.py` — Short campaign: dependency arrows
 
 Parses a SLURM output file and produces a two-panel figure: per-replica Gantt chart

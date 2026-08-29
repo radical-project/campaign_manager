@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+*.pyc
 *.egg-info/
 dist/
 build/
@@ -21,28 +22,32 @@ env/
 htmlcov/
 .tox/
 
-# asyncflow runtime sessions
-asyncflow.session.*
+# asyncflow / Dragon runtime artifacts
+asyncflow.session*/
+runinfo/
 
 # SLURM logs
 slurm-*.out
 
 # Benchmark result data files
-campaigns/*/benchmark*.json
+# campaigns/*/benchmark*.json
 
 # Runtime output directories (campaign artifacts)
-campaigns/esm2_ddsim_campaign/ESM2/results/
-campaigns/esm2_ddsim_campaign/ESM2/client_inference_*.json
-campaigns/esm2_ddsim_campaign/ESM2/metrics_*.json
-campaigns/esm2_ddsim_campaign/ESM2/_dragon_config_*.json
-campaigns/esm2_ddsim_campaign/Dummy/
-campaigns/esm2_ddsim_campaign/MiniApps/
-campaigns/esm2_ddsim_campaign/cache/
+campaigns/*/ESM2/results/
+campaigns/*/ESM2/client_inference_*.json
+campaigns/*/ESM2/metrics_*.json
+campaigns/*/ESM2/_dragon_config_*.json
+campaigns/*/Dummy/
+campaigns/*/MiniApps/
+campaigns/*/cache/
 campaigns/*/adr-logs/
 campaigns/*/plots/
 campaigns/*/telemetry-results-*/
 campaigns/*/*.npy
 campaigns/*/slurm-*
+campaigns/*/*png
+campaigns/*/runs/*
+campaigns/*/ddict_orc_*
 
 # Editor / OS
 .DS_Store
@@ -60,3 +65,7 @@ campaigns/plotting/make_presentation.py
 campaigns/plotting/plot_policy_comparison.py
 campaigns/plotting/plot_replica_timeline.py
 campaigns/plotting/plot_deadline_yield.py
+
+# Symlinks and result files
+*_in
+campaigns/*/*.json

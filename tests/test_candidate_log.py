@@ -4,7 +4,6 @@ import pytest
 
 from src.campaign.candidate_log import CandidateHistory, CandidateLog, StageResult
 
-
 # ---------------------------------------------------------------------------
 # StageResult
 # ---------------------------------------------------------------------------

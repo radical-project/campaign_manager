@@ -49,14 +49,16 @@ class SchedulerMixin:
         return True
 
     def _can_start_locked(self, group: _WorkflowInfo) -> bool:
-        """True if one more replica of *group* can be started right now."""
+        """True if one more replica task can be queued for *group* right now.
+
+        The concurrency ceiling is now enforced by group._semaphore inside
+        _run_replica, not by a running_count counter here.  This check only
+        gates task CREATION: stop when all replicas have been queued or when
+        required resources are unavailable.
+        """
         if group.status == "done":
             return False
-        if group.started_count >= group.replicas:
-            return False
-        # concurrency_cap == 0 means "no explicit cap — use replicas count".
-        effective_max = group.concurrency_cap if group.concurrency_cap > 0 else group.replicas
-        if group.running_count >= effective_max:
+        if group._queued_count >= group.replicas:
             return False
         if not self._deps_satisfied_locked(group):
             return False
@@ -64,19 +66,27 @@ class SchedulerMixin:
             group.required_cpus, group.required_gpus, group.required_memory_gb
         ):
             return False
+        # Cap in-flight tasks (queued + running) at concurrency_cap so that tasks
+        # waiting on the semaphore don't hold pre-allocated resources and starve
+        # other workflow groups.
+        if group.concurrency_cap > 0:
+            in_flight = group._queued_count - group.finished_replicas
+            if in_flight >= group.concurrency_cap:
+                return False
         return True
 
     def _allocate_locked(self, group: _WorkflowInfo) -> int:
-        """Record one replica start for *group*; update counters; return replica idx.
+        """Queue one replica task for *group*; update counters; return replica idx.
 
-        running_count is derived from started_count - finished_replicas;
-        only started_count is mutated here.
+        _queued_count tracks tasks created (waiting on semaphore + executing).
+        started_count is incremented later in _run_replica after semaphore
+        acquire, so running_count = started_count - finished_replicas counts
+        only executing replicas.
         """
-        idx = group.started_count
-        group.started_count += 1
+        idx = group._queued_count
+        group._queued_count += 1
         group._consecutive_stalls = 0
         self._resources.allocate(group.required_cpus, group.required_gpus, group.required_memory_gb)
-        self._stats[group.name].replicas_started = group.started_count
         replica_id = f"{group.name}_{idx}"
         # Assign the next pending candidate ID to this replica (FIFO from shard dispatch).
         if group._pending_candidates:
@@ -243,7 +253,7 @@ class SchedulerMixin:
                 idx = self._allocate_locked(g)
                 to_start.append((g, idx))
 
-        # Warn about groups stalled on resources.
+        # Warn about groups stalled on resources (CPU/GPU unavailable).
         # Only log on the 1st stall and every 100th thereafter — when ADVANCE
         # replicas complete in sleep(0) the scheduler fires thousands of times
         # per second and emitting a WARNING each time floods the log and
@@ -251,8 +261,7 @@ class SchedulerMixin:
         _stall_warn_every = 100
         for g in eligible:
             if (
-                g.started_count < g.replicas
-                and g.running_count < (g.concurrency_cap if g.concurrency_cap > 0 else g.replicas)
+                g._queued_count < g.replicas
                 and self._deps_satisfied_locked(g)
                 and not self._resources.can_fit(
                     g.required_cpus, g.required_gpus, g.required_memory_gb

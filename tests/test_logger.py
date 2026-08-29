@@ -57,7 +57,7 @@ class TestLogger:
         assert "warning message" in output
 
     def test_logger_debug(self, output_stream):
-        logger = Logger(use_colors=False, output_stream=output_stream)
+        logger = Logger(use_colors=False, output_stream=output_stream, min_level="DEBUG")
         logger.debug("debug message")
         output = output_stream.getvalue()
         assert "[DEBUG]" in output
