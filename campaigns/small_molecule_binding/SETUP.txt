@@ -1,0 +1,140 @@
+Small Molecule Binding Campaign — Setup & Configuration
+========================================================
+
+PREREQUISITES
+-------------
+Clone both repos to your scratch allocation (replace <alloc> with your project):
+
+  export SCRATCH=/scratch/<alloc>
+  git clone <impress-repo>  $SCRATCH/$USER/IMPRESS
+  git clone <cm-repo>       $SCRATCH/$USER/campaign_manager
+
+Install dependencies (run once from a login node):
+
+  export SCRATCH=/scratch/<alloc>
+  bash $SCRATCH/$USER/campaign_manager/campaigns/small_molecule_binding/delta_env_setup.sh
+
+
+ENVIRONMENT VARIABLES
+---------------------
+The following must be set before submitting the job.  Required variables
+have no default; optional ones fall back to the standard Delta paths.
+
+  SCRATCH                    [required]
+      Your allocation scratch root.
+      export SCRATCH=/scratch/<alloc>
+
+  SBATCH_ACCOUNT             [required]
+      SLURM account to charge the job against.
+      export SBATCH_ACCOUNT=<project>-delta-gpu
+
+  FOUNDRY_SIF_PATH           [required]
+      Path to the RFDiffusion3 / Foundry Apptainer image (.sif).
+      Default in delta_sbatch.sh: /work/hdd/bdyk/hooten1/foundry.sif
+      export FOUNDRY_SIF_PATH=/path/to/foundry.sif
+
+  MPNN_PATH                  [required]
+      Path to the LigandMPNN repository root.
+      Default in delta_sbatch.sh: /work/hdd/bdyk/hooten1/LigandMPNN
+      export MPNN_PATH=/path/to/LigandMPNN
+
+  COLABFOLD_PATH             [required]
+      Path to the localcolabfold installation.
+      Default in delta_sbatch.sh: /work/hdd/bdyk/hooten1/localcolabfold
+      export COLABFOLD_PATH=/path/to/localcolabfold
+
+  COLABFOLD_CACHE_DIR        [optional]
+      Directory where AlphaFold2 model weights are cached.
+      Default: $SCRATCH/$USER/.cache/colabfold
+      Pre-download weights once on a login node (internet access required):
+        python -c "from colabfold.download import download_alphafold_params; \
+                   download_alphafold_params('alphafold2', '$COLABFOLD_CACHE_DIR')"
+
+  IMPRESS_SRC                [optional]
+      Path to the IMPRESS repository root.
+      Default: $SCRATCH/$USER/IMPRESS
+
+  SM_BINDING_EXAMPLES_DIR    [optional]
+      Path to IMPRESS/examples/small_molecule_binding/.
+      Default: $SCRATCH/$USER/IMPRESS/examples/small_molecule_binding
+      This directory is added to sys.path so the pipeline modules
+      (small_molecule_binding.py, run_small_molecule_binding.py) are
+      importable at runtime without installing them.
+
+  ENV_DIR                    [optional]
+      Python venv created by delta_env_setup.sh.
+      Default: /u/$USER/ve/impress
+
+  CM_DIR                     [optional]
+      Campaign Manager repository root.
+      Default: $SCRATCH/$USER/campaign_manager
+
+
+PIPELINE PARAMETERS
+-------------------
+All pipeline parameters are set in config.yaml, under the `explore:` and
+`exploit:` sections.  No Python files need editing for routine configuration.
+
+  Key parameters and their roles:
+
+  diffusion_batch_size   int    Backbones generated per RFD3 call.
+                                Higher = more diversity per task, more GPU memory.
+
+  num_refine_cycles      int    MPNN+PackMin repetitions per backbone before FastRelax.
+
+  num_seqs               int    Sequences generated per MPNN call.
+
+  mpnn_ensemble_size     int    MPNN batches on the first cycle.
+
+  max_tasks              int    Total task budget per pipeline replica before it stops.
+
+  Quality thresholds (set high / 0.0 to disable, negative values for Rosetta scores):
+
+  backbone_max_ca_deviation  float   Max Cα RMSD from target (Å); higher = more permissive.
+  backbone_min_ss_fraction   float   Min fraction of secondary structure; 0.0 = always pass.
+  fastrelax_max_fa_rep       float   Max Rosetta fa_rep score; 1e6 = always pass.
+  fastrelax_max_total_score  float   Max Rosetta total_score (REU, negative); 1e6 = always pass.
+  fastrelax_max_interact     float   Max Rosetta interaction energy (REU, negative); 1e6 = always pass.
+  interface_min_sc           float   Min shape complementarity [0–1]; 0.0 = always pass.
+  fold_min_plddt             float   Min mean pLDDT from AlphaFold2; 0.0 = always pass.
+
+  Integration-test values (config.yaml defaults):
+      All thresholds set to always-pass; max_tasks=5, diffusion_batch_size=1,
+      num_refine_cycles=1 so one full pipeline cycle completes quickly.
+
+  Production values (IMPRESS PROD reference):
+      backbone_max_ca_deviation: 1.0
+      backbone_min_ss_fraction:  0.5
+      fastrelax_max_fa_rep:      100.0
+      fastrelax_max_total_score: -250.0   # Rosetta score; must be negative
+      fastrelax_max_interact:    -8.0     # Rosetta interaction energy; must be negative
+      interface_min_sc:          0.55
+      fold_min_plddt:            75.0
+      diffusion_batch_size:      4
+      num_refine_cycles:         2
+      max_tasks:                 300
+
+  Campaign structure (cm.adr.goals in config.yaml):
+      max_cycles   Total explore/exploit ADR cycles to run.
+      explore_n    Explore pipeline replicas per cycle.
+      exploit_m    Exploit pipeline replicas per cycle.
+
+
+SUBMITTING THE JOB
+------------------
+  export SCRATCH=/scratch/<alloc>
+  export SBATCH_ACCOUNT=<project>-delta-gpu
+  # Override tool paths if they differ from the defaults in delta_sbatch.sh:
+  export FOUNDRY_SIF_PATH=/path/to/foundry.sif
+  export MPNN_PATH=/path/to/LigandMPNN
+  export COLABFOLD_PATH=/path/to/localcolabfold
+
+  cd $SCRATCH/$USER/campaign_manager/campaigns/small_molecule_binding
+  mkdir -p logs
+  sbatch delta_sbatch.sh
+
+  # To use a non-default config:
+  sbatch delta_sbatch.sh my_config.yaml
+
+Output logs: logs/slurm-<jobid>.out / .err
+Pipeline outputs: runs/<replica_id>/ (set by work_dir in config.yaml)
