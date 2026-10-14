@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "campaign-manager"
+name = "aucam"
 version = "0.1.0"
-description = "AsyncCampaignManager — async-native HPC workflow orchestrator with adaptive scheduling"
+description = "AuCaM — Autonomous Campaign Manager for concurrent HPC scientific workflows"
 
 authors = [
     {name = "Masha", email = "mg2347@soe.rutgers.edu"},

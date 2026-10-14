@@ -26,6 +26,19 @@ htmlcov/
 asyncflow.session*/
 runinfo/
 
+# AuCaM telemetry and run output
+aucam-tel-*/
+aucam-tel/
+campaigns/*/aucam-tel/
+campaigns/*/aucam-tel-*/
+campaigns/*/logs/
+campaigns/*/campaign_configs/
+campaigns/*/runinfo/
+campaigns/*/checkpoints/
+campaigns/*/rhapsody.data.*/
+campaigns/*/*.log
+campaigns/*/slurm.yaml
+
 # SLURM logs
 slurm-*.out
 
@@ -69,3 +82,4 @@ campaigns/plotting/plot_deadline_yield.py
 # Symlinks and result files
 *_in
 campaigns/*/*.json
+tests/*.json

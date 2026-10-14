@@ -1,0 +1,26 @@
+# Global CampaignManager configuration — local / dev defaults.
+# ddsim_aucam always runs in driver mode with all campaigns submitted in parallel.
+# Use global_hpc.yaml for Dragon multi-node runs.
+
+engine: concurrent
+asyncflow_blocks: false
+verbose: false
+
+# Driver: all campaigns submitted simultaneously and run in parallel.
+# max_concurrent controls how many run at once (GlobalBudget cap).
+driver:
+  num_campaigns: 4            # total campaigns to submit
+  max_concurrent: 2           # how many may run simultaneously (null = unlimited)
+
+scheduling:
+  policy: bandit              # bandit | fifo
+
+# Global budget — enforced by CampaignManager at admission time.
+global_budget:
+  max_concurrent_campaigns: ~           # null = handled via driver.max_concurrent
+  max_total_concurrent_workflows: ~
+  spending: {}                          # e.g. {cpu_hours: 1.0}
+
+telemetry:
+  enabled: false
+  dir: ~

@@ -2,25 +2,39 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## AuCaM design
+
+The design spec is `aucam-design/aucam-design.md` (architecture diagram: `aucam-design/aucam-architecture.png`; a Mermaid version is inline in the spec). Read it before working on CM code.
+
+- Treat the spec as the source of truth. If code or a request disagrees with it, point out the conflict instead of silently diverging.
+- Use its terminology: CampaignManager (CM), Driver interface, BudgetAllocator, DataBackend (`rhapsody.backends.data`), CampaignController (observe → decide → act, goals), PolicyResult, CampaignBudget, WorkflowQueue, Scheduler, SchedulingPolicy, WorkflowReporter, Tier 1 / Tier 2 workflows.
+- Two levels: service level (one CM for all campaigns: driver interface, shared budget, DataBackend, telemetry) and campaign level (one CampaignController, queue and scheduler per campaign).
+- The BudgetAllocator only keeps the books; only the CampaignController cancels workflows and releases budget. A campaign's budget is a firm ceiling.
+- Lifecycle signals are only CANCEL, PAUSE and RESUME. All workflows run through AsyncFlow (blocks or executable tasks); RHAPSODY is the runtime underneath AsyncFlow.
+- Do not name a specific data-backend implementation (e.g. Redis); use DataBackend / `rhapsody.backends.data`.
+
 ## Quick Start
 
 ### Installation
 
 ```bash
-# Core installation
+# Core (asyncio-only, no HPC runtime)
 pip install -e .
 
-# With ESM2 model support (torch + transformers)
-pip install -e ".[esm2]"
-
-# With Dragon/RADICAL HPC support
+# With Dragon/RADICAL HPC backend  (requires Python ≥ 3.11 — dragonhpc constraint)
 pip install -e ".[dragon]"
 
+# With ADR adaptive-scheduling layer (radical.adr not on PyPI — install editable first)
+pip install -e ".[adr]"
+
+# With LLM scheduling policy
+pip install -e ".[llm]"
+
 # Full dev setup (recommended)
-pip install -e ".[esm2,dragon,dev]"
+pip install -e ".[dev]"
 ```
 
-Requires **Python ≥ 3.10** (union type syntax, structural pattern matching).
+Requires **Python ≥ 3.11** (dragonhpc constraint; applies to all usage).
 
 ### Common Commands
 
@@ -32,640 +46,247 @@ pytest
 pytest --cov=src --cov-report=html
 
 # Run a single test file or test
-pytest tests/test_campaign_manager.py
-pytest tests/test_campaign_manager.py::TestClass::test_method
+pytest tests/test_aucam_unit.py
+pytest tests/test_checkpointing.py::test_recovery_restores_queue_and_completes
 
 # Lint and format check
 ruff check .
 ruff format --check .
 
-# Auto-format code
-ruff format .
-
-# Run linting and format with auto-fixes
-ruff check . --fix
-ruff format .
+# Auto-format and fix
+ruff check . --fix && ruff format .
 ```
-
-### Key Entry Points
-
-- **Multi-workflow campaign**: `python workflows/run_campaign/esm2_ddsim_campaign/run_campaing.py --config workflows/run_campaign/esm2_ddsim_campaign/config.yaml` *(note: `run_campaing.py` — intentional typo in filename)*
-- **Dreamer campaign (single run)**: `python workflows/run_campaign/dreamer_campaign/run_campaign.py --config workflows/run_campaign/dreamer_campaign/config.yaml`
-- **Dreamer benchmark (multi-config, N runs)**: `python workflows/run_campaign/dreamer_campaign/benchmark.py --config workflows/run_campaign/dreamer_campaign/config.yaml --runs 5 --out benchmark_results.json`
-- **ESM2 inference (standalone)**: `python workflows/esm2_inference/run_esm2_infern.py --config workflows/esm2_inference/config.yaml --mode local`
 
 ---
 
 ## Architecture Overview
 
-SPHERICAL is an **async-native HPC workflow orchestrator** built on `radical.asyncflow`. The core innovation is **AsyncCampaignManager**, which orchestrates multiple heterogeneous workflow groups (replicas) inside a single Python asyncio event loop with sophisticated multi-stage dependency signalling, adaptive resource scheduling, and optional adaptive batching.
-
-### High-Level Design
+AuCaM (**Au**tonomous **Ca**mpaign **M**anager) is an `asyncio`-native policy engine for concurrent HPC scientific workflows. The central abstraction is the **campaign**: a named policy loop that dispatches, monitors, and adaptively manages a population of workflow instances.
 
 ```
-AsyncCampaignManager (campaign_manager.py)
-├── SchedulerMixin (scheduler.py)
-│   └── Two-pass greedy scheduler: guarantee concurrency_floor, fill to concurrency_cap
-├── ExecutorMixin (executor.py)
-│   └── Replica lifecycle: launch, monitor, completion, GPU assignment
-├── MonitorMixin (monitor_mixin.py)
-│   └── Periodic health checks + drift detection
-│
-├── BaseWorkflow (base_workflow.py)
-│   └── User-defined workflow classes subclass this; override run() or start()
-│
-└── Optional Features (feature flags in config)
-    ├── BackpressureNegotiator (backpressure.py) — per-edge queue depth controller
-    ├── Sharder (sharder.py) — batches upstream triggers before downstream dispatch
-    ├── Monitor (monitor.py) — detects pass-through & budget burn drift
-    └── CandidateLog (candidate_log.py) — tracks upstream results for sharder ranking
+CampaignManager
+└── _CampaignInstance  (one per submitted campaign)
+    ├── _scheduler_loop  — dequeues LaunchRequests, allocates budget, launches workflows
+    ├── _policy_loop     — event-driven: wakes on completion event or policy_interval_s timeout
+    │   └── _run_policy_cycle
+    │       ├── _collect_live_reports()   → WorkflowReport per active workflow
+    │       ├── controller.observe()      → TelemetrySnapshot
+    │       ├── controller.decide()       → PolicyResult (decisions, terminate, launch_requests)
+    │       ├── _apply_auto_cancels()     → stale / wall-time overrides injected into decisions
+    │       └── _execute_decisions()      → CANCEL / PAUSE / RESUME / LAUNCH
+    └── _on_done callback — sync; increments counters, sets _completion_event
 ```
 
-Adaptive cross-stage scheduling priority is driven by the ADR layer
-(src/campaign/adr), not an in-CM bandit — see "ADR bridge" below.
+### Core loop: Observe → Decide → Act
 
-### Core Concepts
+Every `policy_interval_s` (or immediately on workflow completion via `_completion_event`):
 
-#### AsyncCampaignManager
+1. **Observe** — collect live `WorkflowReport`s from `DataBackend`; build `TelemetrySnapshot`
+2. **Decide** — `CampaignController.decide(obs)` returns `PolicyResult`
+3. **Act** — apply `PolicyResult.decisions`; enforce stale/wall-time auto-cancels; write checkpoint
 
-Orchestrates workflow groups with dependencies and resource constraints:
+### Bidirectional data channel
 
-- **Groups**: Named pools of replicas of the same workflow class. Each group has:
-  - `replicas`: total count (0 = dependent, wait for trigger)
-  - `concurrency_floor` / `concurrency_cap`: concurrent caps
-  - `priority`: scheduling priority (higher = first)
-  - `required_cpus` / `required_gpus`: per-replica resource reservation
-  - `dependencies`: upstream groups that must signal before this group starts
+```
+Workflow ──emit()──► DataBackend ──get_report()──► _CampaignInstance
+Workflow ◄──poll()── DataBackend ◄──write_signal()── _CampaignInstance
+```
 
-- **Two signalling modes**:
-  - `_signal_done()`: broadcast to all downstream groups (topology-driven)
-  - `_trigger_dependent(name, replicas=N)`: explicit queue N replicas to a named group
+- `WorkflowReporter.emit(score, metrics, iteration)` — workflow → CM report channel
+- `WorkflowReporter.poll()` → `CampaignDecision | None` — CM → workflow signal channel
+- `WorkflowReporter.wait_for_resume()` — 50 ms yield loop until CM sends RESUME
 
-- **Scheduler**: Runs on every state change (replica finish, signal received). Two-pass greedy:
-  1. Pass 1: guarantee `concurrency_floor` for all eligible groups (highest priority first)
-  2. Pass 2: fill remaining capacity up to `concurrency_cap` (highest priority first)
+Three backends: `LocalDictBackend` (in-process, used in tests), `DragonDictBackend` (Dragon DDict, HPC), `RhapsodyRedisBackend` (Redis via Rhapsody, distributed).
 
-A group is **eligible** when its dependencies are **ready**:
-  - Workflow-driven: dependency called `_signal_done()` (sets `group.ready = True`)
-  - Count-based fallback: `dep.finished_replicas >= dep.dependency_threshold`
+---
 
-#### BaseWorkflow
+## Key Concepts
 
-All user workflows subclass `BaseWorkflow`. The CM injects six objects at construction:
-
-| Attribute | Type | Purpose |
-|-----------|------|---------|
-| `config` | dict | per-group config (CM scheduling keys stripped) |
-| `_cm` | AsyncCampaignManager | reference to running CM (`None` in unit tests) |
-| `_group_name` | str | name of this group (used by `_signal_done()`) |
-| `asyncflow` | WorkflowEngine | shared radical.asyncflow engine |
-| `policies` | list[Policy] | Dragon `Policy` per assigned GPU (empty on concurrent) |
-| `engine_dragon` | object | Dragon backend handle (`None` on concurrent) |
-
-When GPUs are assigned, two extra config keys are injected:
-- `assigned_gpu_ids`: list of GPU IDs for this replica
-- `group_gpu_ids`: all GPUs held by the group right now
-
-**Workflow entry points**: Define **either** `async def run()` or `def start()`, not both. The CM detects which is overridden and raises `ValueError` if both or neither are defined. Async coroutines are awaited directly; sync functions run via `asyncio.to_thread`.
-
-Optional hook: `on_replica_done(replica_id, cm, final_state)` — called after entry-point returns/raises; can be async or sync.
-
-#### ResourcePool
-
-Tracks available CPU cores and GPU slots:
+### `CampaignSpec`
 
 ```python
-pool = ResourcePool(total_cpus=128, total_gpus=4)
-pool.can_fit(cpus=4, gpus=1)  # → True/False
-pool.allocate(cpus=4, gpus=1)
-pool.release(cpus=4, gpus=1)
-pool.usage_str()  # → "cpus=20/128  gpus=1/4"
+CampaignSpec(
+    name="fold_sweep",
+    budget=CampaignBudget(max_concurrent_workflows=4, max_concurrency_per_workflow=2),
+    controller=MyController(),
+    workflows=[WorkflowConfig(...)],
+    policy_interval_s=5.0,             # max sleep between policy cycles
+    shutdown_timeout_s=30.0,
+    max_queue_depth=100,               # soft warning above this; never hard-drops
+    checkpoint_dir="/scratch/ckpts",   # None = no checkpointing
+)
 ```
 
-Setting total to 0 disables tracking (unlimited).
+### `WorkflowConfig`
 
----
-
-## Campaign Configuration
-
-All campaigns use YAML config files with two sections:
-
-### Resources & Engine
-
-```yaml
-engine: concurrent  # or "dragon" for HPC
-resources:
-  total_cpus: 128
-  total_gpus: 4
+```python
+WorkflowConfig(
+    name="folding_worker",
+    block=async_fn,                    # Python async function (Tier 1)  — OR —
+    launch_cmd=["python", "wf.py"],    # subprocess command (Tier 2)
+    resources={"gpu": 2.0},             # concurrency units reserved while running
+    declared_spending={"wall_hours": 1/3600, "gpu_hours": 2/3600},  # for budget accounting
+    metrics_cls=MyMetrics,             # typed metrics class (Tier 1); None = Tier 2
+    score_directions={"energy": ScoreDirection.LOWER},
+    supports_pause=True,               # False (default) → PAUSE decisions are skipped with WARNING
+    launch_on_start=True,              # auto-enqueue one instance at campaign start
+    max_wall_time_s=300.0,             # auto-cancel if running longer than this
+    stale_timeout_s=60.0,              # auto-cancel if reporter silent > this (after ≥1 emit)
+    env={"TORCH_DEVICE": "cuda"},      # injected into subprocess env (Tier 2)
+    on_completion=callback,            # called with WorkflowResult after each run
+)
 ```
 
-### Workflow Groups
+### `CampaignController`
 
-```yaml
-workflows:
-  sim:
-    replicas: 8              # independent: starts immediately
-    concurrency_floor: 2
-    concurrency_cap: 4
-    priority: 10
-    required_cpus: 4
-    required_gpus: 1
-    # other keys forwarded to workflow.config
-
-  analysis:
-    priority: 8
-    concurrency_floor: 1
-    concurrency_cap: 4
-    required_cpus: 4
-    required_gpus: 1
-    dependencies: [sim]      # dependent: starts at 0 replicas
-                             # sim's _signal_done() adds replicas at runtime
+```python
+class MyController(CampaignController):
+    def decide(self, obs: dict) -> PolicyResult:
+        # obs keys: running, queue_snapshot, live_reports, telemetry, wf_types
+        return PolicyResult(
+            terminate=self.done,
+            decisions={wf_id: CampaignDecision.CANCEL},   # dict[str, CampaignDecision]
+            launch_requests=[LaunchRequest.make("folding_worker")],
+        )
 ```
 
-**Key insight**: Switch a group between independent/dependent modes purely through config, no workflow code changes needed.
+### `WorkflowReporter` inside block functions
 
-### Optional Feature Flags
-
-```yaml
-cm:
-  features:
-    backpressure: true   # hysteresis queue depth controller per edge
-    sharder: true        # adaptive batch dispatch from trigger buffer
-    monitor: true        # periodic health checks + drift alerts
-  # Cross-stage scheduling priority is driven by the ADR layer (cm.adr), not an
-  # in-CM bandit; the scheduler orders eligible groups by group.priority.
-  monitor_interval_s: 30   # tick interval for monitor
-  telemetry:
-    collect_telemetry: true
-    telemetry_dir: telemetry-results
-  workflow_registry:
-    sim: my_module.SimWorkflow
-    analysis: my_module.AnalysisWorkflow
+```python
+async def my_worker(reporter: WorkflowReporter) -> None:
+    for step in range(n_steps):
+        result = run_step(step)
+        await reporter.emit(score=result.energy, metrics={"step": step, "loss": result.loss})
+        # honour PAUSE/RESUME signals
+        if await reporter.poll() == CampaignDecision.PAUSE:
+            await reporter.wait_for_resume()
 ```
 
----
+The reporter is injected automatically by `_CampaignInstance` when launching a Tier 1 block. `CM_DATA_ENDPOINT` is injected into subprocess env for Tier 2 (non-None when using Dragon/Redis backends).
 
-## Optional Features Deep Dive
+### Checkpointing and recovery
 
-### Backpressure (backpressure.py)
+When `CampaignSpec.checkpoint_dir` is set:
+- After each policy cycle: `_build_checkpoint()` runs in the event loop, then `write_checkpoint` is dispatched to a thread pool via `run_in_executor` (I/O off the event loop).
+- At shutdown: a final synchronous `write_checkpoint` is called before the SUMMARY log.
+- At `run()` start: if `<checkpoint_dir>/<campaign_name>.json` exists, counters and `_spent` are restored, queued requests are re-pushed, and active workflows are re-enqueued at HIGH priority with `recovered_from` context in the request.
+- **Atomic writes**: each `write_checkpoint` call uses `tempfile.mkstemp` for a unique `.tmp` file, then `os.replace()` (POSIX `rename(2)`). Concurrent policy-cycle and shutdown writes never race on the same temp file.
 
-Per-edge hysteresis state machine that throttles downstream queue depth:
+### Observability
 
-```yaml
-workflows:
-  downstream:
-    backpressure_high: 200   # queue ≥ 200 → THROTTLE (block new starts)
-    backpressure_low: 100    # queue ≤ 100 → WIDEN (dispatch more)
+After shutdown, `_CampaignInstance` emits a SUMMARY log:
+
+```
+[CM] Campaign fold_sweep SUMMARY — exit=controller_terminate run=12 ok=10
+  cancelled=2 (stale=1 walltime=1 policy=0) failed=0 cycles=24 spent={'gpu_hours': 1.3}
 ```
 
-Three states (HOLD → THROTTLE → WIDEN → HOLD):
-- **HOLD**: normal, neither throttling nor widening
-- **THROTTLE**: queue too deep, sharder dispatch returns 0
-- **WIDEN**: queue drained, dispatch multiplier increases
+`WorkflowResult.final_metrics` holds the last `emit()` payload for Tier 1 workflows. It is populated in the synchronous `_on_done` callback via `LocalDictBackend.sync_get_report(wf_id)` (duck-typed via `hasattr`) before the async `delete_report` fires. Remote backends fall back to `_inst.last_report` cached by the previous policy cycle.
 
-### Sharder (sharder.py)
+Policy loop wakeup is **event-driven**: `_policy_loop` uses `asyncio.wait_for(_completion_event.wait(), timeout=policy_interval_s)`. A campaign with `policy_interval_s=60` reacts within milliseconds of the last workflow finishing.
 
-Buffers upstream trigger signals and batch-dispatches downstream, with optional priority ranking:
-
-```yaml
-workflows:
-  downstream:
-    sharding:
-      target_size: 100         # nominal batch size
-      min_size: 10
-      max_size: 200
-      stratify: soft           # soft | strict | off
-      dispatch_cap: 500        # max replicas to dispatch (drop low-priority candidates)
-```
-
-**Stratify modes**:
-- `off`: dispatch exactly 1 trigger per cycle
-- `soft`: adaptive sizing with tail dispatch (partial batches acceptable)
-- `strict`: hold buffer until target_size or upstream done (chemical diversity, etc.)
-
-**Candidate ranking** (via ProfileWeights):
-- Score, surrogate prediction, uncertainty, age, diversity (scaffold novelty)
-
-### Monitor (monitor.py, monitor_mixin.py)
-
-Periodic health checks and drift detection:
-
-```yaml
-cm:
-  features:
-    monitor: true
-  monitor_interval_s: 30
-  replan:
-    budget_burn_deviation_pct: 20    # alert if spend > expected + 20%
-    pass_through_deviation_pct: 25   # alert if pass-through ratio deviates 25%
-    surrogate_recall_floor: 0.90     # alert if surrogate recall < 90%
-```
-
-Two monitoring paths:
-1. **Reactive** (per replica finish) — low-latency drift check
-2. **Periodic** (background task) — full health table, stall detection
-
-### Bandit (bandit.py)
-
-Thompson-sampling multi-armed bandit. `SchedulingBandit` (one Beta arm per
-stage; reward = downstream BP state quality) is **no longer wired into the CM
-scheduler** — it now runs in the ADR layer as `BanditSchedulingPolicy` (see the
-ADR bridge section). The scheduler orders eligible groups purely by
-`group.priority`, which the ADR policy drives.
-
-`bandit.py` is retained because the ADR policy imports `SchedulingBandit` /
-`BanditArm`; the legacy `shard_bandit` / `resource_bandit` factories are no
-longer used by the core (the sharder uses a fixed BP→multiplier mapping).
-
-### Triage + Surrogate (triage.py, surrogate.py)
-
-Per-candidate gate that runs **before** any compute is spent. A `Surrogate`
-model (`surrogate.py`: `NullSurrogate`, `RandomSurrogate`, `CorrelatedSurrogate`
-— `surrogate_pred ≈ score × 0.9 + noise`) cheaply predicts a candidate's
-downstream score. `Triage` (triage.py) then returns one of:
-
-- **RUN** — execute normally
-- **DISCARD** — drop candidates below the surrogate cutoffs before they consume resources
-- **ADVANCE** — fast-forward high-confidence leads (score ≥ `advance_threshold`), skipping expensive stages
-
-The DISCARD cutoffs live in the stage's `SurrogateSpec` (CM-adjustable); the
-ADVANCE bar is `Triage.advance_threshold` (default `inf` → ADVANCE off):
-
-```yaml
-# structured plan (plan/schema.py): per-stage surrogate + triage
-stages:
-  - id: s2_ml_affinity
-    advance_threshold: 0.88        # surrogate score above which a lead skips compute
-    surrogate:
-      score_cutoff: 0.40           # DISCARD: reject upstream score < this
-      uncertainty_cutoff: 0.30     # DISCARD: reject surrogate σ > this
-      score_cutoff_nudge_bounds: [0.0, 0.6]   # bounds BudgetController may nudge within
-```
-
-`RecallTracker` (in surrogate.py) monitors how often the surrogate's ADVANCE
-calls would have been correct, feeding the `surrogate_recall_floor` drift check.
-
-### BudgetController (budget_controller.py)
-
-Proportional feedback loop that keeps a stage's spend on plan by nudging its
-Triage **score cutoff**. Each finished replica updates `burn_ratio = actual /
-(budget × progress)`; if it drifts outside the band the controller raises or
-lowers the cutoff (bounded by plan-set `nudge_bounds`).
-
-```yaml
-cm:
-  # ...
-workflows:
-  s2_ml_affinity:
-    downstream_input_target: 200   # BudgetController denominator (planned throughput)
-    budget_kp: 0.002               # proportional gain
-    budget_warmup_min: 20          # min finished replicas before nudging starts
-```
-
-- `downstream_input_target` — the BudgetController denominator (planned input volume).
-- `campaign_target` — **separate** early-stop trigger; the campaign ends when a
-  stage reaches this many completions (0 = never early-stop on this stage).
-
-When the cutoff stays bound-locked for K cycles, the Monitor raises a
-`BUDGET_LOCKED` drift event → `ReplanningController` (see below).
-
-### Replanning (replanning.py)
-
-`ReplanningController` consumes `DriftEvent`s from the Monitor and decides
-whether to request a replan (re-deriving stage priorities, budgets, or
-concurrency from current state). Drives the reactive arm of the monitor loop.
-
-### Structured plan schema (plan/)
-
-Campaigns can be expressed either as the legacy flat `workflows:` dict or as a
-typed `CampaignPlan` (`plan/schema.py`: `StageSpec`, `EdgeSpec`,
-`SurrogateSpec`, `BackpressureEdge`, `RetryPolicy`, `PilotSpec`,
-`ReplanThresholds`). `load_plan()` (`plan/loader.py`) auto-detects the shape;
-`plan_to_workflows_dict()` flattens a structured plan to the registration form.
-(Depth-based warm-start priors `Beta(depth+1, 1)` now live in the ADR
-`BanditSchedulingPolicy`'s `warmstart` option, not an in-CM flag.)
-
-### ADR bridge (adr/) — agent-layer scheduling
-
-`src/campaign/adr/` lets a `radical.adr` **Policy** make the campaign's adaptive
-scheduling decisions instead of the in-CM bandits. The CM keeps owning
-scheduling, execution lifecycle, and resources; a `CampaignOperator` runs the
-ADR Run→Observe→Decide→Act loop *alongside* a live CM and only nudges its
-levers (priority, batch size, dependent triggers) — the ADR "sacred boundary".
-
-- **adr/view.py**: `CampaignView` — the only CM-coupled code; turns `cm.state`
-  into an observation dict and exposes `set_priority` / `set_batch_size` /
-  `trigger` levers. Policies/operator depend on `CampaignViewProtocol`, so they
-  unit-test against a fake view (no live CM, no engine, no LLM key).
-- **adr/operator.py**: `CampaignOperator` (`@observe`/`@act`/`@goals`) +
-  `run_supervised(cm, op)` to drive it alongside `cm.wait()`.
-- **adr/policies.py**: three interchangeable policies for A/B comparison —
-  `DownstreamFirstPolicy` (deterministic rule the bandit had to learn),
-  `BanditSchedulingPolicy` (the in-CM `SchedulingBandit` wrapped as a Policy,
-  same Thompson-sampling + BP-reward signal), and `LLMSchedulingPolicy`
-  (OpenAI-compatible via `instructor`, deps imported lazily). Select with
-  `make_scheduling_policy(op, kind="rule"|"bandit"|"llm", …)`; `kind="llm"`
-  composes `Policy(primary=LLM, fallback=rule)`.
-
-Install: `pip install -e ".[adr]"` (LLM policy also needs `".[llm]"`). Design
-rationale and migration path: `docs/adr_adaptive_decisions.md`.
+`max_queue_depth` is a **soft limit** — exceeding it logs a WARNING but always enqueues. Hard drops were removed; throttling belongs in the controller.
 
 ---
 
 ## Key File Organization
 
-### Campaign Manager Core
+### `src/aucam/`
 
-- **campaign_manager.py**: Main class; constructor, config loading, group registration
-- **base_workflow.py**: User-defined workflow base class
-- **types.py**: `_WorkflowInfo`, `ResourcePool`, `WorkflowStats`, `CampaignState` data structures
-- **scheduler.py**: SchedulerMixin — two-pass scheduling logic
-- **executor.py**: ExecutorMixin — replica launch/completion/GPU assignment
-- **monitor_mixin.py**: MonitorMixin — periodic health checks
-- **gpu.py**: `detect_gpus()` (CUDA/nvidia-smi probe) and `find_gpus()` (Dragon node enumeration) — both degrade gracefully without Dragon/CUDA
-- **sync_wrapper.py**: `CampaignManager` — synchronous wrapper around AsyncCampaignManager (thin thread-based bridge)
+| File | Responsibility | Lines |
+|---|---|---|
+| `campaign.py` | `_CampaignInstance` — full lifecycle | 1299 |
+| `manager.py` | `CampaignManager` — multi-campaign submission + run loop | 462 |
+| `data_backend.py` | `DataBackend` protocol + `LocalDict`/`Dragon`/`Redis` backends | 402 |
+| `scheduler.py` | All scheduling policies (Bandit/FIFO/ADR/LLM) + `SchedulingContext` | 346 |
+| `controller.py` | `CampaignController` ABC, `PolicyResult`, `Goal`, `CancelRule`, `LaunchRule` | 227 |
+| `types.py` | Enums, `WorkflowResult`, `LaunchRequest`, `TelemetrySnapshot`, `GlobalBudget`, `CampaignOutcome` | 233 |
+| `checkpoint.py` | `CampaignCheckpoint` dataclass, atomic write, recovery deserialization | 168 |
+| `profiler.py` | `BlockProfiler`, `TaskProfiler` — per-block resource tracking | 147 |
+| `spec.py` | `WorkflowConfig`, `CampaignSpec`, `CampaignBudget`, `WorkflowDependency` | 129 |
+| `queue.py` | `WorkflowQueue` — min-heap with priority + aging | 124 |
+| `subprocess_client.py` | Tier 2 subprocess worker helper — reads CM_DATA_ENDPOINT, wraps reporter | 102 |
+| `budget.py` | `BudgetAllocator` — concurrency borrow/return + lifetime spending | 100 |
+| `reporter.py` | `WorkflowReporter` ABC + `LocalDictReporter` — emit/poll/wait_for_resume | 103 |
+| `__init__.py` | Public API surface — all exported symbols | 82 |
 
-### Optional Features
+### `tests/`
 
-- **backpressure.py**: `BackpressureNegotiator` — hysteresis state machine
-- **sharder.py**: `Sharder` — buffering and batch dispatch with priority ranking
-- **bandit.py**: `Bandit`, `SchedulingBandit` — Thompson-sampling (now consumed by the ADR `BanditSchedulingPolicy`, not the CM scheduler)
-- **triage.py**: `Triage`, `TriageDecision` — per-candidate RUN/DISCARD/ADVANCE gate
-- **surrogate.py**: `Surrogate` (`Null`/`Random`/`Correlated`), `RecallTracker` — cheap score predictor
-- **budget_controller.py**: `BudgetController` — burn-ratio feedback on Triage cutoffs
-- **replanning.py**: `ReplanningController` — drift-triggered replanning
-- **candidate_log.py**: `CandidateLog`, `CandidateHistory` — tracks upstream results
-- **monitor.py**: `Monitor`, `DriftEvent` — drift detection logic
-- **profiles.py**: `ProfileWeights`, `PROFILES` — candidate ranking profiles
-- **metrics.py**: `CampaignMetrics` — in-process event recording (timing, BP transitions, etc.)
-- **plan/schema.py**: `CampaignPlan`, `StageSpec`, `EdgeSpec`, `SurrogateSpec`, ... — typed plan
-- **plan/loader.py**: `load_plan()`, `plan_to_workflows_dict()` — structured + legacy config
-
-### Utilities
-
-- **src/utils/logger.py**: Colored structured logging with metrics recording
-- **src/utils/workflow.py**: `_expand_env()`, `load_config()`, `find_gpus()`, `make_policies()`
-- **src/inference/**: Multi-GPU inference service framework (ESM2 embeddings, HTTP server/client)
-
-### Examples & Workflows
-
-- **workflows/run_campaign/esm2_ddsim_campaign/**: Real multi-workflow campaign (DDMd sim + ESM2 inference)
-  - `run_campaing.py`: main entry point
-  - `ddmd_workflow.py`: wraps DeepDriveSim DDMd pipeline
-  - `inference_workflow.py`: ESM2 client workflow
-  - `config.yaml`: multi-stage campaign config
-  
-- **workflows/run_campaign/dreamer_campaign/**: Emulation campaign using radical.dreamer
-  - `dreamer_workflow.py`: simulates task execution in-process
-  - `config.yaml`: plan-based campaign (cm-prototype schema)
-  - `benchmark.py`: runner with profiling
-
-- **workflows/esm2_inference/**: Standalone ESM2 service
-  - `run_esm2_infern.py`: launches inference server with worker pools per GPU
-
----
-
-## YAML Config Features
-
-### Environment Variable Expansion
-
-All config files support `${VAR}` and `$VAR` shell-style references, expanded at load time by `_expand_env()` in `src/utils/workflow.py`:
-
-```yaml
-service_python: "${VE_HOME}/esm2/bin/python"
-outdir: "${SPHERICAL_DIR}/workflows/sgdes/output"
-```
-
-Unset variables are preserved as literal strings (fail fast with clear `FileNotFoundError`).
-
-### Config File Merging
-
-When a workflow entry has `config_file`, that YAML is loaded and merged (scheduling params in the main config take precedence):
-
-```yaml
-workflows:
-  inference:
-    config_file: inference_specific.yaml  # loaded and merged
-    replicas: 4                           # overrides any value in the file
-```
+| File | What it covers |
+|---|---|
+| `test_aucam_unit.py` | `BudgetAllocator`, `WorkflowQueue` unit tests |
+| `test_aucam_dummy.py` | Basic campaign run + budget-limited concurrency |
+| `test_aucam_multi.py` | Multiple concurrent campaigns |
+| `test_aucam_reporter.py` | Score-based controller cancellation |
+| `test_budget_control.py` | Three-tier budget control |
+| `test_stale_and_walltime.py` | `stale_timeout_s` and `max_wall_time_s` auto-cancel |
+| `test_workflow_config_fields.py` | `ScoreDirection`, `metrics_cls`, `supports_pause` |
+| `test_pause_resume.py` | PAUSE/RESUME signal lifecycle |
+| `test_observability.py` | `final_metrics`, SUMMARY log, soft queue limit, event-driven wakeup |
+| `test_checkpointing.py` | JSON roundtrip, atomic write, file creation, counters, recovery |
+| `test_resource_profiling.py` | `BlockProfiler`, `_correlate_from_jsonl`, `_compute_workflow_spent` paths |
 
 ---
 
 ## Testing
 
-### Test Organization
-
-- **tests/test_campaign_manager.py**: Core CM logic (scheduling, execution, hooks)
-- **tests/test_inference_service.py**: Multi-GPU inference orchestration
-- **tests/test_server.py**: aiohttp server endpoints
-- **tests/test_client.py**: HTTP client interface
-- **tests/test_sgdes_workflow.py**: SGDES protein engineering workflow
-- **tests/test_logger.py**: Structured logging utilities
-- **tests/test_utils.py**: Config loading and GPU helpers
-
-### Test Markers
+All tests are synchronous at the top level (`asyncio.run(asyncio.wait_for(..., timeout=N))`). No `anyio` or `pytest-asyncio` marks are used in the AuCaM test suite.
 
 ```bash
-# Run only fast tests (skip slow)
+pytest                               # full suite (54 tests, 1 skipped)
+pytest tests/test_checkpointing.py   # checkpointing + recovery
 pytest -m "not slow"
-
-# Run only integration tests
-pytest -m integration
-
-# Run only GPU tests (if available)
-pytest -m gpu
 ```
-
-### Async Tests
-
-All async tests use `anyio` (not `pytest-asyncio` directly). The standard pattern used throughout the test suite:
-
-```python
-import pytest
-pytestmark = pytest.mark.anyio
-
-@pytest.fixture
-def anyio_backend():
-    return "asyncio"
-
-async def test_something():
-    ...
-```
-
-`asyncio_mode = "auto"` in `pyproject.toml` applies to `pytest-asyncio`; the tests themselves rely on `anyio` with the `anyio_backend` fixture pinning execution to asyncio.
-
----
-
-## Key Design Patterns
-
-### Workflow Authoring Pattern
-
-```python
-from src.campaign import BaseWorkflow
-
-class MyWorkflow(BaseWorkflow):
-    workflow_id = "my_wf"
-
-    async def run(self, replica_id: str) -> None:
-        # Do work
-        result = await compute(self.asyncflow, self.config)
-        
-        # Signal downstream groups
-        await self._signal_done()  # broadcast to all dependents
-        # OR
-        await self._trigger_dependent("specific_group", replicas=1)  # explicit
-
-    async def on_replica_done(self, replica_id, cm, final_state):
-        if final_state == "done":
-            # cleanup
-            pass
-```
-
-### Campaign Runner Pattern
-
-```python
-from src.campaign import AsyncCampaignManager
-
-WORKFLOW_REGISTRY = {
-    "workflow1": Workflow1,
-    "workflow2": Workflow2,
-}
-
-# Option 1: from config
-cm = AsyncCampaignManager.from_config(config, WORKFLOW_REGISTRY)
-
-# Option 2: manual registration
-cm = AsyncCampaignManager(engine="concurrent", total_cpus=128, total_gpus=4)
-cm.register_workflow("wf1", Workflow1, replicas=4, ...)
-cm.register_workflow("wf2", Workflow2, dependencies=["wf1"], ...)
-
-# Run
-await cm.start()
-await cm.wait()
-await cm.close()
-
-# Caller is responsible for asyncflow lifecycle
-asyncflow = await WorkflowEngine.create(backend)
-# ... start telemetry if needed
-cm = AsyncCampaignManager.from_config(config, registry, asyncflow=asyncflow)
-# ... run campaign
-await telemetry.stop()
-await asyncflow.shutdown()
-```
-
-### GPU Assignment
-
-When `required_gpus > 0`:
-1. CM pops GPU IDs from a global free list (FIFO)
-2. Injects `assigned_gpu_ids` and `group_gpu_ids` into replica config
-3. Builds Dragon `Policy(HOST_NAME, gpu_affinity=[...])` and injects as `self.policies[0]`
-4. Returns IDs to free list when replica finishes
 
 ---
 
 ## Important Implementation Notes
 
-### No-op Signals in Unit Tests
+### Dragon backend on Lustre/Delta HPC
 
-Both `_signal_done()` and `_trigger_dependent()` are no-ops when `_cm is None`, making workflows safe to unit test without a CM:
+Cold-page-fault stalls on Lustre freeze the asyncio event loop. Use `asyncio.to_thread()` for any blocking file I/O inside workflows. Pre-warming the file into page cache alone is insufficient — confirmed fix on Delta HPC.
 
-```python
-# Unit test — no CM injected
-wf = MyWorkflow(config={...})
-await wf.run("test_0")  # signals are no-ops
-```
-
-### Two Signalling Methods Are Mutually Exclusive per Workflow
-
-- If a workflow calls `_signal_done()`, downstream groups are determined entirely by config `dependencies`
-- If a workflow calls `_trigger_dependent()`, it explicitly decides which group gets replicas
-- Mixing both on the same workflow is allowed but unconventional — `_signal_done()` is simpler for data-driven fan-out
-
-### Scheduler Re-runs on Every State Change
-
-Every replica completion or signal call triggers `_schedule()`, which:
-1. Acquires the lock
-2. Runs `_schedule_locked()` (two-pass greedy with dependency + resource checks)
-3. Fires resulting replica tasks outside the lock
-
-This keeps scheduling immediate and fair across groups.
-
-### Campaign Completion Logic
-
-The CM completes when:
-- All groups with `replicas > 0` are finished
-- All sharder buffers are empty
-- Groups that were never triggered (dependent groups with 0 finished replicas) are excluded from the check
-
-This allows purely dependent groups to remain inactive without stalling the campaign.
-
----
-
-## Performance Tuning
-
-### Concurrency Caps
-
-- `concurrency_cap`: sliding-window concurrency cap per group
-- `concurrency_floor`: guaranteed concurrent slots (priority-ordered across groups in Pass 1)
-- If a group has slots but cannot be satisfied by resources, a WARNING is logged
-
-### Backpressure Tuning
-
-High `backpressure_high` + low `backpressure_low` gap = frequent oscillation.  Recommend:
-- `high_water ≈ 1.5 × downstream_total`
-- `low_water ≈ 0.5 × downstream_total`
-
-### Sharder Target Size
-
-- Too small (e.g., 1): no batching benefit, frequent dispatch overhead
-- Too large: causes queue buildup and backpressure throttling
-- Recommend: 5–20% of downstream group's total replicas, tuned via A/B testing
-
-### Monitor Interval
-
-- Too small (< 10s): log spam, overhead
-- Too large (> 120s): miss transient drifts
-- Recommend: 20–60s for typical campaigns; shorter (5–15s) for debugging
-
----
-
-## Deployment
-
-### Local Testing (Concurrent Backend)
-
+`dragon -m` fails on Delta (FQDN vs short NodeName mismatch in SLURM).  Multi-node launch:
 ```bash
-python run_campaing.py --config config.yaml
+(cd $NET_DIR && dragon-network-config --output-to-yaml --no-stdout)
+dragon -w ssh --network-config $NET_DIR/slurm.yaml -t tcp run_campaign.py ...
 ```
 
-Uses `radical.asyncflow` ConcurrentExecutionBackend (pure asyncio, no MPI).
+Python `logging` → stderr (`.err` file); `print()` → stdout (`.out` file).  CM budget/spending logs are at `INFO` level → `.err`.
 
-### HPC Deployment (Dragon Backend)
+### `expect_driver()` must be called before `asyncio.create_task`
 
-```bash
-dragon -m workflows/run_campaign/esm2_ddsim_campaign/run_campaing.py \
-  --config workflows/run_campaign/esm2_ddsim_campaign/config.yaml
-```
+`cm.run()` checks `_has_driver` synchronously before yielding to the event loop.  If you use driver mode, call `cm.expect_driver()` before `asyncio.create_task(_driver(...))` so the CM doesn't auto-close the queue before the driver task runs.
 
-Sets `engine: dragon` in config; CM detects and uses DragonExecutionBackendV3.
+### `_apply_rules` terminates on `is_goal_reached()` immediately
 
-### Telemetry Visualization
+Do not wait for the queue to drain. `_shutdown()` clears the queue and cancels in-flight workflows gracefully.
 
-```bash
-bash workflows/plot_telemetry.sh \
-  workflows/sgdes/telemetry_output/out.jsonl \
-  --out-dir plots/sgdes
-```
+`LaunchRule` only enqueues a new request when `q.by_type[wf_type] == 0` — i.e. nothing is already queued for that type. This prevents unbounded queue growth when completions stall. One pending request per type is sufficient: the scheduler picks it up when a slot opens, and the next policy cycle enqueues a replacement.
 
-Plots asyncflow native JSONL telemetry to workflow dashboard PNG.
+`_shutdown()` does three things atomically:
+1. Sets `_done = True` (scheduler loop exits; `_drain_queue` becomes a no-op)
+2. Calls `self._queue.clear()` — purges all queued `LaunchRequest`s immediately
+3. Cancels all in-flight workflow futures and waits up to `shutdown_timeout_s`
 
-### Campaign Timeline Visualization
+The queue is purged first so there is no window where the scheduler could dequeue and launch new workflows between `_done` being set and in-flight cancellation completing.
 
-```bash
-python workflows/plotting/plot_dep_timeline.py \
-  slurm-17715157.out \
-  --config workflows/run_campaign/config.yaml \
-  --out replica_timeline.png
-```
+### Global budget admission check formula
 
-Parses SLURM log; produces Gantt chart (replicas + resource utilization) + config summary table.
+`already_spent` (`_global_spent`, actual from completed campaigns) + `committed` (declared spending limits of **all admitted campaigns** — both `_reserved_specs` and `_active_specs`) + `incoming` (new campaign's declared limit) > cap → reject.
 
+`_reserved_specs` holds specs admitted by `submit()` but not yet started by `_start_campaign()`.  This closes the admit-to-start race window: rapid back-to-back `submit()` calls can't both pass the check before either campaign is actually running.  `_start_campaign()` moves a spec from `_reserved_specs` to `_active_specs`.
+
+A campaign with no declared spending (`spending={}`) contributes `incoming=0.0` and is never rejected on spending grounds alone.
+
+### `_on_done` is synchronous
+
+`_on_done` is a sync callback registered with `asyncio.Task.add_done_callback`. It cannot `await` anything. Use `sync_get_report()` (LocalDictBackend) or cached `_inst.last_report` (remote backends) to get `final_metrics` without awaiting.
+
+### `CampaignSpec` (and `WorkflowConfig`) carries callables
+
+The checkpoint only stores serializable state — queue items, active metadata, counters, spent. The `CampaignSpec` (controller object, block functions, callbacks) must be provided by the driver on recovery; it is not serialized.
+
+### `supports_pause=False` (the default)
+
+PAUSE decisions from the controller are silently skipped with a WARNING log when `supports_pause=False`. This prevents signal delivery to workflows that haven't implemented `poll()` / `wait_for_resume()`.
