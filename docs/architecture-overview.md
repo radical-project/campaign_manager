@@ -43,7 +43,7 @@ This loop — **Observe → Decide → Act** — repeats until the campaign cont
 
 Think of AuCaM like a research management system.  Here is each piece in plain terms:
 
-![AuCaM architecture diagram](../figures/aucam-architecture.png)
+![AuCaM architecture diagram](figures/aucam-architecture.png)
 
 ### Campaign Manager
 
