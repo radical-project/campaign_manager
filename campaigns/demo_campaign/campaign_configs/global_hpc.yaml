@@ -1,0 +1,33 @@
+# Global CampaignManager configuration — Dragon / SLURM (Delta HPC).
+# Used by delta_dragon_sbatch.sh via --global-config config/global_hpc.yaml.
+# telemetry.dir and spending are still passed as CLI flags from the sbatch script
+# so SLURM_JOB_ID can be embedded in the path.
+
+engine: dragon
+asyncflow_blocks: true
+verbose: false
+num_campaigns: 3
+
+driver:
+  enabled: true
+  delay_s: 5.0       # seconds between campaign submissions (planning pause)
+
+scheduling:
+  policy: bandit
+
+global_budget:
+  max_concurrent_campaigns: ~
+  max_total_concurrent_workflows: ~
+  spending:
+    # Total cpu_hours budget for the entire run across all campaigns.
+    # Campaign a declares 0.042, campaign b 0.097 (via --spending-cpu-hours in sbatch).
+    # After a completes, the CM logs: used=<actual_a> remaining=<cap - actual_a - 0.097> / 0.150
+    # Set below their combined declared limit (0.139) to leave headroom visible in logs.
+    # num_campaigns: 3 with this cap triggers a rejection on campaign c:
+    # after a (~0.040) + b (~0.095) complete, ledger ≈ 0.135.
+    # Campaign c: 0.135 + 0.000 + 0.042 = 0.177 > 0.120 → rejected.
+    cpu_hours: 0.120
+
+telemetry:
+  enabled: true
+  dir: ~                                      # set via --telemetry-dir in sbatch script

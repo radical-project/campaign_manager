@@ -475,12 +475,12 @@ def _build_parser(gcfg: GlobalConfig, ccfg: CampaignConfig) -> argparse.Argument
 
 def main() -> None:
     pre = argparse.ArgumentParser(add_help=False)
-    pre.add_argument("--global-config",   default=None)
-    pre.add_argument("--campaign-config", default=None)
+    pre.add_argument("--global-config",   default="campaign_configs/global.yaml")
+    pre.add_argument("--campaign-config", default="campaign_configs/campaign.yaml")
     pre_args, _ = pre.parse_known_args()
 
-    gcfg = load_global(pre_args.global_config)    if pre_args.global_config   else GlobalConfig()
-    ccfg = load_campaign(pre_args.campaign_config) if pre_args.campaign_config else CampaignConfig()
+    gcfg = load_global(pre_args.global_config)    if Path(pre_args.global_config).exists()   else GlobalConfig()
+    ccfg = load_campaign(pre_args.campaign_config) if Path(pre_args.campaign_config).exists() else CampaignConfig()
 
     parser = _build_parser(gcfg, ccfg)
     args   = parser.parse_args()

@@ -1,0 +1,36 @@
+# Campaign template — Dragon HPC (two-node allocation).
+# Longer blocks, more analyses, tighter timeouts relative to block duration.
+
+controller:
+  goal_analyses: 8
+  score_floor: 0.4
+
+budget:
+  max_concurrent: 3           # per-campaign; 2 campaigns × 3 = 6 total on 2 nodes
+  max_concurrency_per_workflow: 2
+  spending:
+    cpu_hours: 0.042          # ~3 sim_worker completions at ≈50 s each; remove to disable
+    gpu_hours: ~
+
+workflows:
+  sim_worker:
+    n_iters: 100              # 100 iters × 0.5 s ≈ 50 s per block
+    iter_sleep_s: 0.5
+    stale_timeout_s: 120.0
+    declared_spending:
+      wall_hours: 0.015       # ≈ 54 s
+      cpu_hours:  0.015
+  sim_worker_b:
+    stale_timeout_s: 60.0     # n_iters_b ≈ 33 iters × 0.5 s ≈ 16 s
+    declared_spending:
+      wall_hours: 0.005       # ≈ 18 s
+      cpu_hours:  0.005
+  analysis_worker:
+    steps: 20                 # 20 × 0.5 s ≈ 10 s
+    declared_spending:
+      wall_hours: 0.003       # ≈ 11 s
+      cpu_hours:  0.003
+
+policy_interval_s: 0.5
+shutdown_timeout_s: 10.0
+checkpoint_dir: ~

@@ -34,8 +34,8 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --gpus-per-node=1
 #SBATCH --time=04:00:00
-#SBATCH --job-name=ddsim
-#SBATCH --mail-user=mgoliyad@gmail.com
+#SBATCH --job-name=aucam_ddsim
+#SBATCH --mail-user=your@email.com
 #SBATCH --mail-type=ALL
 #SBATCH --output=logs/ddsim_%j.out
 #SBATCH --error=logs/ddsim_%j.err

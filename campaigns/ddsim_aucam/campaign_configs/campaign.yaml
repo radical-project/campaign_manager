@@ -1,0 +1,45 @@
+# Campaign template — local / dev defaults.
+#
+# Each campaign runs two arms simultaneously:
+#   miniapps_fast — num_step as given below
+#   miniapps_slow — num_step × slow_step_multiplier
+#
+# Estimated runtime per replica (local, concurrent backend):
+#   fast: total_num_sim=5, num_step=50  →  a few seconds per run
+#   slow: total_num_sim=5, num_step=150 →  slightly longer
+# With goal_n=2 and max_concurrent=2, expect ~30–90 s per campaign.
+
+controller:
+  goal_n: 2              # stop after N miniapps workflow completions
+  score_ceiling: 0.90    # cancel workflow if mean MSE exceeds this
+
+budget:
+  max_concurrent: 2      # max parallel miniapps replicas per campaign
+  max_concurrency_per_workflow: 1
+  spending: {}           # e.g. {cpu_hours: 0.5}
+
+miniapps:
+  total_num_sim:           5    # total simulations per replica
+  max_sim_batch:           4    # max concurrent sims at once
+  training_cores:          1
+  miniapps_data_ready:     2    # signal ready after this many sims (MiniApps internal)
+  num_step:               50    # simulation timesteps (slow variant uses 3×)
+  num_epochs:             50    # training epochs per cycle
+  stale_timeout_s:       120.0
+  home_dir: ""                  # empty → ~/MiniApps
+  debug: false
+  free_resources_for_train: true
+  clean_unregistered_sims: false
+  executable: "${MINIAPPS_VE}/bin/python"
+
+slow_step_multiplier: 3   # miniapps_slow uses num_step × this
+
+workflows:
+  fast_spending:
+    wall_hours:  0.05    # ~a few seconds locally
+    cpu_hours:   0.05
+  # slow_spending omitted → fast × slow_step_multiplier
+
+policy_interval_s: 1.0
+shutdown_timeout_s: 30.0
+checkpoint_dir: ~

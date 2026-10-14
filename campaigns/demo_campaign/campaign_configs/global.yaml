@@ -1,0 +1,23 @@
+# Global CampaignManager configuration — local / dev defaults.
+# Override individual keys on the CLI; use global_hpc.yaml for Dragon runs.
+
+engine: concurrent            # concurrent | dragon
+asyncflow_blocks: false
+verbose: false
+num_campaigns: 1              # how many campaign instances to submit
+
+driver:
+  enabled: false              # use cm.submit()/cm.close() API instead of submit_campaign()
+  delay_s: 2.0                # seconds between consecutive campaign submissions
+
+scheduling:
+  policy: bandit              # bandit | fifo | adr | llm
+
+global_budget:
+  max_concurrent_campaigns: ~                 # null = unlimited
+  max_total_concurrent_workflows: ~
+  spending: {}                                # e.g. {cpu_hours: 1.0}
+
+telemetry:
+  enabled: false
+  dir: ~                                      # null = no telemetry checkpoint

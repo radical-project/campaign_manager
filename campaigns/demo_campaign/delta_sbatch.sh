@@ -29,11 +29,11 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --exclusive
 #SBATCH --time=00:30:00
-#SBATCH --job-name=demo_dragon
-#SBATCH --mail-user=mgoliyad@gmail.com
+#SBATCH --job-name=aucam_demo
+#SBATCH --mail-user=your@email.com
 #SBATCH --mail-type=ALL
-#SBATCH --output=logs/demo_dragon_%j.out
-#SBATCH --error=logs/demo_dragon_%j.err
+#SBATCH --output=logs/demo_%j.out
+#SBATCH --error=logs/demo_%j.err
 #SBATCH --exclude=cn132,cn043
 
 set -euo pipefail

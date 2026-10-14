@@ -1,0 +1,38 @@
+# Campaign template — local / dev defaults.
+# The driver instantiates one CampaignSpec per run from this template,
+# assigning a unique name (dummy-campaign-a, dummy-campaign-b, …).
+
+controller:
+  goal_analyses: 3            # number of analysis_worker completions before terminating
+  score_floor: 0.4            # simulations scoring below this are cancelled
+
+budget:
+  max_concurrent: 4           # max concurrent workflows in this campaign
+  max_concurrency_per_workflow: 2
+  spending:
+    cpu_hours: 0.004          # declared cost; global cap checks use this for admission
+    gpu_hours: ~
+
+workflows:
+  sim_worker:
+    n_iters: 10               # simulation steps per block
+    iter_sleep_s: 0.08        # sleep per step (total: n_iters × iter_sleep_s ≈ 0.8 s)
+    stale_timeout_s: 120.0    # max gap between reporter.emit() calls
+    declared_spending:
+      wall_hours: 0.00025     # ≈ 0.9 s
+      cpu_hours:  0.00025
+  sim_worker_b:
+    # n_iters_b is auto-derived as max(3, n_iters // 3) — not set here
+    stale_timeout_s: 60.0
+    declared_spending:
+      wall_hours: 0.0001      # ≈ 0.3 s
+      cpu_hours:  0.0001
+  analysis_worker:
+    steps: 2                  # post-processing steps
+    declared_spending:
+      wall_hours: 0.00005     # ≈ 0.16 s
+      cpu_hours:  0.00005
+
+policy_interval_s: 0.5
+shutdown_timeout_s: 10.0
+checkpoint_dir: ~

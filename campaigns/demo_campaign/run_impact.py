@@ -15,8 +15,8 @@ Budget pool = 4 CPU units.  6 sequential campaigns share one bandit so beliefs
 build across campaigns.  Per-campaign metrics are written to JSON for plotting.
 
 Run:
-    cd /work/nvme/bdyk/mgoliyad1/campaign_manager
-    /work/nvme/bdyk/mgoliyad1/ve/miniapps/bin/python3 \\
+    cd /work/nvme/bdyk/$USER/campaign_manager
+    /work/nvme/bdyk/$USER/ve/miniapps/bin/python3 \\
         campaigns/demo_campaign/run_impact.py --json-out /tmp/impact_run.json
 """
 

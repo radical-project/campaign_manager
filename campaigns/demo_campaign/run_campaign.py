@@ -503,10 +503,10 @@ def _build_parser(gcfg: GlobalConfig, ccfg: CampaignConfig) -> argparse.Argument
     )
 
     # Config file paths
-    p.add_argument("--global-config",   default=None,
-                   help="path to global YAML config (campaign_configs/global.yaml)")
-    p.add_argument("--campaign-config", default=None,
-                   help="path to campaign YAML config (campaign_configs/campaign.yaml)")
+    p.add_argument("--global-config",   default="campaign_configs/global.yaml",
+                   help="path to global YAML config (default: campaign_configs/global.yaml)")
+    p.add_argument("--campaign-config", default="campaign_configs/campaign.yaml",
+                   help="path to campaign YAML config (default: campaign_configs/campaign.yaml)")
 
     # Operational overrides — these CLI flags override config file values.
     p.add_argument("-v", "--verbose", action="store_true", default=gcfg.verbose)
@@ -557,13 +557,13 @@ def _build_parser(gcfg: GlobalConfig, ccfg: CampaignConfig) -> argparse.Argument
 def main() -> None:
     # ── Step 1: pre-parse for config file paths (no help, ignore unknowns) ────
     pre = argparse.ArgumentParser(add_help=False)
-    pre.add_argument("--global-config",   default=None)
-    pre.add_argument("--campaign-config", default=None)
+    pre.add_argument("--global-config",   default="campaign_configs/global.yaml")
+    pre.add_argument("--campaign-config", default="campaign_configs/campaign.yaml")
     pre_args, _ = pre.parse_known_args()
 
     # ── Step 2: load configs (CLI flags will override individual fields) ───────
-    gcfg = load_global(pre_args.global_config)   if pre_args.global_config   else GlobalConfig()
-    ccfg = load_campaign(pre_args.campaign_config) if pre_args.campaign_config else CampaignConfig()
+    gcfg = load_global(pre_args.global_config)    if Path(pre_args.global_config).exists()   else GlobalConfig()
+    ccfg = load_campaign(pre_args.campaign_config) if Path(pre_args.campaign_config).exists() else CampaignConfig()
 
     # ── Step 3: full parse with config-derived defaults ────────────────────────
     parser = _build_parser(gcfg, ccfg)

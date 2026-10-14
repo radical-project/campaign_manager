@@ -101,15 +101,15 @@ nonzero score) would slow convergence and delay the goal time improvement in Pan
 ## Running it
 
 ```bash
-cd /work/nvme/bdyk/mgoliyad1/campaign_manager
+cd /work/nvme/bdyk/$USER/campaign_manager
 
 # Run the experiment (8 campaigns, ~85 s total)
-/work/nvme/bdyk/mgoliyad1/ve/miniapps/bin/python3 \
+/work/nvme/bdyk/$USER/ve/miniapps/bin/python3 \
     campaigns/demo_campaign/run_impact.py \
     --json-out /tmp/impact_run.json
 
 # Regenerate the figure from the JSON output
-/work/nvme/bdyk/mgoliyad1/ve/miniapps/bin/python3 -I \
+/work/nvme/bdyk/$USER/ve/miniapps/bin/python3 -I \
     campaigns/demo_campaign/gen_impact_fig.py \
     --json-in /tmp/impact_run.json \
     --out docs/figures/aucam_impact.png

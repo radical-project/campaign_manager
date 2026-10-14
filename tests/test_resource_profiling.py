@@ -236,7 +236,7 @@ def test_workflow_result_resource_profile_default_empty():
 # ── Path 2 against the real telemetry JSONL (skipped if file absent) ─────────
 
 REAL_JSONL = Path(
-    "/work/nvme/bdyk/mgoliyad1/campaign_manager/campaigns/dummy_campaign/aucam-tel/"
+    f"/work/nvme/bdyk/{os.environ.get('USER', 'USER')}/campaign_manager/campaigns/dummy_campaign/aucam-tel/"
     "asyncflow.session.18d8a0d3.1791314905.telemetry.jsonl"
 )
 
