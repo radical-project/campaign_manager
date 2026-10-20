@@ -11,8 +11,9 @@ Workflow types
   fast_good  1 CPU unit · 1.5 s wall · score 0.75–0.95 (reliable)
   slow_poor  4 CPU units · 5 s wall  · score trends down → cancelled at ~3 s
 
-Budget pool = 4 CPU units.  6 sequential campaigns share one bandit so beliefs
-build across campaigns.  Per-campaign metrics are written to JSON for plotting.
+Budget pool = 4 CPU units.  6 sequential campaigns, each with its own bandit
+(campaigns do not share learned state).  Per-campaign metrics are written to
+JSON for plotting.
 
 Run:
     cd /work/nvme/bdyk/$USER/campaign_manager
@@ -144,8 +145,8 @@ class ImpactController(CampaignController):
 
         active_types = {types.get(wid) for wid in live}
         q_total      = sum(q.by_type.values()) if q else 0
-        in_use       = budget.get("in_use", {}) if isinstance(budget, dict) else {}
-        cpu_used     = sum(v.get("cpu", 0.0) for v in in_use.values())
+        in_flight    = budget.get("in_flight", {}) if isinstance(budget, dict) else {}
+        cpu_used     = in_flight.get("cpu_hours", 0.0)   # estimate of running workflows
 
         only_slow = active_types == {"slow_poor"}
         bp        = only_slow and q_total > 0
@@ -209,7 +210,6 @@ def _build_spec(
         budget=CampaignBudget(
             max_concurrent_workflows=MAX_CONCURRENT,
             max_concurrency_per_workflow=1,
-            budget={"cpu": CPU_POOL},
             spending={},
         ),
         scheduling_policy=policy,
@@ -225,12 +225,13 @@ async def _driver(
     n_campaigns: int,
     all_campaigns: list,
     all_cycles: list,
-    policy: BanditSchedulingPolicy,
 ) -> None:
     for i in range(n_campaigns):
         name = f"impact-{chr(ord('a') + i)}"
         print(f"\n{'─'*56}\n  Campaign {i+1}/{n_campaigns}: {name}\n{'─'*56}")
 
+        # Each campaign gets its own bandit (no cross-campaign learning).
+        policy = BanditSchedulingPolicy(reward_fn=_score_reward, exploration=2.0)
         spec, ctrl = _build_spec(name, policy)
         sub: SubmitResult = await cm.submit(spec)
         if not sub.accepted:
@@ -279,8 +280,6 @@ async def _driver(
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 async def run(n_campaigns: int, json_out: str | None) -> None:
-    policy = BanditSchedulingPolicy(reward_fn=_score_reward, scope="global",
-                                    exploration=2.0)
     cm = CampaignManager(global_budget=GlobalBudget(max_concurrent_campaigns=1))
     cm.expect_driver()
 
@@ -288,7 +287,7 @@ async def run(n_campaigns: int, json_out: str | None) -> None:
     all_cycles:    list = []
 
     driver_task = asyncio.ensure_future(
-        _driver(cm, n_campaigns, all_campaigns, all_cycles, policy)
+        _driver(cm, n_campaigns, all_campaigns, all_cycles)
     )
 
     async def _closer() -> None:

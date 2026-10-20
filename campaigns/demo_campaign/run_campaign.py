@@ -59,7 +59,6 @@ from src.aucam import (
     RadexDragonBackend,
     RhapsodyRedisBackend,
     GlobalBudget,
-    ScoreDirection,
     SchedulingPolicy,
     SubmitResult,
     WorkflowConfig,
@@ -143,7 +142,6 @@ def build_spec(
             WorkflowConfig(
                 name="sim_worker",
                 block=sim_worker,
-                score_directions={"score": ScoreDirection.HIGHER},
                 stale_timeout_s=ccfg.workflows.sim_worker.stale_timeout_s,
                 launch_on_start=True,
                 on_completion=_on_complete,
@@ -152,7 +150,6 @@ def build_spec(
             WorkflowConfig(
                 name="sim_worker_b",
                 block=sim_worker_b,
-                score_directions={"score": ScoreDirection.HIGHER},
                 stale_timeout_s=ccfg.workflows.sim_worker_b.stale_timeout_s,
                 launch_on_start=True,
                 on_completion=_on_complete,
@@ -173,7 +170,6 @@ def build_spec(
                         "CM_T2_N_ITERS": str(ccfg.workflows.sim_worker.n_iters),
                         "CM_T2_SLEEP_S":  str(ccfg.workflows.sim_worker.iter_sleep_s),
                     },
-                    score_directions={"score": ScoreDirection.HIGHER},
                     stale_timeout_s=ccfg.workflows.sim_worker.stale_timeout_s,
                     launch_on_start=True,
                     on_completion=_on_complete,
@@ -257,7 +253,8 @@ async def _driver(
     ccfg: CampaignConfig,
     *,
     n_campaigns: int,
-    policy: SchedulingPolicy,
+    policy_name: str,
+    policies: list,
     use_asyncflow_blocks: bool,
     data_backend,
     telemetry_dir: str | None,
@@ -308,6 +305,9 @@ async def _driver(
             fname = f"results_{label}.jsonl" if label else "results.jsonl"
             rw = _ResultsWriter(Path(telemetry_dir) / fname)
 
+        # Each campaign gets its own scheduling policy (no cross-campaign learning).
+        policy = make_policy(policy_name)
+        policies.append((name, policy))
         spec, ctrl = build_spec(
             name=name,
             ccfg=ccfg,
@@ -360,8 +360,8 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
     n      = gcfg.num_campaigns
     labels = [chr(ord("a") + i) for i in range(n)] if n > 1 else [""]
 
-    # One policy instance shared across all campaigns.
-    policy        = make_policy(gcfg.scheduling.policy)
+    # Each campaign gets its own scheduling policy instance.
+    policies: list = []          # (campaign name, policy)
     print(f"[TRACE] making execution backend (engine={gcfg.engine})", flush=True)
     backend       = await _make_backend(gcfg.engine)
     print("[TRACE] execution backend ready, making data backend", flush=True)
@@ -405,7 +405,8 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
             _driver(
                 cm, gcfg, ccfg,
                 n_campaigns=n,
-                policy=policy,
+                policy_name=gcfg.scheduling.policy,
+                policies=policies,
                 use_asyncflow_blocks=gcfg.asyncflow_blocks,
                 data_backend=data_backend,
                 telemetry_dir=gcfg.telemetry.dir,
@@ -434,6 +435,8 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
                 rw = _ResultsWriter(Path(gcfg.telemetry.dir) / fname)
             writers.append(rw)
 
+            policy = make_policy(gcfg.scheduling.policy)
+            policies.append((name, policy))
             spec, _ = build_spec(
                 name=name,
                 ccfg=ccfg,
@@ -468,7 +471,9 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
         # see the driver path for the outcome-driven summary.
         pass
 
-    print_policy_summary(policy, gcfg.scheduling.policy)
+    for cname, cpolicy in policies:
+        print(f"\n  campaign {cname}:")
+        print_policy_summary(cpolicy, gcfg.scheduling.policy)
     print(f"\nTotal elapsed: {elapsed:.1f}s", flush=True)
 
     if _rdb is not None:

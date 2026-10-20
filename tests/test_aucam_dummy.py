@@ -100,7 +100,6 @@ async def _run_dummy_campaign() -> None:
         budget=CampaignBudget(
             max_concurrent_workflows=3,
             max_concurrency_per_workflow=1,
-            budget={},
         ),
         controller=controller,
         workflows=[

@@ -2,21 +2,21 @@
 
 A SchedulingPolicy decides *which* queued LaunchRequests to launch on each
 scheduler tick.  It knows nothing about the campaign budget — that is enforced
-by BudgetAllocator as a hard gate before any launch.
+by the campaign (workflow-count caps, spending limit) before any launch.
 
 Built-in policies
 -----------------
 FIFOSchedulingPolicy    — FIFO respecting concurrency caps
-BanditSchedulingPolicy  — UCB1 bandit; learns per-(workflow_type, context)
-                          arm scores from WorkflowResult rewards (default)
+BanditSchedulingPolicy  — UCB1 bandit; learns per-workflow-type arm scores
+                          from WorkflowResult rewards (default)
 ADRSchedulingPolicy     — Adaptive Decision and Reasoning; rule-override hook +
                           ADR engine integration (STUB — falls back to FIFO)
 LLMSchedulingPolicy     — LLM-guided ranking (model-agnostic)
                           (STUB — falls back to FIFO)
 
-For cross-campaign learning, create one BanditSchedulingPolicy instance and
-pass it (or the same object) to multiple CampaignSpec.scheduling_policy fields:
-Python object identity is the sharing mechanism.
+A policy instance belongs to one campaign: CampaignManager rejects a spec
+whose scheduling_policy instance is already used by another campaign, so
+campaigns never share learned state.
 """
 
 from __future__ import annotations
@@ -125,8 +125,8 @@ class BanditSchedulingPolicy(SchedulingPolicy):
     """
     UCB1 bandit scheduler.
 
-    Arm = (workflow_type) in global scope, or (campaign_name, workflow_type)
-    in per_campaign scope.  Context is intentionally excluded: DAG routing
+    Arm = workflow_type (the policy belongs to one campaign).  Context is
+    intentionally excluded: DAG routing
     fields (triggered_by, etc.) encode urgency, which the priority system
     already handles — they are not scheduling-relevant parameters.
 
@@ -137,19 +137,11 @@ class BanditSchedulingPolicy(SchedulingPolicy):
     exploitation begins.  After exploration:
         UCB = mean_reward + C × √(ln(N) / n)
 
-    To share learned beliefs across campaigns, pass the same
-    BanditSchedulingPolicy instance to multiple CampaignSpec objects.
-
     Parameters
     ----------
     exploration : float
         UCB exploration constant C.  Default √2 is theoretically optimal for
         rewards in [0, 1].
-    scope : "global" | "per_campaign"
-        "global"       — arm key = workflow_type.  All campaigns sharing
-                         this instance learn from each other's throughput.
-        "per_campaign" — arm key = campaign_name:workflow_type.  Each
-                         campaign builds its own belief table.
     reward_fn : Callable[[WorkflowResult], float] | None
         Override the default throughput reward.  Must return a value in [0, 1].
     """
@@ -158,11 +150,9 @@ class BanditSchedulingPolicy(SchedulingPolicy):
         self,
         *,
         exploration: float = math.sqrt(2),
-        scope: str = "global",
         reward_fn: Callable[[WorkflowResult], float] | None = None,
     ) -> None:
         self._exploration = exploration
-        self._scope = scope
         self._reward_fn = reward_fn or _default_reward
         # arm_key → {"n": int, "mean": float}
         self._arms: dict[str, dict[str, float | int]] = {}
@@ -171,9 +161,7 @@ class BanditSchedulingPolicy(SchedulingPolicy):
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _arm_key(self, req: LaunchRequest) -> str:
-        if self._scope == "global":
-            return req.workflow_type
-        return f"{req.campaign_name}:{req.workflow_type}"
+        return req.workflow_type
 
     def _ucb(self, arm_key: str) -> float:
         stats = self._arms.get(arm_key)

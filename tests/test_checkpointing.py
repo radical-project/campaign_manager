@@ -100,7 +100,7 @@ def test_checkpoint_json_roundtrip() -> None:
                 wf_id="test_camp.worker_a.abc123",
                 workflow_type="worker_a",
                 started_at=1234.0,
-                resources={"gpu": 4.0},
+                declared_spending={"wall_hours": 1.0, "gpu_hours": 4.0},
             )
         ],
         paused_wf_ids=["test_camp.worker_a.abc123"],
@@ -123,7 +123,7 @@ def test_checkpoint_json_roundtrip() -> None:
     assert restored.queue[0].workflow_type == "worker_a"
     assert restored.queue[0].context == {"key": "val"}
     assert len(restored.active) == 1
-    assert restored.active[0].resources == {"gpu": 4.0}
+    assert restored.active[0].declared_spending == {"wall_hours": 1.0, "gpu_hours": 4.0}
     assert restored.paused_wf_ids == ["test_camp.worker_a.abc123"]
     assert restored.spent == {"gpu_hours": 0.042}
     assert restored.policy_cycles == 7
@@ -318,7 +318,7 @@ def test_recovery_active_workflows_reenqueued(tmp_path: Path) -> None:
                 wf_id="active_recovery_test.fast_worker.deadbeef",
                 workflow_type="fast_worker",
                 started_at=time.time() - 10,
-                resources={},
+                declared_spending={},
             )
         ],
         policy_cycles=3,

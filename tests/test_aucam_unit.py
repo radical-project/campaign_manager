@@ -1,4 +1,4 @@
-"""Unit tests for BudgetAllocator and WorkflowQueue (no AsyncFlow)."""
+"""Unit tests for the BudgetAllocator spending ledger and WorkflowQueue (no AsyncFlow)."""
 
 import time
 
@@ -6,40 +6,61 @@ import pytest
 
 from src.aucam import BudgetAllocator, LaunchPriority, LaunchRequest, WorkflowQueue
 
+# ── BudgetAllocator (spending ledger) ───────────────────────────────────────
 
-# ── BudgetAllocator ──────────────────────────────────────────────────────────
-
-def test_budget_reserve_and_release() -> None:
-    alloc = BudgetAllocator({"gpu_h": 100.0})
-    assert alloc.reserve("camp-a", {"gpu_h": 60.0})
-    assert alloc.reserve("camp-b", {"gpu_h": 40.0})
-    assert not alloc.reserve("camp-c", {"gpu_h": 1.0})
-
-    alloc.release("camp-a")
-    assert alloc.reserve("camp-c", {"gpu_h": 60.0})
-
-
-def test_budget_headroom() -> None:
-    alloc = BudgetAllocator({"gpu_h": 100.0})
-    alloc.reserve("c1", {"gpu_h": 80.0})
-    alloc.charge("c1", {"gpu_h": 20.0})
-    hw = alloc.headroom("c1")
-    assert hw["gpu_h"] == pytest.approx(60.0)
+def test_ledger_admission_against_global_cap() -> None:
+    alloc = BudgetAllocator()
+    cap = {"gpu_hours": 100.0}
+    assert alloc.admit("camp-a", {"gpu_hours": 60.0}, cap) is None
+    assert alloc.admit("camp-b", {"gpu_hours": 40.0}, cap) is None
+    reason = alloc.admit("camp-c", {"gpu_hours": 1.0}, cap)
+    assert reason is not None and "global spending[gpu_hours]" in reason
+    assert alloc.committed("gpu_hours") == pytest.approx(100.0)
 
 
-def test_budget_fits() -> None:
-    alloc = BudgetAllocator({"gpu_h": 100.0})
-    alloc.reserve("c1", {"gpu_h": 50.0})
-    alloc.charge("c1", {"gpu_h": 45.0})
-    assert alloc.fits("c1", {"gpu_h": 5.0})
-    assert not alloc.fits("c1", {"gpu_h": 6.0})
+def test_ledger_close_moves_actual_spending_to_global() -> None:
+    alloc = BudgetAllocator()
+    cap = {"gpu_hours": 100.0}
+    alloc.admit("camp-a", {"gpu_hours": 60.0}, cap)
+    alloc.admit("camp-b", {"gpu_hours": 40.0}, cap)
+    alloc.record("camp-a", {"gpu_hours": 10.0})
+    assert alloc.close("camp-a") == {"gpu_hours": 10.0}
+    assert alloc.global_spent() == {"gpu_hours": 10.0}
+    # 10 spent + 40 committed (camp-b) → 50 left
+    assert alloc.global_remaining("gpu_hours", 100.0) == pytest.approx(50.0)
+    assert alloc.admit("camp-c", {"gpu_hours": 50.0}, cap) is None
+    assert alloc.admit("camp-d", {"gpu_hours": 0.5}, cap) is not None
 
 
-def test_budget_empty_resources_always_fits() -> None:
-    alloc = BudgetAllocator({"gpu_h": 100.0})
-    alloc.reserve("c1", {"gpu_h": 50.0})
-    alloc.charge("c1", {"gpu_h": 50.0})
-    assert alloc.fits("c1", {})
+def test_ledger_in_flight_counts_toward_campaign_limit() -> None:
+    alloc = BudgetAllocator()
+    alloc.open("c1", {"gpu_hours": 10.0})
+    alloc.record("c1", {"gpu_hours": 6.0})
+    assert alloc.limit_reached("c1") is None
+    alloc.set_in_flight("c1", "wf1", {"wall_hours": 1.0, "gpu_hours": 4.0})
+    hit = alloc.limit_reached("c1")
+    assert hit is not None and hit[0] == "gpu_hours"
+    assert alloc.in_flight("c1") == {"gpu_hours": 4.0}
+    # The workflow finishes having used less than declared.
+    alloc.clear_in_flight("c1", "wf1")
+    alloc.record("c1", {"gpu_hours": 1.5})
+    assert alloc.limit_reached("c1") is None
+    assert alloc.spent("c1") == {"gpu_hours": 7.5}
+
+
+def test_ledger_snapshot_and_late_charge() -> None:
+    alloc = BudgetAllocator()
+    alloc.open("c1", {"cpu_hours": 5.0})
+    alloc.set_in_flight("c1", "wf1", {"cpu_hours": 2.0})
+    snap = alloc.snapshot()
+    assert snap["campaigns"]["c1"] == {
+        "limits": {"cpu_hours": 5.0}, "spent": {}, "in_flight": {"cpu_hours": 2.0},
+    }
+    alloc.close("c1")
+    # A workflow that finishes after its campaign was closed is charged globally.
+    alloc.record("c1", {"cpu_hours": 1.0})
+    assert alloc.global_spent() == {"cpu_hours": 1.0}
+    assert "c1" not in alloc.snapshot()["campaigns"]
 
 
 # ── WorkflowQueue ────────────────────────────────────────────────────────────

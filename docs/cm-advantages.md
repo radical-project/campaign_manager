@@ -1,5 +1,7 @@
 # CM Advantages Over Independent Execution
 
+> **Note — historical experiment.** This page describes an earlier version of AuCaM in which campaigns could share one bandit scheduler. Cross-campaign sharing has since been removed (each campaign has its own scheduling policy), so the cross-campaign learning results below no longer reproduce with `run_impact.py`; the cancellation and backpressure effects still apply within each campaign.
+
 Running campaigns independently means every campaign starts from scratch: it cannot benefit from
 what earlier campaigns learned, and there is no mechanism to cut losses on a bad run mid-flight.
 `campaigns/demo_campaign/run_impact.py` makes the contrast concrete.  It runs 8 sequential

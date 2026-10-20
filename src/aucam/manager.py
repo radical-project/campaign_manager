@@ -1,4 +1,4 @@
-"""CampaignManager: top-level AuCaM service."""
+"""CampaignManager: top-level AuCaM orchestrator."""
 
 from __future__ import annotations
 
@@ -54,25 +54,18 @@ class CampaignManager:
     def __init__(
         self,
         backend: Any = None,
-        total_budget: dict[str, float] | None = None,
         global_budget: GlobalBudget | None = None,
-        telemetry_interval_s: float = 300.0,
-        slurm_account: str | None = None,
-        qos: str | None = None,
         enable_telemetry: bool = False,
         telemetry_checkpoint_dir: str | None = None,
     ) -> None:
         self._backend = backend
-        self._total_budget = total_budget or {}
         self._global_budget = global_budget
-        self._telemetry_interval_s = telemetry_interval_s
-        self._slurm_account = slurm_account
-        self._qos = qos
         self._enable_telemetry = enable_telemetry
         self._telemetry_checkpoint_dir = telemetry_checkpoint_dir
 
         self._pending: list[CampaignSpec] = []
-        self._allocator = BudgetAllocator(self._total_budget)
+        # Spending ledger for all campaigns (per-campaign and global spending).
+        self._allocator = BudgetAllocator()
         self._flow: Any = None
         self._shutdown_event = asyncio.Event()
 
@@ -84,25 +77,73 @@ class CampaignManager:
         # can't both pass the admission check before either is actually started.
         self._reserved_specs: dict[str, CampaignSpec] = {}
         self._active_specs: dict[str, CampaignSpec] = {}        # name → spec, while running
-        self._active_instances: dict[str, "_CampaignInstance"] = {}  # name → instance, for reading _spent
+        self._active_instances: dict[str, _CampaignInstance] = {}  # name → instance, for reading _spent
         self._campaign_futures: dict[str, asyncio.Future[CampaignOutcome]] = {}
         self._campaign_start_times: dict[str, float] = {}
-        # Cumulative actual spending across all completed campaigns.
-        self._global_spent: dict[str, float] = {}
         # Auto-close counters (GlobalBudget.n_campaigns / max_rejections).
         self._completed_campaign_count: int = 0
         self._budget_rejection_count: int = 0
         self._auto_closed: bool = False
+        # Scheduling-policy instances already given to a campaign (id → (policy,
+        # campaign)).  A policy instance belongs to one campaign only, so
+        # campaigns never share learned scheduling state.
+        self._used_policies: dict[int, tuple[Any, str]] = {}
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
-    def submit_campaign(self, spec: CampaignSpec) -> None:
+    def submit_campaign(self, spec: CampaignSpec) -> SubmitResult:
         """Enqueue a campaign for the next ``run()`` call (legacy API).
 
-        All campaigns submitted this way start immediately when ``run()``
-        begins.  Prefer ``submit()`` + ``close()`` for dynamic workflows.
+        Applies the same admission check as ``submit()`` (campaign and
+        workflow counts, global spending); a rejected campaign is logged and
+        not started.  Accepted campaigns start when ``run()`` begins.  The
+        result has no outcome future — use ``submit()`` to wait for a
+        CampaignOutcome.
         """
+        reason = self._admit(spec)
+        if reason:
+            return SubmitResult(accepted=False, campaign_name=spec.name, reason=reason)
+        self._reserved_specs[spec.name] = spec
         self._pending.append(spec)
+        logger.info("[CM] %s: accepted (starts with run())", spec.name)
+        return SubmitResult(accepted=True, campaign_name=spec.name)
+
+    def _admit(self, spec: CampaignSpec) -> str | None:
+        """Admission check shared by submit() and submit_campaign().
+
+        Returns a rejection reason, or None — then the campaign is open in the
+        ledger and its spending limit counts as committed.
+        """
+        reason = self._policy_check(spec) or self._admission_check(spec)
+        if not reason:
+            # Spending admission: global spent + committed + incoming <= cap.
+            reason = self._allocator.admit(
+                spec.name,
+                spec.budget.spending,
+                self._global_budget.spending if self._global_budget else None,
+            )
+        if reason:
+            if "spending" in reason:
+                self._budget_rejection_count += 1
+                self._maybe_auto_close()
+            logger.warning("[CM] %s: rejected — %s", spec.name, reason)
+        elif spec.scheduling_policy is not None:
+            pol = spec.scheduling_policy
+            self._used_policies[id(pol)] = (pol, spec.name)
+        return reason
+
+    def _policy_check(self, spec: CampaignSpec) -> str | None:
+        """Reject a scheduling-policy instance already used by another campaign."""
+        pol = spec.scheduling_policy
+        if pol is None:
+            return None
+        used = self._used_policies.get(id(pol))
+        if used is not None and used[0] is pol:
+            return (
+                f"scheduling_policy instance is already used by campaign "
+                f"'{used[1]}'; give each campaign its own policy instance"
+            )
+        return None
 
     async def submit(self, spec: CampaignSpec) -> SubmitResult:
         """Submit a campaign dynamically — safe to call before or during ``run()``.
@@ -116,20 +157,16 @@ class CampaignManager:
         """
         if self._pending_drivers == 0:
             self._pending_drivers = 1   # implicit expect_driver() for drivers that skip it
-        reason = self._admission_check(spec)
+        reason = self._admit(spec)
         if reason:
-            if "spending" in reason:
-                self._budget_rejection_count += 1
-                self._maybe_auto_close()
-            logger.warning("[CM] %s: rejected — %s", spec.name, reason)
             return SubmitResult(accepted=False, campaign_name=spec.name, reason=reason)
 
         loop = asyncio.get_running_loop()
         future: asyncio.Future[CampaignOutcome] = loop.create_future()
         self._campaign_futures[spec.name] = future
 
-        # Reserve declared budget immediately so concurrent submit() calls
-        # can't both pass the spending check before either campaign starts.
+        # Track the admitted spec so concurrent submit() calls see it in the
+        # campaign / workflow-count admission checks before it starts.
         self._reserved_specs[spec.name] = spec
 
         await self._submission_queue.put(spec)
@@ -273,7 +310,7 @@ class CampaignManager:
                     self._resolve_future(name, elapsed_s=elapsed_s, task_cancelled=t.cancelled())
                     self._active_specs.pop(name, None)
                     active.pop(name, None)
-                    self._allocator.release(name)
+                    self._allocator.close(name)   # no-op if already closed
                     exc = t.exception() if not t.cancelled() else None
                     if exc:
                         logger.error("[CM] campaign %s raised: %s", name, exc)
@@ -309,14 +346,9 @@ class CampaignManager:
         # Move from reserved → active (clears the admit-to-start gap).
         self._reserved_specs.pop(spec.name, None)
 
-        ok = self._allocator.reserve(spec.name, spec.budget.budget, spec.budget.spending)
-        if not ok:
-            logger.error(
-                "[CM] %s: budget request denied (insufficient shared budget)", spec.name
-            )
-            # Reject: resolve any waiting driver future immediately.
-            self._resolve_future(spec.name, elapsed_s=0.0, task_cancelled=False)
-            return None
+        # Campaigns admitted by submit() are already open in the ledger;
+        # legacy submit_campaign() specs are opened here without a global check.
+        self._allocator.open(spec.name, spec.budget.spending)
         self._active_specs[spec.name] = spec
         self._campaign_start_times[spec.name] = time.monotonic()
         inst = _CampaignInstance(spec=spec, allocator=self._allocator, flow=self._flow)
@@ -338,22 +370,20 @@ class CampaignManager:
         spec = self._active_specs.get(name)
         ctrl = spec.controller if spec is not None else None
 
-        # Read actual spending and update the cross-campaign ledger.
+        # Close the campaign in the ledger: its actual spending moves into the
+        # global total and its spending limit stops counting as committed.
         inst = self._active_instances.pop(name, None)
-        actual_spent: dict[str, float] = dict(inst._spent) if inst is not None else {}
-        for key, amount in actual_spent.items():
-            self._global_spent[key] = self._global_spent.get(key, 0.0) + amount
+        actual_spent = self._allocator.close(name)
+        # The goal is reached when the campaign ended because all its goals were
+        # satisfied, or when the controller's goal_type / goal_n count is met.
+        goals_met = inst is not None and inst.exit_reason == "goals_satisfied"
 
         # Log remaining budget for each tracked dimension.
         if self._global_budget and self._global_budget.spending:
+            global_spent = self._allocator.global_spent()
             for key, limit in self._global_budget.spending.items():
-                used = self._global_spent.get(key, 0.0)
-                # committed = declared limits of all still-admitted campaigns (name is being resolved)
-                committed = sum(
-                    s.budget.spending.get(key, 0.0)
-                    for n, s in {**self._reserved_specs, **self._active_specs}.items()
-                    if n != name
-                )
+                used = global_spent.get(key, 0.0)
+                committed = self._allocator.committed(key)
                 remaining = limit - used - committed
                 logger.info(
                     "[CM] global_budget[%s]: used=%.5f committed=%.5f remaining=%.5f / %.5f",
@@ -366,7 +396,7 @@ class CampaignManager:
             cancelled=dict(ctrl.cancelled) if ctrl else {},
             failed=dict(ctrl.failed) if ctrl else {},
             elapsed_s=elapsed_s,
-            goal_reached=(ctrl.is_goal_reached() if ctrl else False),
+            goal_reached=goals_met or (ctrl.is_goal_reached() if ctrl else False),
             spent=actual_spent,
             summary=ctrl.get_summary() if ctrl else {},
         )
@@ -400,20 +430,7 @@ class CampaignManager:
                     f"would be exceeded (current={current_wf}, requesting={incoming})"
                 )
 
-        for key, limit in gb.spending.items():
-            already_spent = self._global_spent.get(key, 0.0)
-            committed = sum(
-                s.budget.spending.get(key, 0.0) for s in all_committed.values()
-            )
-            incoming = spec.budget.spending.get(key, 0.0)
-            total = already_spent + committed + incoming
-            if total > limit:
-                return (
-                    f"global spending[{key}]={limit} would be exceeded "
-                    f"(spent={already_spent:.5f}, committed={committed:.5f}, "
-                    f"requesting={incoming:.5f}, total={total:.5f})"
-                )
-
+        # Spending admission is done by BudgetAllocator.admit() in submit().
         return None
 
     def _maybe_auto_close(self) -> None:
@@ -430,11 +447,8 @@ class CampaignManager:
 
         if gb.spending:
             for key, limit in gb.spending.items():
-                used = self._global_spent.get(key, 0.0)
-                committed = sum(
-                    s.budget.spending.get(key, 0.0)
-                    for s in {**self._reserved_specs, **self._active_specs}.values()
-                )
+                used = self._allocator.global_spent().get(key, 0.0)
+                committed = self._allocator.committed(key)
                 if limit - used - committed <= 0.0:
                     self._do_auto_close(
                         f"global_budget[{key}] exhausted "

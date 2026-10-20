@@ -7,11 +7,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The design spec is `aucam-design/aucam-design.md` (architecture diagram: `aucam-design/aucam-architecture.png`; a Mermaid version is inline in the spec). Read it before working on CM code.
 
 - Treat the spec as the source of truth. If code or a request disagrees with it, point out the conflict instead of silently diverging.
-- Use its terminology: CampaignManager (CM), Driver interface, BudgetAllocator, DataBackend (`rhapsody.backends.data`), CampaignController (observe → decide → act, goals), PolicyResult, CampaignBudget, WorkflowQueue, Scheduler, SchedulingPolicy, WorkflowReporter, Tier 1 / Tier 2 workflows.
-- Two levels: service level (one CM for all campaigns: driver interface, shared budget, DataBackend, telemetry) and campaign level (one CampaignController, queue and scheduler per campaign).
-- The BudgetAllocator only keeps the books; only the CampaignController cancels workflows and releases budget. A campaign's budget is a firm ceiling.
-- Lifecycle signals are only CANCEL, PAUSE and RESUME. All workflows run through AsyncFlow (blocks or executable tasks); RHAPSODY is the runtime underneath AsyncFlow.
-- Do not name a specific data-backend implementation (e.g. Redis); use DataBackend / `rhapsody.backends.data`.
+- Items marked **Planned** in the spec are not implemented yet; don't assume they exist.
+- Planned features and known implementation gaps (not in the spec) are in `docs/known-gaps.md`; read it before working on checkpointing, Tier 2 reporting, accounting, cancellation or campaign exit, and update it when you implement or fix an entry.
+- Use its terminology: CampaignManager (CM), driver API (`submit()` → `SubmitResult` → `CampaignOutcome`), GlobalBudget, BudgetAllocator (spending ledger), CampaignBudget (`spending` limit + workflow-count caps), `declared_spending`, CampaignController (observe → decide → act, goals, CancelRule / LaunchRule), PolicyResult, WorkflowQueue, Scheduler, SchedulingPolicy, WorkflowReport / WorkflowReporter, DataBackend, Tier 1 (block) / Tier 2 (launch_cmd) workflows.
+- Two levels: manager level (one CM for all campaigns: admission against the global budget, spending ledger, shared AsyncFlow engine) and campaign level (one controller, queue and scheduler per campaign).
+- Budgets are spending only (resource-hours). There is no "resources in use at once" budget: workflows are heterogeneous task sets placed by RHAPSODY. Capacity is limited by the allocation and the workflow-count caps.
+- The BudgetAllocator is the single spending ledger (per campaign and global). Only the CampaignController decides to cancel workflows.
 
 ## Quick Start
 
@@ -124,15 +125,12 @@ WorkflowConfig(
     name="folding_worker",
     block=async_fn,                    # Python async function (Tier 1)  — OR —
     launch_cmd=["python", "wf.py"],    # subprocess command (Tier 2)
-    resources={"gpu": 2.0},             # concurrency units reserved while running
     declared_spending={"wall_hours": 1/3600, "gpu_hours": 2/3600},  # for budget accounting
-    metrics_cls=MyMetrics,             # typed metrics class (Tier 1); None = Tier 2
-    score_directions={"energy": ScoreDirection.LOWER},
     supports_pause=True,               # False (default) → PAUSE decisions are skipped with WARNING
     launch_on_start=True,              # auto-enqueue one instance at campaign start
     max_wall_time_s=300.0,             # auto-cancel if running longer than this
     stale_timeout_s=60.0,              # auto-cancel if reporter silent > this (after ≥1 emit)
-    env={"TORCH_DEVICE": "cuda"},      # injected into subprocess env (Tier 2)
+    env={"TORCH_DEVICE": "cuda"},      # launch_cmd only: exported to the program
     on_completion=callback,            # called with WorkflowResult after each run
 )
 ```
@@ -205,8 +203,9 @@ Policy loop wakeup is **event-driven**: `_policy_loop` uses `asyncio.wait_for(_c
 | `profiler.py` | `BlockProfiler`, `TaskProfiler` — per-block resource tracking | 147 |
 | `spec.py` | `WorkflowConfig`, `CampaignSpec`, `CampaignBudget`, `WorkflowDependency` | 129 |
 | `queue.py` | `WorkflowQueue` — min-heap with priority + aging | 124 |
-| `subprocess_client.py` | Tier 2 subprocess worker helper — reads CM_DATA_ENDPOINT, wraps reporter | 102 |
-| `budget.py` | `BudgetAllocator` — concurrency borrow/return + lifetime spending | 100 |
+| `subprocess_client.py` | Backward-compatible alias of `src.aucam_client.Reporter` | 24 |
+| `../aucam_client/` | Language-neutral reporting client and `aucam-report` command for command-line workflows (JSON over Redis, or Dragon) | — |
+| `budget.py` | `BudgetAllocator` — spending ledger: admission, in-flight estimates, actual spending, global total | 230 |
 | `reporter.py` | `WorkflowReporter` ABC + `LocalDictReporter` — emit/poll/wait_for_resume | 103 |
 | `__init__.py` | Public API surface — all exported symbols | 82 |
 
@@ -214,13 +213,14 @@ Policy loop wakeup is **event-driven**: `_policy_loop` uses `asyncio.wait_for(_c
 
 | File | What it covers |
 |---|---|
-| `test_aucam_unit.py` | `BudgetAllocator`, `WorkflowQueue` unit tests |
+| `test_aucam_unit.py` | `BudgetAllocator` (spending ledger), `WorkflowQueue` unit tests |
+| `test_spending_ledger.py` | Global spending admission, outcome spending, ledger close |
 | `test_aucam_dummy.py` | Basic campaign run + budget-limited concurrency |
 | `test_aucam_multi.py` | Multiple concurrent campaigns |
 | `test_aucam_reporter.py` | Score-based controller cancellation |
 | `test_budget_control.py` | Three-tier budget control |
 | `test_stale_and_walltime.py` | `stale_timeout_s` and `max_wall_time_s` auto-cancel |
-| `test_workflow_config_fields.py` | `ScoreDirection`, `metrics_cls`, `supports_pause` |
+| `test_workflow_config_fields.py` | `supports_pause` and field defaults |
 | `test_pause_resume.py` | PAUSE/RESUME signal lifecycle |
 | `test_observability.py` | `final_metrics`, SUMMARY log, soft queue limit, event-driven wakeup |
 | `test_checkpointing.py` | JSON roundtrip, atomic write, file creation, counters, recovery |

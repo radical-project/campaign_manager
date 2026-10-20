@@ -203,21 +203,17 @@ def test_three_tier_budget_control() -> None:
         budget=CampaignBudget(
             max_concurrent_workflows=3,
             max_concurrency_per_workflow=1,
-            budget={"gpu": 14.0},            # concurrency ceiling: 2+2+8+2 reserve
             spending={"gpu_hours": CAMPAIGN_BUDGET},
         ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(name="good_worker", block=good_worker,
-                           resources={"gpu": 4.0},
                            declared_spending={"wall_hours": 1.0/3600, "gpu_hours": 4.0/3600},
                            launch_on_start=False, on_completion=_on_good_complete),
             WorkflowConfig(name="bad_worker",  block=bad_worker,
-                           resources={"gpu": 2.0},
                            declared_spending={"wall_hours": 1.0/3600, "gpu_hours": 2.0/3600},
                            launch_on_start=False),
             WorkflowConfig(name="hog_worker",  block=hog_worker,
-                           resources={"gpu": 8.0},
                            declared_spending={"wall_hours": 1.0/3600, "gpu_hours": 8.0/3600},
                            launch_on_start=False),
         ],

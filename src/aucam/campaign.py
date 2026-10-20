@@ -6,10 +6,7 @@ import asyncio
 import inspect
 import json
 import logging
-import os
 import shlex
-import stat
-import tempfile
 import time
 import uuid
 from contextlib import suppress
@@ -53,7 +50,7 @@ def _correlate_events(
     Works with both dict events (JSONL) and attribute-based asyncflow event objects
     (converted to dicts by the caller).  Returns ({}, {}) when no data is found.
 
-    node_id must be passed explicitly (from final_metrics["node"]) — TaskStarted
+    node_id must be passed explicitly (from final_metrics["node_id"]) — TaskStarted
     events carry node_id=null so it cannot be derived from the event stream.
 
     GPU hours are computed by dividing the node's gpu_percent equally among all
@@ -75,7 +72,7 @@ def _correlate_events(
                 task_timings.setdefault(tid, {}).update({"start": et})
             if tid == wf_id:
                 start_t = et
-        elif etype in ("TaskCompleted", "TaskFailed", "TaskCancelled"):
+        elif etype in ("TaskCompleted", "TaskFailed", "TaskCanceled", "TaskCancelled"):
             tid = ev.get("task_id")
             if tid and tid in task_timings:
                 task_timings[tid]["end"] = et
@@ -161,30 +158,16 @@ def _wants_flow(fn: Any) -> bool:
         return False
 
 
-def _derive_resources(wfc: Any) -> dict[str, float]:
-    """Compute BudgetAllocator concurrency resources from declared_spending + max_wall_time_s.
-
-    resources.X = declared_spending.X_hours × (max_wall_time_s / declared_wall_h / 3600)
-    When max_wall_time_s == declared_wall_h × 3600 (the normal case) this simplifies to
-    resources.X = declared_spending.X_hours.
-    """
-    decl = wfc.declared_spending
-    decl_wall_h = decl.get("wall_hours", 0.0)
-    max_wall_h = (wfc.max_wall_time_s or 0.0) / 3600.0
-    ref_wall_h = max_wall_h if max_wall_h > 0 else decl_wall_h
-    if ref_wall_h <= 0 or decl_wall_h <= 0:
-        return {}
-    ratio = ref_wall_h / decl_wall_h
-    out: dict[str, float] = {}
-    if "cpu_hours" in decl:
-        out["cpu"] = decl["cpu_hours"] * ratio
-    if "gpu_hours" in decl:
-        out["gpu"] = decl["gpu_hours"] * ratio
-    return out
+def _wants_context(fn: Any) -> bool:
+    """Return True if fn accepts a 'context' keyword argument."""
+    try:
+        return "context" in inspect.signature(fn).parameters
+    except (ValueError, TypeError):
+        return False
 
 
 class _WorkflowInstance:
-    __slots__ = ("wf_id", "workflow_type", "future", "started_at", "resources",
+    __slots__ = ("wf_id", "workflow_type", "future", "started_at",
                  "declared_spending", "last_report", "request")
 
     def __init__(
@@ -193,7 +176,6 @@ class _WorkflowInstance:
         workflow_type: str,
         future: asyncio.Future,
         started_at: float,
-        resources: dict[str, float],
         declared_spending: dict[str, float],
         request: LaunchRequest,
     ) -> None:
@@ -201,8 +183,7 @@ class _WorkflowInstance:
         self.workflow_type = workflow_type
         self.future = future
         self.started_at = started_at
-        self.resources = resources                    # derived, for BudgetAllocator
-        self.declared_spending = declared_spending    # for spending accounting
+        self.declared_spending = declared_spending    # in-flight spending estimate
         self.request = request
         self.last_report: Any = None
 
@@ -211,7 +192,9 @@ class _CampaignInstance:
     """
     Runs one campaign: policy cycle + scheduler loop + workflow lifecycle.
 
-    Phase 1 — Tier 2 only (no DataBackend, no live metrics, no PAUSE/RESUME).
+    Every workflow runs as one AsyncFlow block: a Python workflow is the block
+    body; a command-line workflow (launch_cmd) is a block containing one
+    executable task.
     """
 
     def __init__(
@@ -248,8 +231,8 @@ class _CampaignInstance:
         self._slot_event = asyncio.Event()
         self._completion_event = asyncio.Event()  # set on each workflow done → early policy wake
         self._result: dict | None = None
-        # Lifetime resource consumption; updated on each workflow completion.
-        self._spent: dict[str, float] = {}
+        # Spending is kept in the shared BudgetAllocator ledger (per campaign).
+        self._allocator.open(self.name, spec.budget.spending)
 
         # Observability counters — surfaced in summary log at shutdown.
         self._instances_run = 0
@@ -268,6 +251,17 @@ class _CampaignInstance:
 
         # Last telemetry snapshot — updated each policy cycle, used by _drain_queue.
         self._last_telemetry: TelemetrySnapshot = TelemetrySnapshot()
+
+        # Task-level accounting (requested resources × duration from AsyncFlow
+        # task events).  _wf_tags maps an asyncflow.workflow_id tag (the wf_id,
+        # or the uid of the AsyncFlow block a workflow runs in) to the wf_id.
+        # _task_level holds workflows whose tasks are charged from events;
+        # _task_usage is their charged spending so far.
+        self._wf_tags: dict[str, str] = {}
+        self._task_level: set[str] = set()
+        self._task_usage: dict[str, dict[str, float]] = {}
+        # Exit code of each finished command-line workflow's program.
+        self._exit_codes: dict[str, int] = {}
 
         # Warn when spending limits are set but a workflow has no declared_spending.
         if spec.budget.spending:
@@ -290,7 +284,7 @@ class _CampaignInstance:
     # ── Public helpers ───────────────────────────────────────────────────────
 
     def enqueue(self, request: LaunchRequest) -> None:
-        # Stamp campaign_name so the scheduling policy can identify cross-campaign requests.
+        # Stamp the owning campaign on the request (used in logs and checkpoints).
         if not request.campaign_name:
             request.campaign_name = self.name
         if request.workflow_type in self._dep_satisfied:
@@ -353,7 +347,7 @@ class _CampaignInstance:
         # Priority: asyncflow JSONL telemetry (CM-side) → workflow-reported resource_usage.
         prof: dict = {}
         telemetry = getattr(self._flow, "_telemetry", None)
-        node_id = final_metrics.get("node") or None
+        node_id = final_metrics.get("node_id") or final_metrics.get("node") or None
         if telemetry is not None:
             try:
                 _prof, _jsonl_spending = self._correlate_from_jsonl(wf_id, wall_s, telemetry, node_id=node_id)
@@ -432,6 +426,54 @@ class _CampaignInstance:
         except OSError:
             return {}, {}
 
+    # ── Task-level accounting ───────────────────────────────────────────────
+
+    _TASK_END_EVENTS = ("TaskCompleted", "TaskFailed", "TaskCanceled")
+
+    def _on_task_event(self, event: Any) -> None:
+        """Charge a workflow from AsyncFlow task events (telemetry subscriber).
+
+        Uses the task's requested resources (``attributes["resources"]``,
+        emitted by radical.asyncflow) × ``duration_seconds``.  A workflow switches
+        to task-level accounting on the first ``TaskCreated`` event tagged with
+        it; its completion-time estimate is then not charged.  While it runs,
+        its in-flight estimate is reduced by what has already been charged.
+        """
+        attrs = getattr(event, "attributes", None) or {}
+        res = attrs.get("resources")
+        tag = attrs.get("asyncflow.workflow_id")
+        if not res or not tag:
+            return
+        wf_id = self._wf_tags.get(tag)
+        if wf_id is None:
+            return
+        etype = getattr(event, "event_type", "")
+        if etype == "TaskCreated":
+            self._task_level.add(wf_id)
+            return
+        if etype not in self._TASK_END_EVENTS:
+            return
+        self._task_level.add(wf_id)
+        hours = float(getattr(event, "duration_seconds", 0.0) or 0.0) / 3600.0
+        usage = {
+            "cpu_hours": float(res.get("cpus", 0.0)) * hours,
+            "gpu_hours": float(res.get("gpus", 0.0)) * hours,
+        }
+        usage = {k: v for k, v in usage.items() if v > 0.0}
+        if not usage:
+            return
+        self._allocator.record(self.name, usage)
+        charged = self._task_usage.setdefault(wf_id, {})
+        for k, v in usage.items():
+            charged[k] = charged.get(k, 0.0) + v
+        inst = self._active.get(wf_id)
+        if inst is not None:
+            remaining = {
+                k: max(0.0, inst.declared_spending.get(k, 0.0) - charged.get(k, 0.0))
+                for k in ("cpu_hours", "gpu_hours")
+            }
+            self._allocator.set_in_flight(self.name, wf_id, remaining)
+
     # ── Workflow launch ──────────────────────────────────────────────────────
 
     def _make_future(
@@ -440,89 +482,135 @@ class _CampaignInstance:
         wf_id: str,
         context: dict | None = None,
     ) -> asyncio.Future:
-        env = {"CM_WORKFLOW_ID": wf_id, "CM_CAMPAIGN_ID": self.name, **wfc.env}
-        # Per-instance context from LaunchRequest is surfaced as CM_CTX_{KEY} env vars.
-        for k, v in (context or {}).items():
-            env[f"CM_CTX_{k.upper()}"] = str(v)
-        ep = self.spec.data_backend.endpoint() if self.spec.data_backend is not None else None
-        if ep is not None:
-            env["CM_DATA_ENDPOINT"] = ep
-            # Tell subprocess workers which backend protocol to use.
-            backend_name = type(self.spec.data_backend).__name__
-            if "Redis" in backend_name:
-                env["CM_DATA_BACKEND"] = "redis"
-            elif "Dragon" in backend_name:
-                env["CM_DATA_BACKEND"] = "dragon"
-
+        # Every workflow runs as one AsyncFlow block: the block is CM's unit of
+        # launch, cancellation (cancelling it cancels every task inside) and
+        # accounting (tasks registered inside it are tagged with the block uid,
+        # which _register_block_tag maps to this workflow).
         if wfc.block is not None:
+            # Python workflow: the workflow function is the block body; its
+            # compute steps are AsyncFlow tasks submitted from inside it.
             block_fn = wfc.block
             reporter = (
                 self.spec.data_backend.make_reporter(wf_id)
                 if _wants_reporter(block_fn)
                 else None
             )
+            # A Python workflow runs inside CM's process, so it gets what it needs
+            # as arguments (never through the shared process environment):
+            # the WorkflowReporter (bound to wf_id and the DataBackend),
+            # flow= (the shared engine) and context= (LaunchRequest.context).
+            call_args = (reporter,) if reporter is not None else ()
+            call_kwargs: dict[str, Any] = {}
+            if _wants_flow(block_fn):
+                call_kwargs["flow"] = self._flow
+            if _wants_context(block_fn):
+                call_kwargs["context"] = dict(context or {})
 
-            if self.spec.use_asyncflow_blocks:
-                # Tier 1 contract: block_fn IS the asyncflow block.
-                # It must accept flow= so it can register inner @flow.task nodes.
-                # CM registers it directly — no wrapper needed unless env is non-empty
-                # (env carries GPU assignments / HPC vars that must be injected first).
-                if env:
-                    _fn = block_fn
-                    async def _env_shim(*a, **kw):
-                        os.environ.update(env)
-                        return await _fn(*a, **kw)
-                    _env_shim.__name__ = block_fn.__name__
-                    _env_shim.__qualname__ = block_fn.__qualname__
-                    _registered = self._flow.block(_env_shim)
-                else:
-                    _registered = self._flow.block(block_fn)
+            async def _body(*a, **kw):
+                return await block_fn(*a, **kw)
 
-                _call_args   = (reporter,) if reporter is not None else ()
-                _call_kwargs = {"workflow_id": wf_id}
-                if _wants_flow(block_fn):
-                    _call_kwargs["flow"] = self._flow
-                return _registered(*_call_args, **_call_kwargs)
+            _body.__name__ = block_fn.__name__
+            _body.__qualname__ = block_fn.__qualname__
+            return self._run_as_block(_body, wf_id, call_args, call_kwargs)
 
-            # Default Tier 1: native asyncio.Task (no asyncflow dependency).
-            # Pass flow= when the block declares it — needed for blocks that
-            # share the asyncflow engine with inner @flow.task registrations.
-            _pass_flow = _wants_flow(block_fn)
-            _flow_ref  = self._flow
-            if reporter is not None:
-                async def _coro():
-                    os.environ.update(env)
-                    if _pass_flow:
-                        return await block_fn(reporter, flow=_flow_ref)
-                    return await block_fn(reporter)
-            else:
-                async def _coro():
-                    os.environ.update(env)
-                    if _pass_flow:
-                        return await block_fn(flow=_flow_ref)
-                    return await block_fn()
-
-            return asyncio.create_task(_coro(), name=f"wf-{wf_id}")
-
-        # launch_cmd path: generate a wrapper script
-        wrapper = self._write_wrapper(wfc.launch_cmd, env)
+        # Command-line workflow: a block containing one executable task that
+        # runs launch_cmd through an inline wrapper script (bash -c).  The script
+        # exports the CM variables into the program's own process; it is part of
+        # the command line, so no file has to be visible on the node where the
+        # task runs.  The task carries WorkflowConfig.task_description as its
+        # resource request.
+        command = self._wrap_cmd(wfc.launch_cmd, self._cmd_env(wfc, wf_id, context))
+        task_description = dict(wfc.task_description)
 
         @self._flow.executable_task(capture_stdio=True)
         async def _run_cmd():
-            return f"bash {wrapper}"
+            return command
 
-        return _run_cmd()
+        async def _cmd_block():
+            task = _run_cmd(task_description=task_description)
+            try:
+                return await task
+            finally:
+                # The program's own exit code (None if the backend reports none).
+                code = getattr(task, "exit_code", None)
+                if code is not None:
+                    self._exit_codes[wf_id] = code
+
+        _cmd_block.__name__ = f"cmd_{wfc.name}"
+        _cmd_block.__qualname__ = _cmd_block.__name__
+        return self._run_as_block(_cmd_block, wf_id, (), {})
+
+    def _cmd_env(self, wfc: WorkflowConfig, wf_id: str, context: dict | None) -> dict[str, str]:
+        """Environment for a command-line workflow's process (wrapper script)."""
+        env = {"CM_WORKFLOW_ID": wf_id, "CM_CAMPAIGN_ID": self.name, **wfc.env}
+        # Per-instance context from LaunchRequest is surfaced as CM_CTX_{KEY}.
+        for k, v in (context or {}).items():
+            env[f"CM_CTX_{k.upper()}"] = str(v)
+        ep = self.spec.data_backend.endpoint() if self.spec.data_backend is not None else None
+        if ep is not None:
+            env["CM_DATA_ENDPOINT"] = ep
+            # Tell SubprocessReporter which backend protocol to use.
+            backend_name = type(self.spec.data_backend).__name__
+            if "Redis" in backend_name:
+                env["CM_DATA_BACKEND"] = "redis"
+            elif "Dragon" in backend_name:
+                env["CM_DATA_BACKEND"] = "dragon"
+        return env
+
+    async def _read_final_report(self, wf_id: str) -> None:
+        """Read a workflow's last report when its block ends.
+
+        Remote backends (Redis, Dragon) have no synchronous read, so without
+        this the WorkflowResult would carry the report CM read in the last
+        policy cycle and miss a final emit().
+        """
+        backend = self.spec.data_backend
+        if backend is None or hasattr(backend, "sync_get_report"):
+            return
+        try:
+            report = await backend.get_report(wf_id)
+        except Exception:
+            logger.debug("[CM] final get_report(%s) failed", wf_id, exc_info=True)
+            return
+        inst = self._active.get(wf_id)
+        if report is not None and inst is not None:
+            inst.last_report = report
+
+    def _run_as_block(
+        self,
+        body: Any,
+        wf_id: str,
+        call_args: tuple,
+        call_kwargs: dict,
+    ) -> asyncio.Future:
+        """Register ``body`` as an AsyncFlow block for workflow ``wf_id`` and start it."""
+        ctx = getattr(self._flow, "_workflow_id_ctx", None)
+
+        async def _block(*a, **kw):
+            # Tasks registered inside the block are tagged with the block's
+            # uid; map it to this workflow for task-level accounting.
+            tag = ctx.get() if ctx is not None else None
+            if tag:
+                self._wf_tags[tag] = wf_id
+            try:
+                return await body(*a, **kw)
+            finally:
+                await self._read_final_report(wf_id)
+
+        _block.__name__ = body.__name__
+        _block.__qualname__ = body.__qualname__
+        registered = self._flow.block(_block)
+        return registered(*call_args, workflow_id=wf_id, **call_kwargs)
 
     @staticmethod
-    def _write_wrapper(launch_cmd: list[str], env: dict[str, str]) -> str:
-        fd, path = tempfile.mkstemp(suffix=".sh", prefix="aucam_")
-        with os.fdopen(fd, "w") as fh:
-            fh.write("#!/bin/bash\n")
-            for k, v in env.items():
-                fh.write(f"export {k}={shlex.quote(str(v))}\n")
-            fh.write("exec " + " ".join(shlex.quote(c) for c in launch_cmd) + "\n")
-        os.chmod(path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IROTH)
-        return path
+    def _wrap_cmd(launch_cmd: list[str], env: dict[str, str]) -> str:
+        """Inline wrapper: ``bash -c 'export K=V; ...; exec launch_cmd'``.
+
+        ``exec`` replaces the shell, so the program's exit code is the task's.
+        """
+        lines = [f"export {k}={shlex.quote(str(v))}" for k, v in env.items()]
+        lines.append("exec " + " ".join(shlex.quote(str(c)) for c in launch_cmd))
+        return "bash -c " + shlex.quote("\n".join(lines))
 
     def _launch(self, request: LaunchRequest) -> None:
         wfc = self._wf_config(request.workflow_type)
@@ -533,19 +621,20 @@ class _CampaignInstance:
             f"id={wf_id} requester={request.requester}"
         )
 
+        self._wf_tags[wf_id] = wf_id
         future = self._make_future(wfc, wf_id, request.context)
-        derived = _derive_resources(wfc)
         inst = _WorkflowInstance(
             wf_id=wf_id,
             workflow_type=request.workflow_type,
             future=future,
             started_at=time.time(),
-            resources=derived,
             declared_spending=dict(wfc.declared_spending),
             request=request,
         )
         self._active[wf_id] = inst
-        self._allocator.charge(self.name, inst.resources)
+        # Until it finishes, the workflow counts against the campaign's spending
+        # limit with its full declared_spending (conservative estimate).
+        self._allocator.set_in_flight(self.name, wf_id, inst.declared_spending)
         self._instances_run += 1
 
         self._flow._emit(
@@ -561,7 +650,15 @@ class _CampaignInstance:
                 rc, status = -1, WorkflowStatus.CANCELLED
                 self._cancelled += 1
             elif fut.exception() is not None:
-                rc, status = 1, WorkflowStatus.FAILED
+                # A command-line workflow reports its program's exit code; a
+                # signal (negative code) maps to the shell convention 128 + N so
+                # that -1 keeps meaning "cancelled".
+                code = self._exit_codes.get(_inst.wf_id)
+                if code is None or code == 0:
+                    rc = 1
+                else:
+                    rc = 128 - code if code < 0 else code
+                status = WorkflowStatus.FAILED
                 self._failed += 1
                 logger.error(
                     "[WORKFLOW-%s] worker raised",
@@ -600,27 +697,33 @@ class _CampaignInstance:
             # For in-process (LocalDictBackend) this is always available.
             # For remote backends (Dragon, Redis) fall back to what the policy
             # cycle cached in _inst.last_report from _collect_live_reports.
-            final_metrics: dict = {}
+            # For remote backends (Dragon, Redis) use _inst.last_report, which
+            # _read_final_report refreshed when the workflow's block ended.
             backend = self.spec.data_backend
+            last_report = _inst.last_report
             if hasattr(backend, "sync_get_report"):
-                sync_report = backend.sync_get_report(_inst.wf_id)
-                if sync_report is not None:
-                    final_metrics = dict(sync_report.metrics or {})
-            elif _inst.last_report is not None:
-                final_metrics = dict(_inst.last_report.metrics or {})
+                last_report = backend.sync_get_report(_inst.wf_id) or last_report
+            final_metrics: dict = (
+                dict(last_report.metrics or {}) if last_report is not None else {}
+            )
+            final_score = last_report.score if last_report is not None else None
 
             self._completion_event.set()
 
             self._active.pop(_inst.wf_id, None)
+            self._exit_codes.pop(_inst.wf_id, None)
             self._slot_event.set()
 
-            # Release concurrency budget and accumulate lifetime spending.
-            self._allocator.release_workflow(self.name, _inst.resources)
+            # Replace the in-flight estimate with the workflow's actual spending.
             contribution, resource_profile = self._compute_workflow_spent(
                 _inst.wf_id, _inst.declared_spending, wall, final_metrics
             )
-            for key, amount in contribution.items():
-                self._spent[key] = self._spent.get(key, 0.0) + amount
+            self._allocator.clear_in_flight(self.name, _inst.wf_id)
+            # Workflows charged task by task from AsyncFlow events
+            # (_on_task_event) are not charged again here; their events still
+            # in flight are recorded when they arrive.
+            if _inst.wf_id not in self._task_level:
+                self._allocator.record(self.name, contribution)
 
             result = WorkflowResult(
                 workflow_id=_inst.wf_id,
@@ -629,6 +732,7 @@ class _CampaignInstance:
                 wall_time_s=wall,
                 final_metrics=final_metrics,
                 resource_profile=resource_profile,
+                final_score=final_score,
             )
 
             if self.spec.data_backend is not None:
@@ -719,7 +823,7 @@ class _CampaignInstance:
                 wf_id=inst.wf_id,
                 workflow_type=inst.workflow_type,
                 started_at=inst.started_at,
-                resources=dict(inst.resources),
+                declared_spending=dict(inst.declared_spending),
             )
             for inst in self._active.values()
         ]
@@ -728,7 +832,7 @@ class _CampaignInstance:
             queue=queue_records,
             active=active_records,
             paused_wf_ids=[],   # populated by caller when needed
-            spent=dict(self._spent),
+            spent=self._allocator.spent(self.name),
             instances_run=self._instances_run,
             completed=self._completed,
             cancelled=self._cancelled,
@@ -768,7 +872,7 @@ class _CampaignInstance:
         self._walltime_cancels = ckpt.walltime_cancels
         self._policy_cancels = ckpt.policy_cancels
         self._policy_cycles = ckpt.policy_cycles
-        self._spent = dict(ckpt.spent)
+        self._allocator.restore(self.name, ckpt.spent)
 
         # Re-push queued requests
         for rec in ckpt.queue:
@@ -819,41 +923,25 @@ class _CampaignInstance:
                 pass
 
     def _spending_limit_reached(self) -> bool:
-        """Return True when completed + reserved spend meets or exceeds any campaign limit.
+        """Return True when actual + in-flight spending meets any campaign limit.
 
-        In-flight estimate uses each active workflow's full declared_spending as a
-        reservation — conservative like SLURM job accounting.  Budget is released
-        (and settled to actual) when the workflow completes.
+        The ledger counts each running workflow with its full declared_spending
+        (conservative, like SLURM job accounting); the estimate is replaced by
+        the actual amount when the workflow finishes.
         """
-        if not self.spec.budget.spending:
+        hit = self._allocator.limit_reached(self.name)
+        if hit is None:
             return False
-
-        # Sum declared_spending reservations for all active workflows.
-        reserved: dict[str, float] = {}
-        for inst in self._active.values():
-            for key in ("cpu_hours", "gpu_hours"):
-                amt = inst.declared_spending.get(key, 0.0)
-                if amt > 0:
-                    reserved[key] = reserved.get(key, 0.0) + amt
-
-        for key, limit in self.spec.budget.spending.items():
-            if key == "cpu_wall_seconds":
-                # Legacy key: convert reserved cpu_hours to seconds.
-                live = reserved.get("cpu_hours", 0.0) * 3600.0
-            else:
-                live = reserved.get(key, 0.0)
-            total = self._spent.get(key, 0.0) + live
-            if total >= limit:
-                if not getattr(self, "_spending_limit_logged", False):
-                    logger.info(
-                        f"[SCHEDULER-{self.name}] spending limit reached: "
-                        f"{key}: completed={self._spent.get(key, 0.0):.3f} "
-                        f"+ reserved={live:.3f} >= {limit:.3f} — "
-                        f"no new workflows will be launched"
-                    )
-                    self._spending_limit_logged = True
-                return True
-        return False
+        key, done, live, limit = hit
+        if not getattr(self, "_spending_limit_logged", False):
+            logger.info(
+                f"[SCHEDULER-{self.name}] spending limit reached: "
+                f"{key}: completed={done:.3f} "
+                f"+ in-flight={live:.3f} >= {limit:.3f} — "
+                f"no new workflows will be launched"
+            )
+            self._spending_limit_logged = True
+        return True
 
     async def _drain_queue(self) -> None:
         """Select and launch workflow requests.
@@ -861,7 +949,7 @@ class _CampaignInstance:
         CRITICAL-priority requests bypass the policy and launch immediately
         if a concurrency slot is available.  All other requests are passed to
         the SchedulingPolicy.select() call, which returns the subset to launch.
-        Budget (allocator.fits) is checked as a hard gate after selection.
+        Concurrency is limited by workflow counts; spending by the ledger.
         """
         if self._done:
             return
@@ -884,13 +972,25 @@ class _CampaignInstance:
 
         to_launch: list[LaunchRequest] = []
 
+        # Running instances per type, including requests picked this round;
+        # the per-type limit is enforced here for every request, whatever the
+        # policy returns.
+        per_type_cap = self.spec.budget.max_concurrency_per_workflow
+        counts = self._running_by_type()
+
+        def _take(req: LaunchRequest) -> bool:
+            if len(self._active) + len(to_launch) >= max_concurrent:
+                return False
+            if counts.get(req.workflow_type, 0) >= per_type_cap:
+                return True   # this type is full; others may still fit
+            to_launch.append(req)
+            counts[req.workflow_type] = counts.get(req.workflow_type, 0) + 1
+            return True
+
         # CRITICAL requests always go first, no policy consultation.
         for req in critical:
-            if len(self._active) + len(to_launch) >= max_concurrent:
+            if not _take(req):
                 break
-            wfc = self._wf_config(req.workflow_type)
-            if self._allocator.fits(self.name, _derive_resources(wfc)):
-                to_launch.append(req)
 
         # Policy selects from normal candidates for remaining slots.
         if normal and len(self._active) + len(to_launch) < max_concurrent:
@@ -911,16 +1011,8 @@ class _CampaignInstance:
             )
             selected = self._policy.select(normal, ctx)
             for req in selected:
-                if len(self._active) + len(to_launch) >= max_concurrent:
+                if not _take(req):
                     break
-                wfc = self._wf_config(req.workflow_type)
-                if not self._allocator.fits(self.name, _derive_resources(wfc)):
-                    logger.info(
-                        f"[SCHEDULER-{self.name}] budget insufficient for "
-                        f"{req.workflow_type}, skipping"
-                    )
-                    continue
-                to_launch.append(req)
 
         # Remove from queue and launch.
         for req in to_launch:
@@ -1041,7 +1133,7 @@ class _CampaignInstance:
         return TelemetrySnapshot(
             running_wall_s=running_wall_s,
             node_resources=node_resources,
-            spent=dict(self._spent),
+            spent=self._allocator.spent(self.name),
             running_consumption=running_consumption,
             wf_node=wf_node,
         )
@@ -1095,7 +1187,7 @@ class _CampaignInstance:
         self._last_telemetry = telemetry  # cache for _drain_queue
         obs = self.spec.controller.observe(
             queue_snapshot=self._queue.snapshot(),
-            budget=self._allocator.snapshot(),
+            budget=self._allocator.campaign_view(self.name),
             running=self._running_by_type(),
             live_reports=live_reports,
             telemetry=telemetry,
@@ -1233,7 +1325,10 @@ class _CampaignInstance:
                     f"[CM] {self.name}: instances did not exit within {timeout}s"
                 )
 
-        self._allocator.release(self.name)
+        # The campaign stays open in the ledger until CampaignManager closes it
+        # (after building the CampaignOutcome); running estimates are dropped.
+        for wf_id in list(self._active):
+            self._allocator.clear_in_flight(self.name, wf_id)
 
         # Final checkpoint — written synchronously so it's always on disk before
         # the summary log (which is the last thing the caller sees).
@@ -1250,7 +1345,7 @@ class _CampaignInstance:
             f"policy={self._policy_cancels}) "
             f"failed={self._failed} "
             f"cycles={self._policy_cycles} "
-            f"spent={self._spent}"
+            f"spent={self._allocator.spent(self.name)}"
         )
 
     # ── Entry point ──────────────────────────────────────────────────────────
@@ -1258,15 +1353,24 @@ class _CampaignInstance:
     async def run(self) -> None:
         logger.info(f"[CM] Campaign {self.name}: starting")
 
+        # Task-level accounting needs AsyncFlow telemetry (enable_telemetry=True).
+        telemetry = getattr(self._flow, "_telemetry", None)
+        if telemetry is not None and hasattr(telemetry, "subscribe"):
+            telemetry.subscribe(self._on_task_event)
+
         # Attempt checkpoint recovery before any workflows are launched.
+        restored = False
         ckpt_path = self._checkpoint_path()
         if ckpt_path is not None:
             ckpt = read_checkpoint(ckpt_path)
             if ckpt is not None:
                 self._restore_from_checkpoint(ckpt)
+                restored = True
 
+        # Initial requests — not after a restore: the restored queue and the
+        # re-queued running workflows already stand for them.
         now = time.time()
-        for wfc in self.spec.workflows:
+        for wfc in ([] if restored else self.spec.workflows):
             if wfc.launch_on_start and wfc.name in self._dep_satisfied:
                 self.enqueue(
                     LaunchRequest(
@@ -1285,10 +1389,14 @@ class _CampaignInstance:
             self._policy_loop(), name=f"policy-{self.name}"
         )
 
+        reason = "external"
         try:
             await asyncio.gather(sched_task, policy_task)
         except asyncio.CancelledError:
-            self._done = True
+            # CampaignManager cancels the campaign on SIGTERM / SIGINT: shut it
+            # down gracefully (cancel workflows, wait up to shutdown_timeout_s,
+            # final checkpoint, summary) before the cancellation propagates.
+            reason = "signal"
             raise
         finally:
             sched_task.cancel()
@@ -1296,4 +1404,9 @@ class _CampaignInstance:
             with suppress(asyncio.CancelledError):
                 await asyncio.gather(sched_task, policy_task, return_exceptions=True)
             if not self._done:
-                await self._shutdown()
+                await self._shutdown(reason=reason)
+
+    @property
+    def exit_reason(self) -> str:
+        """Why the campaign ended (goals_satisfied, controller_terminate, ...)."""
+        return self._exit_reason

@@ -6,6 +6,7 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 
 class ScoreDirection(str, Enum):
@@ -46,6 +47,8 @@ class SchedulingDecision(str, Enum):
 class WorkflowResult:
     workflow_id: str
     workflow_type: str
+    # 0 completed, -1 cancelled; a failure gives the launch_cmd program's exit
+    # code (128 + N if killed by signal N) or 1 (Python workflow, or no code).
     returncode: int
     wall_time_s: float
     output_dir: str | None = None
@@ -56,6 +59,8 @@ class WorkflowResult:
     # duration_s, node_id, etc.  Populated from BlockProfiler/TaskProfiler (Path 1)
     # or from telemetry JSONL correlation (Path 2).  Empty dict when unavailable.
     resource_profile: dict = field(default_factory=dict)
+    # Score of the workflow's last report (None if it never reported).
+    final_score: Any = None
 
 
 @dataclass

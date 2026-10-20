@@ -47,7 +47,6 @@ from src.aucam import (
     CampaignOutcome,
     CampaignSpec,
     GlobalBudget,
-    ScoreDirection,
     SchedulingPolicy,
     SubmitResult,
     WorkflowConfig,
@@ -145,7 +144,6 @@ def build_spec(
             WorkflowConfig(
                 name="miniapps_fast",
                 block=fast_worker,
-                score_directions={"score": ScoreDirection.LOWER},
                 stale_timeout_s=stale,
                 launch_on_start=True,
                 on_completion=_on_complete,
@@ -154,7 +152,6 @@ def build_spec(
             WorkflowConfig(
                 name="miniapps_slow",
                 block=slow_worker,
-                score_directions={"score": ScoreDirection.LOWER},
                 stale_timeout_s=stale * ccfg.workflows.slow_step_multiplier,
                 launch_on_start=True,
                 on_completion=_on_complete,
@@ -267,7 +264,8 @@ async def _driver(
     ccfg_template: CampaignConfig,
     *,
     n_campaigns: int,
-    policy: SchedulingPolicy | None,
+    policy_name: str,
+    policies: list,
     data_backend,
     telemetry_dir: str | None,
     cpu_hours_list: list[float | None],
@@ -285,6 +283,9 @@ async def _driver(
     for i, label in enumerate(labels):
         name  = f"miniapps-campaign-{label}" if label else "miniapps-campaign"
         ccfg  = vary_config(ccfg_template, i)
+        # Each campaign gets its own scheduling policy (no cross-campaign learning).
+        policy = _make_policy(policy_name)
+        policies.append((name, policy))
         tasks.append(
             _run_one_campaign(
                 sem, cm,
@@ -366,7 +367,7 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
     cpu_hours_list = _parse_csv_floats(args.spending_cpu_hours, n)
     gpu_hours_list = _parse_csv_floats(args.spending_gpu_hours, n)
 
-    policy       = _make_policy(gcfg.scheduling.policy)
+    policies: list = []          # (campaign name, its own scheduling policy)
     backend      = await _make_backend(gcfg.engine)
     data_backend, _rdb = await _make_data_backend(gcfg.engine)
 
@@ -400,7 +401,8 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
         _driver(
             cm, gcfg, ccfg,
             n_campaigns=n,
-            policy=policy,
+            policy_name=gcfg.scheduling.policy,
+            policies=policies,
             data_backend=data_backend,
             telemetry_dir=gcfg.telemetry.dir,
             cpu_hours_list=cpu_hours_list,
@@ -411,7 +413,9 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
     await cm.run()
     elapsed = time.monotonic() - t0
 
-    _print_policy_summary(policy, gcfg.scheduling.policy)
+    for cname, cpolicy in policies:
+        print(f"\n[POLICY] {cname}:")
+        _print_policy_summary(cpolicy, gcfg.scheduling.policy)
     print(f"\nTotal elapsed: {elapsed:.1f}s", flush=True)
 
     if _rdb is not None:

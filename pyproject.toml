@@ -17,13 +17,23 @@ readme = "README.md"
 requires-python = ">=3.10"
 
 dependencies = [
+    "pydantic>=2",
     "pyyaml>=6.0",
     "radical.asyncflow>=0.3.0",
     "rhapsody-py>=0.2.0",
     "nvidia-ml-py"
 ]
 
+[project.scripts]
+# Report to CM from a command-line workflow written in any language.
+aucam-report = "src.aucam_client.cli:main"
+
 [project.optional-dependencies]
+# Redis DataBackend (RhapsodyRedisBackend) and the aucam-report client
+redis = [
+    "redis>=4.0",
+]
+
 # Dragon/RADICAL HPC backend
 dragon = [
     "dragonhpc>=0.13.2",

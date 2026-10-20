@@ -34,7 +34,6 @@ from src.aucam import (
     CampaignBudget,
     CampaignManager,
     CampaignSpec,
-    ScoreDirection,
     WorkflowConfig,
     WorkflowDependency,
     WorkflowResult,
@@ -83,7 +82,6 @@ async def run_campaign(telemetry_dir: str, goal: int, max_concurrent: int) -> _R
             WorkflowConfig(
                 name="sim_worker",
                 block=_wf.sim_worker,
-                score_directions={"score": ScoreDirection.HIGHER},
                 stale_timeout_s=30.0,
                 launch_on_start=True,
                 on_completion=collector.on_complete,

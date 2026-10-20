@@ -45,7 +45,7 @@ class StopAt(CampaignController):
 
 spec = CampaignSpec(
     name="my_campaign",
-    budget=CampaignBudget(max_concurrent_workflows=4),
+    budget=CampaignBudget(max_concurrent_workflows=4, max_concurrency_per_workflow=2),
     controller=StopAt(n=10),
     workflows=[WorkflowConfig(name="sim", block=my_simulation)],
 )
@@ -71,11 +71,6 @@ WorkflowConfig(
     # Keys: wall_hours (required for proration), cpu_hours, gpu_hours.
     declared_spending={"wall_hours": 0.5, "cpu_hours": 0.5, "gpu_hours": 0.05},
 
-    score_directions={                     # hint for bandit / LLM scheduling
-        "energy": ScoreDirection.LOWER,
-        "plddt":  ScoreDirection.HIGHER,
-    },
-
     supports_pause=False,         # True → PAUSE/RESUME signals are delivered
     launch_on_start=True,         # auto-enqueue one instance at campaign start
     max_wall_time_s=300.0,        # auto-cancel if wall time exceeds this (Option A)
@@ -98,7 +93,7 @@ async def my_worker(reporter: WorkflowReporter, flow=None) -> None:
         await reporter.emit(score=result.energy, metrics={"step": step})
 ```
 
-`flow` is optional — pass it only when `CampaignSpec.use_asyncflow_blocks=True` and the block registers inner asyncflow tasks.
+Every workflow runs as one AsyncFlow block. Declare the `flow` parameter to receive the shared engine and submit compute steps as `@flow` tasks; they then run on the allocation, are cancelled with the workflow, and are charged to it. A `launch_cmd` workflow is a block containing one executable task.
 
 **How `reporter.emit()` reaches the CM** depends on the configured `data_backend`:
 
@@ -120,20 +115,35 @@ The workflow is an external process launched by `launch_cmd`.  It has no injecte
 |---|---|
 | `CM_WORKFLOW_ID` | Unique ID for this workflow execution |
 | `CM_CAMPAIGN_ID` | Name of the campaign |
+| `CM_CTX_{KEY}` | One per `LaunchRequest.context` entry (key upper-cased, value as string) |
+| *`WorkflowConfig.env`* | Each extra variable as given |
 | `CM_DATA_ENDPOINT` | Backend connection string: `host:port` for Redis, serialized DDict descriptor for Dragon.  Not set when `LocalDictBackend` is active. |
 | `CM_DATA_BACKEND` | Backend type: `redis` or `dragon`.  Not set when `LocalDictBackend` is active. |
 
-The subprocess uses `SubprocessReporter` from `src.aucam.subprocess_client`, which reads these variables automatically:
+The program can be written in any language. It reports through the campaign's DataBackend, which must be Redis or Dragon (with `LocalDictBackend` a command-line workflow runs but cannot report). Three ways:
 
-```python
-from src.aucam.subprocess_client import SubprocessReporter
+**1. The `aucam-report` command** (installed with AuCaM; `python -m src.aucam_client` is the same) — works from shell, C++, Fortran, anything that can run a command:
 
-reporter = SubprocessReporter()                        # reads env vars
-reporter.emit(score=0.85, metrics={"step": 3})        # send to CM
-sig = reporter.poll_signal()                           # None | "PAUSE" | "CANCEL"
+```bash
+aucam-report emit --score 0.82 --metric cpu_hours=1.5 --metric stage=fold --iteration 3
+sig=$(aucam-report signal)                 # prints PAUSE or RESUME, or nothing
+[ "$sig" = PAUSE ] && aucam-report wait-resume
 ```
 
-> `CM_DATA_ENDPOINT`, `CM_DATA_BACKEND`, and `CM_WORKFLOW_ID` are also injected into block workflow environments, but block workflows ignore them — they receive a live reporter object instead.
+Values are parsed as JSON when possible (`0.82`, `true`, `{"a": 1}`) and kept as text otherwise; `--metrics '{"k": 1}'` passes a whole object. Exit status 2 means the program is not running as a CM workflow (or a value is invalid), 1 a backend error.
+
+**2. The Redis protocol directly**, from any language with a Redis client:
+
+| Key | Value |
+|---|---|
+| `<CM_WORKFLOW_ID>` | the latest report, a UTF-8 JSON object `{"wf_id", "score", "metrics", "iteration", "emitted_at"}` (`emitted_at` = Unix time; drives stale-reporter detection) — `SET` it on every report |
+| `<CM_WORKFLOW_ID>:signal` | `PAUSE` or `RESUME` when CM sends a signal — `GET` it, then `DEL` it. CANCEL is never sent: CM stops the task through AsyncFlow |
+
+**3. Python:** `from src.aucam_client import Reporter` (`emit()`, `poll_signal()`, `wait_for_resume()`). The package imports only `redis` / `radex`, so a compute node does not need the rest of AuCaM. `src.aucam.subprocess_client.SubprocessReporter` is the same class under its old name.
+
+Score and metrics must be JSON values (numbers, strings, lists, dicts). A Python program that wants richer objects is better written as a block workflow.
+
+> These variables are set only for `launch_cmd` workflows. CM runs the program through an inline wrapper (`bash -c 'export …; exec launch_cmd'`), so no file has to be visible on the node where it runs; the program's exit code becomes `WorkflowResult.returncode` (128 + N if it was killed by signal N; 0 = completed, −1 = cancelled). Cancellation is carried out by the execution backend. Block workflows run inside CM's process and get their inputs as arguments instead: the live `reporter`, `flow=` (the shared engine) and `context=` (the `LaunchRequest.context` dict) when the function declares them. CM does not modify its own process environment.
 
 ---
 
@@ -166,7 +176,7 @@ def decide(self, obs: dict) -> PolicyResult:
 | Key | Type | Description |
 |-----|------|-------------|
 | `queue_snapshot` | `QueueSnapshot` | queued counts by priority and type |
-| `budget` | `dict` | allocator snapshot (total, reserved, spending) |
+| `budget` | `dict` | this campaign's ledger entry: `limits`, `spent`, `in_flight` (estimate of running workflows), `global_spent` |
 | `running` | `dict[str, int]` | `{wf_type: count}` currently active |
 | `live_reports` | `dict[str, WorkflowReport]` | latest emit per active wf_id |
 | `wf_types` | `dict[str, str]` | `{wf_id: wf_type}` mapping |
@@ -255,17 +265,16 @@ CampaignBudget(
     max_concurrent_workflows=4,       # hard cap: no more than N running at once
     max_concurrency_per_workflow=2,   # per-type cap
 
-    # Concurrency pool: charged on launch, returned on finish.
-    # Derived internally from declared_spending + max_wall_time_s — see below.
-    budget={"gpu": 2.0, "cpu": 8.0},
-
-    # Lifetime spending: terminates the campaign once cumulative actual
-    # spending reaches this limit.
+    # Lifetime spending limit (resource-hours).  The scheduler stops launching
+    # once actual spending plus the declared_spending of running workflows
+    # reaches it; the campaign ends when its running workflows finish.
+    # There is no "resources in use at once" budget — capacity is shared via
+    # the allocation (RHAPSODY) and the workflow-count caps above.
     spending={"cpu_hours": 1.0, "gpu_hours": 0.25},
 )
 ```
 
-Both `budget` and `spending` are optional (`{}` = unlimited).  If a campaign has a `spending` limit but a workflow has no `declared_spending`, the CM warns at startup — that workflow's contribution to the spending total will be zero and it won't count toward the campaign's lifetime cap.
+`spending` is optional (`{}` = unlimited); only `cpu_hours` and `gpu_hours` are charged (`wall_hours` in `declared_spending` is used for prorating).  If a campaign has a `spending` limit but a workflow has no `declared_spending`, the CM warns at startup — that workflow's contribution to the spending total will be zero and it won't count toward the campaign's lifetime cap.
 
 ### How spending is computed
 
@@ -291,19 +300,9 @@ completed_spent + sum(declared_spending for each active workflow) ≥ limit → 
 
 On completion, the actual prorated cost replaces the reservation.  This is the same conservative model SLURM uses for job scheduling.
 
-### Concurrency pool
-
-`CampaignBudget.budget` is an optional resource pool (e.g. `{"gpu": 4.0}` = at most 4 GPU-units active at once).  The pool dimensions are derived from `declared_spending` and `max_wall_time_s`:
-
-```
-pool_resources.X = declared_spending.X_hours × (max_wall_time_s / declared_wall_h / 3600)
-```
-
-When `max_wall_time_s == declared_wall_h × 3600` this simplifies to `pool_resources.X = declared_spending.X_hours`.  Pool resources are charged at launch and returned on finish.
-
 ### Observability vs enforcement
 
-Actual utilisation is collected into `WorkflowResult.resource_profile` for observability and is not used for budget enforcement.  It requires asyncflow telemetry to be enabled (`GlobalConfig.telemetry.enabled: true`).  `TaskStarted` events do not carry a node assignment, so **the workflow must emit its node as a metric** (e.g. `metrics={"node": socket.gethostname()}`) for the CM to correlate `ResourceUpdate` samples to the right workflow.  Without it, `resource_profile` will be empty.  Use `TelemetrySnapshot.node_resources` in `decide()` to inspect live utilisation per node.
+Actual utilisation is collected into `WorkflowResult.resource_profile` for observability and is not used for budget enforcement.  It requires asyncflow telemetry to be enabled (`GlobalConfig.telemetry.enabled: true`).  `TaskStarted` events do not carry a node assignment, so **the workflow must emit its node as a metric** (e.g. `metrics={"node_id": socket.gethostname()}`) for the CM to correlate `ResourceUpdate` samples to the right workflow.  Without it, `resource_profile` will be empty.  Use `TelemetrySnapshot.node_resources` in `decide()` to inspect live utilisation per node.
 
 Any other spending key (e.g. `llm_tokens`) is not tracked automatically — the workflow must emit it in `reporter.metrics` and the controller must accumulate and enforce it manually.
 
@@ -337,7 +336,6 @@ CampaignSpec(
     shutdown_timeout_s=30.0,        # grace period for in-flight work at shutdown
     data_backend=RadexDragonBackend(descriptor),  # None → LocalDictBackend
     checkpoint_dir="/scratch/ckpts",   # None → no checkpointing
-    use_asyncflow_blocks=False,
     scheduling_policy=BanditSchedulingPolicy(),   # None → BanditSchedulingPolicy()
 )
 ```
@@ -394,13 +392,7 @@ async def my_worker(reporter: WorkflowReporter) -> None:
 | `ADRSchedulingPolicy` | ADR engine hook (stub, falls back to FIFO) |
 | `LLMSchedulingPolicy` | LLM-guided ranking (stub, falls back to FIFO) |
 
-**Cross-campaign learning** — share a policy instance across campaigns:
-
-```python
-shared = BanditSchedulingPolicy()
-spec_a = CampaignSpec(..., scheduling_policy=shared)
-spec_b = CampaignSpec(..., scheduling_policy=shared)
-```
+A policy instance belongs to one campaign: give each `CampaignSpec` its own instance (or leave `scheduling_policy=None` for a fresh `BanditSchedulingPolicy`). CM rejects a spec whose policy instance is already used by another campaign, so campaigns never share learned scheduling state.
 
 ---
 

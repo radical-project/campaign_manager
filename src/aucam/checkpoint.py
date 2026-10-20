@@ -31,7 +31,8 @@ class ActiveWorkflowRecord:
     wf_id: str
     workflow_type: str
     started_at: float
-    resources: dict[str, float]
+    # Declared spending of the workflow (its in-flight spending estimate).
+    declared_spending: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -85,7 +86,13 @@ def _to_json(ckpt: CampaignCheckpoint) -> dict[str, Any]:
 
 def _from_json(d: dict[str, Any]) -> CampaignCheckpoint:
     queue = [QueuedRequestRecord(**r) for r in d.get("queue", [])]
-    active = [ActiveWorkflowRecord(**r) for r in d.get("active", [])]
+    active = []
+    for r in d.get("active", []):
+        r = dict(r)
+        # Checkpoints written before the spending-only budget model stored a
+        # derived concurrency "resources" dict; it is no longer used.
+        r.pop("resources", None)
+        active.append(ActiveWorkflowRecord(**r))
     return CampaignCheckpoint(
         campaign_name=d["campaign_name"],
         written_at=d.get("written_at", 0.0),

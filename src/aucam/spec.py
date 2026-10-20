@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from pydantic import BaseModel
 
-from .types import ScoreDirection, WorkflowResult
+from .types import WorkflowResult
 
 if TYPE_CHECKING:
     from .data_backend import DataBackend
@@ -27,11 +27,12 @@ class WorkflowDependency:
 class WorkflowConfig(BaseModel):
     """Configuration for one workflow type within a campaign.
 
-    Tier 1 asyncflow contract (required when CampaignSpec.use_asyncflow_blocks=True):
-      block must accept ``flow=None``.  When flow is provided, the function IS
-      the asyncflow.block — it should register its work as inner ``@flow.task``
-      nodes and await the terminal task, so CM can track members, cascade
-      cancellation, and emit per-task telemetry.  Example::
+    Every workflow runs as one AsyncFlow block — CM's unit of launch,
+    cancellation and accounting.  A command-line workflow (``launch_cmd``) is a
+    block containing one executable task.  A Python workflow (``block``) is the
+    block body: it should submit its compute steps as ``@flow`` tasks (declare a
+    ``flow`` parameter to receive the engine) so they run on the allocation, are
+    cancelled with the workflow, and are charged to it.  Example::
 
           async def my_wf(reporter: WorkflowReporter, flow=None) -> None:
               if flow is not None:
@@ -49,21 +50,29 @@ class WorkflowConfig(BaseModel):
     block: Callable | None = None
     launch_cmd: list[str] | None = None
     # Expected cost for one full execution.  Keys: wall_hours, cpu_hours, gpu_hours.
-    # BudgetAllocator concurrency resources are derived from this + max_wall_time_s.
+    # Counts against the campaign's spending limit while the workflow runs
+    # (in-flight estimate) and prorates actual spending when nothing better
+    # is reported.
     declared_spending: dict[str, float] = {}
-    # Tier 1 — typed metrics class for deserialization; None = Tier 2.
-    metrics_cls: type | None = None
-    # Score semantics surfaced to observe() and any scoring controllers.
-    score_directions: dict[str, ScoreDirection] = {}
-    # Set True only for workflows that implement reporter.poll() + wait_for_resume().
+    # Set True only for workflows that handle PAUSE/RESUME: Python workflows via
+    # reporter.poll() + wait_for_resume(); launch_cmd programs via
+    # SubprocessReporter.poll_signal() (needs a remote DataBackend).
     supports_pause: bool = False
     launch_on_start: bool = True
     max_wall_time_s: float | None = None
-    # Tier 1: auto-cancel if reporter goes silent longer than this.
+    # Auto-cancel if the workflow's reporter goes silent longer than this.
     # Only checked for workflows that have emitted at least one report.
     # Set to at least 3× the workflow's expected report interval.
     stale_timeout_s: float | None = None
+    # launch_cmd only: extra environment variables exported by the inline
+    # wrapper script.  Python workflows run inside CM's process and get their inputs as
+    # arguments (reporter, flow=, context=), not through the environment.
     env: dict[str, str] = {}
+    # launch_cmd only: resource request of the executable task, passed to AsyncFlow
+    # as its task_description (backend-specific, e.g. {"ranks": 4,
+    # "cores_per_rank": 8, "gpus_per_rank": 1}).  With telemetry enabled the
+    # task is charged requested resources × duration.
+    task_description: dict[str, Any] = {}
     on_completion: Callable[[WorkflowResult], None] | None = None
 
     model_config = {"arbitrary_types_allowed": True}
@@ -83,16 +92,20 @@ class WorkflowConfig(BaseModel):
 class CampaignBudget:
     """Resource limits for one campaign.
 
-    budget   — concurrency ceiling per resource dimension
-               (e.g. {"gpu": 4.0} = no more than 4 GPUs in use at once).
+    max_concurrent_workflows     — workflows running at once in this campaign.
+    max_concurrency_per_workflow — running instances per workflow type.
     spending — lifetime spending limit per dimension
-               (e.g. {"gpu_hours": 100.0} = stop after 100 GPU·h consumed).
-               Computed from Rhapsody block telemetry; checked by the controller.
+               (e.g. {"gpu_hours": 100.0} = stop launching after 100 GPU·h).
+               Tracked in the BudgetAllocator ledger; checked by the scheduler.
+
+    There is no "resources in use at once" budget: a workflow is a set of
+    heterogeneous tasks placed by RHAPSODY, so CM cannot know which GPUs or
+    nodes it holds.  Capacity is shared through the allocation itself and the
+    workflow-count limits above.
     """
 
     max_concurrent_workflows: int
     max_concurrency_per_workflow: int
-    budget: dict[str, float] = field(default_factory=dict)
     spending: dict[str, float] = field(default_factory=dict)
 
 
@@ -112,13 +125,12 @@ class CampaignSpec(BaseModel):
     data_backend: Any | None = None  # DataBackend
     # Directory to write/read checkpoint files.  None = no checkpointing.
     checkpoint_dir: str | None = None
-    # When True, Tier 1 blocks are submitted through the shared asyncflow
-    # WorkflowEngine (as @flow.block) instead of asyncio.create_task.
-    # Enables per-wf telemetry spans and cascading member-task cancellation.
-    use_asyncflow_blocks: bool = False
+    # Deprecated, ignored: every workflow now runs as an AsyncFlow block.
+    # Kept so existing specs and configs that set it still validate.
+    use_asyncflow_blocks: bool = True
     # Scheduling policy for this campaign.  None = BanditSchedulingPolicy().
-    # To share learned beliefs across campaigns, pass the same policy instance
-    # to multiple CampaignSpec objects.
+    # The instance belongs to this campaign only: CampaignManager rejects a
+    # spec whose policy instance is already used by another campaign.
     scheduling_policy: Any | None = None
 
     model_config = {"arbitrary_types_allowed": True}

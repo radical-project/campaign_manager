@@ -101,7 +101,7 @@ Implementations:
 └── LocalDictReporter    wraps LocalDictBackend; used for block workflows
 ```
 
-For subprocess workflows, `SubprocessReporter` (in `src/aucam/subprocess_client.py`) reads `CM_WORKFLOW_ID`, `CM_DATA_ENDPOINT`, and `CM_DATA_BACKEND` from the environment and writes directly to the backend — the Rhapsody-managed Redis instance for the `redis` backend, or the Dragon DDict for the `dragon` backend.
+For command-line workflows, `src/aucam_client` (the `aucam-report` command, or `Reporter` in Python) reads `CM_WORKFLOW_ID`, `CM_DATA_ENDPOINT` and `CM_DATA_BACKEND` from the environment and writes JSON reports directly to the backend — the Rhapsody-managed Redis instance for `redis`, or the Dragon DDict for `dragon`. `RhapsodyRedisBackend.get_report()` decodes JSON (command-line workflows) and pickle (Python reporters). `SubprocessReporter` in `src/aucam/subprocess_client.py` is a backward-compatible alias.
 
 ---
 
@@ -129,7 +129,7 @@ if already_spent + committed + incoming > limit:
     return rejection_reason
 ```
 
-`_reserved_specs` closes the admit-to-start race: `submit()` adds the spec here immediately after a passing admission check; `_start_campaign()` moves it to `_active_specs` when the run loop picks it up.  Both dicts are unioned in every subsequent `_admission_check`, so the declared spending of an admitted-but-not-yet-started campaign counts against the global cap and prevents a concurrent `submit()` from double-admitting against the same headroom.
+`_reserved_specs` closes the admit-to-start race: `submit()` adds the spec here immediately after a passing admission check; `_start_campaign()` moves it to `_active_specs` when the run loop picks it up.  Both dicts are unioned in every subsequent `_admission_check` (campaign and workflow counts). The spending limit of an admitted campaign is committed in the `BudgetAllocator` ledger by `admit()` at submit time, so a concurrent `submit()` cannot double-admit against the same global spending cap.
 
 ### Run loop (`run`)
 
@@ -152,12 +152,11 @@ The core orchestration class.  One instance per running campaign.  Owns:
 
 ```python
 _queue:        WorkflowQueue                # priority-heap of LaunchRequests
-_budget:       BudgetAllocator              # concurrency borrow/return
+_allocator:    BudgetAllocator              # shared spending ledger
 _scheduler:    SchedulingPolicy
 _controller:   CampaignController
 _active:       dict[str, _WorkflowInst]    # wf_id → running instance
 _done:         bool
-_spent:        dict[str, float]            # lifetime accumulator
 ```
 
 ### Two concurrent asyncio tasks per campaign
@@ -167,7 +166,7 @@ _scheduler_loop                      _policy_loop
 ─────────────────────────────        ───────────────────────────────────
 while not _done:                     while not _done:
   req = await _queue.get()             try:
-  if _budget.fits(req):                  await asyncio.wait_for(
+  if not spending_limit_reached:          await asyncio.wait_for(
     launch(req)                              _completion_event.wait(),
   else:                                      timeout=policy_interval_s)
     _queue.put_back(req)               except TimeoutError:
@@ -238,16 +237,22 @@ Age promotion: items waiting longer than `age_threshold_s` have their effective 
 
 ## `BudgetAllocator` (budget.py)
 
-Tracks concurrency (borrowed/returned per launch/finish).  Lifetime spending is computed separately in `_CampaignInstance._compute_workflow_spent()` and accumulated in `_spent`.
+The single spending ledger (resource-hours per dimension) for all campaigns.  There is no concurrency budget: workflows are heterogeneous task sets placed by RHAPSODY, so CM cannot know which GPUs/nodes a workflow holds; capacity is limited by the allocation and the workflow-count caps.
 
 ```python
 class BudgetAllocator:
-    def fits(campaign_id, resources) -> bool   # headroom check against reserved pool
-    def charge(campaign_id, resources)         # called on workflow launch
-    def release_workflow(campaign_id, resources)  # called on finish
+    def admit(campaign, limits, global_limits) -> str | None  # global spent + committed + limits <= cap
+    def open(campaign, limits)                     # register without a global check (no-op if admitted)
+    def set_in_flight(campaign, wf_id, estimate)   # on launch: declared_spending
+    def clear_in_flight(campaign, wf_id)           # on finish
+    def record(campaign, usage)                    # on finish: actual spending
+    def limit_reached(campaign)                    # actual + in-flight >= campaign limit
+    def close(campaign) -> dict                    # spent → global total; limits no longer committed
+    def campaign_view(campaign) -> dict            # passed to observe() as `budget` (own campaign only)
+    def snapshot() -> dict                         # whole ledger, for CM-level inspection
 ```
 
-Spending is not tracked inside `BudgetAllocator` — it lives in `_CampaignInstance._spent` and is checked via `_spending_limit_reached()` before each `_drain_queue()` call.
+`_CampaignInstance._compute_workflow_spent()` computes a finished workflow's actual spending; the campaign records it in the ledger, and `_spending_limit_reached()` reads the ledger before each `_drain_queue()` call.  `CampaignManager` admits campaigns and closes them through the same ledger.
 
 The allocator only keeps the books.  **It never cancels workflows** — only the controller can do that via `PolicyResult.decisions`.
 
@@ -260,7 +265,7 @@ Driver
   │  cm.submit(spec)
   ▼
 CampaignManager._admission_check()
-  │  reserve declared budget in _reserved_specs
+  │  BudgetAllocator.admit() — spending limit counts as committed
   │  enqueue spec in _submission_queue
   ▼
 CampaignManager._dispatch_loop()
@@ -272,7 +277,7 @@ _CampaignInstance  (asyncio task)
   ├── _scheduler_loop                       ├── _policy_loop
   │   │                                     │   │
   │   │ dequeue LaunchRequest               │   │ collect WorkflowReport per wf_id
-  │   │ BudgetAllocator.fits()              │   │   (DataBackend.get_report)
+  │   │ spending limit check (ledger)       │   │   (DataBackend.get_report)
   │   │   → launch asyncio.Task             │   │ controller.observe() → TelemetrySnapshot
   │   │       │                             │   │ controller.decide(obs) → PolicyResult
   │   │       │ block workflow(reporter)    │   │ _execute_decisions
@@ -284,10 +289,9 @@ _CampaignInstance  (asyncio task)
   │   │       │                             │   │
   │   │       └── future.done() callback    │   │
   │   │               _on_done (sync):      │   │
-  │   │               BudgetAllocator       │   │
-  │   │                 .release_workflow() │   │
   │   │               _compute_workflow_spent()  │
-  │   │                 → _spent[key] += actual  │
+  │   │               BudgetAllocator       │   │
+  │   │                 .record(actual)     │   │
   │   │               controller            │   │
   │   │                 .on_complete()      │   │
   │   │               _completion_event.set()   │
@@ -348,6 +352,5 @@ Within the CM itself, blocking file I/O (checkpoint writes, `LocalDictBackend` r
 | Custom policy | `CampaignController` subclass | Override `decide()`, `is_goal_reached()`, `get_summary()` |
 | Custom scheduling | `SchedulingPolicy` subclass | Implement `select(candidates, ctx)` |
 | New data backend | Implement `DataBackend` protocol | Five methods: write/get/delete report, write/get signal |
-| Custom metrics | `WorkflowConfig.metrics_cls` | Pydantic model; fields appear in `WorkflowReport.metrics` |
 | Spending declaration | `WorkflowConfig.declared_spending` | Keys `wall_hours`, `cpu_hours`, `gpu_hours`; drives proration and pool sizing |
 | Pre/post hooks | `WorkflowConfig.on_completion` | Sync callback after each `WorkflowResult` |

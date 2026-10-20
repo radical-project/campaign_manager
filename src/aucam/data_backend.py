@@ -8,6 +8,21 @@ from .reporter import LocalDictReporter, WorkflowReport, WorkflowReporter
 from .types import CampaignDecision
 
 
+def _decode_report(raw: bytes | None) -> dict | None:
+    """Decode a report stored in Redis.
+
+    Command-line workflows write UTF-8 JSON (the language-neutral protocol of
+    ``src.aucam_client``); Python reporters write a pickled dict.
+    """
+    if not raw:
+        return None
+    if raw[:1] == b"\x80":                 # pickle protocol header
+        import pickle  # noqa: PLC0415
+        return pickle.loads(raw)
+    import json  # noqa: PLC0415
+    return json.loads(raw.decode("utf-8"))
+
+
 @runtime_checkable
 class DataBackend(Protocol):
     """Protocol satisfied by all concrete data-backend implementations."""
@@ -322,15 +337,13 @@ class RhapsodyRedisBackend:
 
     async def get_report(self, wf_id: str) -> WorkflowReport | None:
         import asyncio  # noqa: PLC0415
-        import pickle  # noqa: PLC0415
 
         host, port = self._host, self._port
 
         def _read():
             import redis  # noqa: PLC0415
             client = redis.Redis(host=host, port=port, protocol=2)
-            raw = client.get(wf_id)
-            return pickle.loads(raw) if raw else None
+            return _decode_report(client.get(wf_id))
 
         data = await asyncio.to_thread(_read)
         if data is None:

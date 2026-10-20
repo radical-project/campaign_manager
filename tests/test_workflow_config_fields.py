@@ -1,11 +1,9 @@
 """
-Tests for WorkflowConfig new fields: supports_pause, metrics_cls, score_directions.
+Tests for WorkflowConfig fields: supports_pause, stale_timeout_s defaults.
 
 Scenarios
 ---------
   1. Field defaults — all new fields default correctly; existing tests unaffected.
-  2. score_directions accepted — HIGHER / LOWER values stored and readable.
-  3. metrics_cls accepted — arbitrary class stored without error.
   4. supports_pause=False (default) — controller issues PAUSE; CM logs warning
      and the workflow continues running; no crash.
   5. supports_pause=True — controller issues PAUSE; CM logs info (no delivery yet);
@@ -26,7 +24,6 @@ from src.aucam import (
     CampaignSpec,
     LaunchRequest,
     PolicyResult,
-    ScoreDirection,
     WorkflowConfig,
     WorkflowReporter,
     WorkflowResult,
@@ -45,39 +42,12 @@ async def background_worker() -> None:
     await asyncio.sleep(0.3)
 
 
-# ── Fake metrics class (metrics_cls) ─────────────────────────────────────────
-
-class MyMetrics:
-    workflow_id: str
-    score: float
-
-
 # ── Unit tests (no CM needed) ─────────────────────────────────────────────────
 
 def test_new_field_defaults() -> None:
     wfc = WorkflowConfig(name="w", block=simple_worker)
     assert wfc.supports_pause is False
-    assert wfc.metrics_cls is None
-    assert wfc.score_directions == {}
     assert wfc.stale_timeout_s is None
-
-
-def test_score_directions_stored() -> None:
-    wfc = WorkflowConfig(
-        name="w",
-        block=simple_worker,
-        score_directions={
-            "binding_affinity": ScoreDirection.LOWER,
-            "plddt":            ScoreDirection.HIGHER,
-        },
-    )
-    assert wfc.score_directions["binding_affinity"] == ScoreDirection.LOWER
-    assert wfc.score_directions["plddt"] == ScoreDirection.HIGHER
-
-
-def test_metrics_cls_stored() -> None:
-    wfc = WorkflowConfig(name="w", block=simple_worker, metrics_cls=MyMetrics)
-    assert wfc.metrics_cls is MyMetrics
 
 
 def test_supports_pause_flag() -> None:
