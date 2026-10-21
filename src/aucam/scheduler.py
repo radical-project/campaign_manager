@@ -56,6 +56,7 @@ class SchedulingContext:
     history:                  list[WorkflowResult]
     policy_cycles:            int
     campaign_name:            str
+    budget_remaining_fraction: float = 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -163,17 +164,21 @@ class BanditSchedulingPolicy(SchedulingPolicy):
     def _arm_key(self, req: LaunchRequest) -> str:
         return req.workflow_type
 
-    def _ucb(self, arm_key: str) -> float:
+    def _ucb(self, arm_key: str, c: float | None = None) -> float:
         stats = self._arms.get(arm_key)
         if stats is None or stats["n"] == 0 or self._total_pulls == 0:
             return float("inf")  # unvisited — always explore first
         n = int(stats["n"])
         mean = float(stats["mean"])
-        return mean + self._exploration * math.sqrt(math.log(self._total_pulls) / n)
+        c_eff = self._exploration if c is None else c
+        return mean + c_eff * math.sqrt(math.log(self._total_pulls) / n)
 
     def arm_stats(self) -> dict[str, dict]:
         """Return a copy of the current arm belief table (for inspection / logging)."""
-        return {k: dict(v) for k, v in self._arms.items()}
+        return {
+            k: {**v, "ucb": self._ucb(k)}
+            for k, v in self._arms.items()
+        }
 
     # ── SchedulingPolicy interface ────────────────────────────────────────────
 
@@ -186,16 +191,29 @@ class BanditSchedulingPolicy(SchedulingPolicy):
         if slots <= 0:
             return []
 
+        # Scale exploration by sqrt(budget_remaining) so the bandit shifts
+        # toward pure exploitation as the budget runs out.
+        c_eff = self._exploration * math.sqrt(max(0.0, ctx.budget_remaining_fraction))
+
         running = dict(ctx.running_by_type)
         eligible: list[tuple[float, int, LaunchRequest]] = []
         for idx, req in enumerate(candidates):
             if running.get(req.workflow_type, 0) < ctx.max_concurrency_per_type:
-                ucb = self._ucb(self._arm_key(req))
+                ucb = self._ucb(self._arm_key(req), c=c_eff)
                 # idx as tiebreaker preserves original queue order for equal UCB
                 eligible.append((ucb, idx, req))
 
         # Descending UCB; ties broken by original position (ascending idx)
         eligible.sort(key=lambda x: (-x[0], x[1]))
+
+        logger.info(
+            "[BANDIT] %s  budget_rem=%.1f%%  c_eff=%.3f  arms=%s",
+            ctx.campaign_name,
+            ctx.budget_remaining_fraction * 100,
+            c_eff,
+            {self._arm_key(r): f"μ={self._arms.get(self._arm_key(r), {}).get('mean', float('nan')):.3f}"
+             for _, _, r in eligible},
+        )
 
         selected: list[LaunchRequest] = []
         for ucb, _, req in eligible:
@@ -206,10 +224,9 @@ class BanditSchedulingPolicy(SchedulingPolicy):
                 selected.append(req)
                 running[req.workflow_type] = t + 1
                 if ucb < float("inf"):
-                    logger.debug(
-                        "[BANDIT-%s] select %s arm=%s ucb=%.3f",
-                        ctx.campaign_name, req.workflow_type,
-                        self._arm_key(req), ucb,
+                    logger.info(
+                        "[BANDIT] %s  → %s  ucb=%.3f  c_eff=%.3f",
+                        ctx.campaign_name, self._arm_key(req), ucb, c_eff,
                     )
 
         return selected

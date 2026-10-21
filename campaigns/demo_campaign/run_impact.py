@@ -16,9 +16,8 @@ Budget pool = 4 CPU units.  6 sequential campaigns, each with its own bandit
 JSON for plotting.
 
 Run:
-    cd /work/nvme/bdyk/$USER/campaign_manager
-    /work/nvme/bdyk/$USER/ve/miniapps/bin/python3 \\
-        campaigns/demo_campaign/run_impact.py --json-out /tmp/impact_run.json
+    cd $WORK_DIR/campaign_manager
+    python campaigns/demo_campaign/run_impact.py --json-out /tmp/impact_run.json
 """
 
 from __future__ import annotations

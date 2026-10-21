@@ -110,7 +110,7 @@ def _get_adapted_class():
 
 # ── Block factory ─────────────────────────────────────────────────────────────
 
-def make_miniapps_worker(cfg: dict):
+def make_miniapps_worker(cfg: dict, arm_label: str = "wf", engine: str = "concurrent"):
     """Return an AuCaM block function bound to the given MiniApps config dict.
 
     Using a factory (instead of a module-level configure()) ensures that
@@ -128,10 +128,12 @@ def make_miniapps_worker(cfg: dict):
         worker_cfg = dict(cfg)
         if not worker_cfg.get("src_dir"):
             worker_cfg["src_dir"] = str(root / "workflows/miniapps_workflow")
+        worker_cfg["engine"] = engine
 
         # Each workflow instance needs a unique filesystem-safe name: MiniAppsWorkflow
         # creates and cleans home_base/name/ on init, so clashes would delete live data.
-        safe_name = re.sub(r"[^a-zA-Z0-9]", "", reporter.wf_id)[-16:] or "wf0"
+        wf_tail = reporter.wf_id.split(".")[-1][:8] or reporter.wf_id[:8]
+        safe_name = f"{arm_label}_{wf_tail}"
         home_base = Path(
             worker_cfg.get("home_dir") or Path.home() / "MiniApps"
         ).expanduser()

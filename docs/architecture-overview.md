@@ -76,6 +76,8 @@ The scheduler decides *which* queued item to run next, subject to concurrency li
 
 ### Budget
 
+> Full reference: `docs/budget.md`.
+
 Two levels of budget accounting run simultaneously:
 
 **Per-campaign budget** — limits how many workflows run at once (concurrency) and how much total resource a single campaign is allowed to consume (spending).  If a campaign hits its spending limit, it terminates gracefully.

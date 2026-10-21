@@ -63,6 +63,11 @@ class CampaignCheckpoint:
     # wf_ids that were paused (PAUSE signal sent, RESUME not yet sent)
     paused_wf_ids: list[str] = field(default_factory=list)
 
+    # DAG dependency unlock state: target workflow types whose lock was already
+    # released by a successful source completion.  Restored before re-pushing
+    # queued requests so enqueue() admits them immediately on recovery.
+    dep_satisfied: list[str] = field(default_factory=list)
+
     # Lifetime spending
     spent: dict[str, float] = field(default_factory=dict)
 
@@ -100,6 +105,7 @@ def _from_json(d: dict[str, Any]) -> CampaignCheckpoint:
         queue=queue,
         active=active,
         paused_wf_ids=d.get("paused_wf_ids", []),
+        dep_satisfied=d.get("dep_satisfied", []),
         spent=d.get("spent", {}),
         instances_run=d.get("instances_run", 0),
         completed=d.get("completed", 0),

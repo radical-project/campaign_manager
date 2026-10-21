@@ -213,7 +213,7 @@ def test_budget_observation_is_own_campaign_only() -> None:
         ))
     asyncio.run(asyncio.wait_for(cm.run(), timeout=30.0))
     for i, spy in enumerate(spies):
-        assert set(spy.seen) == {"limits", "spent", "in_flight", "global_spent"}
+        assert set(spy.seen) == {"limits", "spent", "in_flight", "global_spent", "burn"}
         assert spy.seen["limits"] == {"cpu_hours": float(i + 1)}
 
 

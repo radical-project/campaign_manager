@@ -35,6 +35,7 @@ import argparse
 import asyncio
 import json
 import logging
+import math
 import sys
 import time
 from pathlib import Path
@@ -81,6 +82,7 @@ class _ResultsWriter:
             "workflow_type":    result.workflow_type,
             "returncode":       result.returncode,
             "wall_time_s":      result.wall_time_s,
+            "spent":            result.spent,
             "resource_profile": result.resource_profile,
             "final_metrics":    result.final_metrics,
         }
@@ -102,6 +104,7 @@ def build_spec(
     scheduling_policy: SchedulingPolicy | None = None,
     cpu_hours: float | None = None,
     gpu_hours: float | None = None,
+    engine: str = "concurrent",
 ) -> tuple[CampaignSpec, MiniAppsController]:
     """Build a CampaignSpec and MiniAppsController from a CampaignConfig template."""
     ctrl = MiniAppsController(
@@ -127,8 +130,8 @@ def build_spec(
     # concurrent campaigns never share config state.
     fast_cfg   = ccfg.workflows.fast_config()
     slow_cfg   = ccfg.workflows.slow_config()
-    fast_worker = _wf_mod.make_miniapps_worker(fast_cfg.to_dict())
-    slow_worker = _wf_mod.make_miniapps_worker(slow_cfg.to_dict())
+    fast_worker = _wf_mod.make_miniapps_worker(fast_cfg.to_dict(), arm_label="fast", engine=engine)
+    slow_worker = _wf_mod.make_miniapps_worker(slow_cfg.to_dict(), arm_label="slow", engine=engine)
 
     stale = ccfg.workflows.miniapps.stale_timeout_s
 
@@ -189,10 +192,23 @@ async def _make_data_backend(engine: str):
 
 # ── Scheduling policy ──────────────────────────────────────────────────────────
 
-def _make_policy(name: str) -> SchedulingPolicy | None:
+def _make_policy(name: str, ccfg=None) -> SchedulingPolicy | None:
     from src.aucam import BanditSchedulingPolicy, FIFOSchedulingPolicy
     if name == "bandit":
-        return BanditSchedulingPolicy()
+        # Time-efficiency reward: exp(-t / ref_s).
+        # ref_s = stale_timeout / slow_multiplier calibrates the decay to the
+        # fast arm's actual wall time (stale_timeout is conservative; dividing
+        # by the multiplier brings it close to fast's expected duration).
+        # exploration=0.5 lets the mean gap overcome the UCB bonus after the
+        # mandatory 2 initial pulls, enabling exploitation within goal_n=6.
+        stale = ccfg.workflows.miniapps.stale_timeout_s if ccfg is not None else 1800.0
+        mult  = ccfg.workflows.slow_step_multiplier      if ccfg is not None else 3
+        ref_s = stale / mult
+        def _reward(result) -> float:
+            if result.returncode != 0:
+                return 0.0
+            return math.exp(-result.wall_time_s / ref_s)
+        return BanditSchedulingPolicy(reward_fn=_reward, exploration=0.5)
     if name == "fifo":
         return FIFOSchedulingPolicy()
     return None
@@ -206,7 +222,9 @@ def _print_policy_summary(policy: SchedulingPolicy | None, name: str) -> None:
         if stats:
             print("\n[POLICY] bandit arm statistics:")
             for arm, s in sorted(stats.items()):
-                print(f"   {arm:20s}  n={s.get('n', 0):4d}  μ={s.get('mean', 0):.3f}  ucb={s.get('ucb', 0):.3f}")
+                ucb = s.get("ucb", 0)
+                ucb_str = "  ∞  " if ucb == float("inf") else f"{ucb:.3f}"
+                print(f"   {arm:20s}  n={s.get('n', 0):4d}  μ={s.get('mean', 0):.3f}  ucb={ucb_str}")
 
 
 # ── Parallel driver ────────────────────────────────────────────────────────────
@@ -222,6 +240,7 @@ async def _run_one_campaign(
     telemetry_dir: str | None,
     cpu_hours: float | None,
     gpu_hours: float | None,
+    engine: str = "concurrent",
 ) -> tuple[str, CampaignOutcome, CampaignConfig] | None:
     async with sem:
         rw = None
@@ -237,6 +256,7 @@ async def _run_one_campaign(
             scheduling_policy=policy,
             cpu_hours=cpu_hours,
             gpu_hours=gpu_hours,
+            engine=engine,
         )
 
         result: SubmitResult = await cm.submit(spec)
@@ -266,6 +286,7 @@ async def _driver(
     n_campaigns: int,
     policy_name: str,
     policies: list,
+    triples: list,
     data_backend,
     telemetry_dir: str | None,
     cpu_hours_list: list[float | None],
@@ -284,7 +305,7 @@ async def _driver(
         name  = f"miniapps-campaign-{label}" if label else "miniapps-campaign"
         ccfg  = vary_config(ccfg_template, i)
         # Each campaign gets its own scheduling policy (no cross-campaign learning).
-        policy = _make_policy(policy_name)
+        policy = _make_policy(policy_name, ccfg)
         policies.append((name, policy))
         tasks.append(
             _run_one_campaign(
@@ -296,14 +317,14 @@ async def _driver(
                 telemetry_dir=telemetry_dir,
                 cpu_hours=cpu_hours_list[i],
                 gpu_hours=gpu_hours_list[i],
+                engine=gcfg.engine,
             )
         )
 
     raw = await asyncio.gather(*tasks)
-    triples = [t for t in raw if t is not None]
-    if triples:
-        _log_comparison(triples)
-    else:
+    # Populate triples in-place so the caller can print after Dragon shuts down.
+    triples.extend(t for t in raw if t is not None)
+    if not triples:
         logging.warning("[DRIVER] all campaigns were rejected or failed")
 
     cm.close()
@@ -395,6 +416,7 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
     )
 
     t0 = time.monotonic()
+    triples: list = []
 
     cm.expect_driver()
     asyncio.create_task(
@@ -403,6 +425,7 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
             n_campaigns=n,
             policy_name=gcfg.scheduling.policy,
             policies=policies,
+            triples=triples,
             data_backend=data_backend,
             telemetry_dir=gcfg.telemetry.dir,
             cpu_hours_list=cpu_hours_list,
@@ -413,6 +436,10 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
     await cm.run()
     elapsed = time.monotonic() - t0
 
+    # Print after cm.run() returns (Dragon/asyncflow fully shut down) so stdout
+    # is no longer intercepted and box-drawing characters render correctly.
+    if triples:
+        _log_comparison(triples)
     for cname, cpolicy in policies:
         print(f"\n[POLICY] {cname}:")
         _print_policy_summary(cpolicy, gcfg.scheduling.policy)

@@ -3,7 +3,7 @@
 # Demo Campaign — Delta HPC
 #
 # Usage:
-#   export WORK_DIR=/work/nvme/bdyk/$USER
+#   export WORK_DIR=$WORK_DIR
 #   export SBATCH_ACCOUNT=<project>-delta-cpu
 #   mkdir -p $WORK_DIR/campaign_manager/campaigns/demo_campaign/logs
 #   sbatch campaigns/demo_campaign/delta_sbatch.sh
@@ -55,7 +55,7 @@ echo "ENGINE   : ${ENGINE}"
 
 if [ -z "${WORK_DIR:-}" ]; then
     echo "ERROR: WORK_DIR is not set."
-    echo "       export WORK_DIR=/work/nvme/bdyk/\$USER && sbatch ..."
+    echo "       export WORK_DIR=<your_work_dir> && sbatch ..."
     exit 1
 fi
 

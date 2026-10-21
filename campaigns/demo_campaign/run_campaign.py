@@ -94,6 +94,7 @@ class _ResultsWriter:
             "workflow_type":    result.workflow_type,
             "returncode":       result.returncode,
             "wall_time_s":      result.wall_time_s,
+            "spent":            result.spent,
             "resource_profile": result.resource_profile,
             "final_metrics":    result.final_metrics,
         }

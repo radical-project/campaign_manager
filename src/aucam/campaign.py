@@ -249,6 +249,10 @@ class _CampaignInstance:
         self._history: list[WorkflowResult] = []
         self._history_max: int = 50
 
+        # Per-type observed cost stats for learned in-flight estimates (B3).
+        # {workflow_type: {dim: {"n": int, "mean": float}}}
+        self._type_cost_stats: dict[str, dict[str, dict]] = {}
+
         # Last telemetry snapshot — updated each policy cycle, used by _drain_queue.
         self._last_telemetry: TelemetrySnapshot = TelemetrySnapshot()
 
@@ -257,9 +261,12 @@ class _CampaignInstance:
         # or the uid of the AsyncFlow block a workflow runs in) to the wf_id.
         # _task_level holds workflows whose tasks are charged from events;
         # _task_usage is their charged spending so far.
+        # _active_tasks tracks in-flight tasks for live burn-rate logging:
+        #   task_uid → {"wf_id", "resources", "start_time"}
         self._wf_tags: dict[str, str] = {}
         self._task_level: set[str] = set()
         self._task_usage: dict[str, dict[str, float]] = {}
+        self._active_tasks: dict[str, dict] = {}
         # Exit code of each finished command-line workflow's program.
         self._exit_codes: dict[str, int] = {}
 
@@ -309,6 +316,33 @@ class _CampaignInstance:
 
     # ── Spending computation ─────────────────────────────────────────────────
 
+    def _update_type_cost(self, wf_type: str, contribution: dict[str, float]) -> None:
+        """Update per-type cost statistics with the actual spending of a completed workflow."""
+        stats = self._type_cost_stats.setdefault(wf_type, {})
+        for key, val in contribution.items():
+            s = stats.setdefault(key, {"n": 0, "mean": 0.0})
+            n = s["n"]
+            s["mean"] = (s["mean"] * n + val) / (n + 1)
+            s["n"] = n + 1
+
+    def _learned_cost(
+        self,
+        wf_type: str,
+        declared: dict[str, float],
+        min_samples: int = 3,
+    ) -> dict[str, float]:
+        """Return the in-flight cost estimate for a workflow type.
+
+        Uses the mean actual cost once ``min_samples`` completions are observed;
+        falls back to ``declared`` before that threshold.
+        """
+        stats = self._type_cost_stats.get(wf_type, {})
+        result = dict(declared)
+        for key, s in stats.items():
+            if s["n"] >= min_samples:
+                result[key] = s["mean"]
+        return result
+
     def _compute_workflow_spent(
         self,
         wf_id: str,
@@ -330,17 +364,23 @@ class _CampaignInstance:
         spending: dict[str, float] = {}
 
         # Path 1: workflow-reported values take top priority.
-        for key in ("cpu_hours", "gpu_hours"):
+        # Always check cpu_hours/gpu_hours (supplied by AsyncFlow telemetry); also
+        # pick up any custom dimensions declared in declared_spending (e.g. llm_tokens).
+        p1_keys = {"cpu_hours", "gpu_hours"} | {
+            k for k in declared_spending if k != "wall_hours"
+        }
+        for key in p1_keys:
             val = final_metrics.get(key)
             if val is not None:
                 spending[key] = float(val)
 
         # Path 2: prorate declared spending by actual / declared wall time.
+        # Only prorate dimensions that appear in declared_spending (need a base value).
         decl_wall_h = declared_spending.get("wall_hours", 0.0)
         if decl_wall_h > 0:
             ratio = wall_h / decl_wall_h   # < 1 = underspend; > 1 = Option B overrun
-            for key in ("cpu_hours", "gpu_hours"):
-                if key not in spending and key in declared_spending:
+            for key in (k for k in declared_spending if k != "wall_hours"):
+                if key not in spending:
                     spending[key] = declared_spending[key] * ratio
 
         # Observability profile: actual utilisation data for WorkflowResult.resource_profile.
@@ -428,7 +468,7 @@ class _CampaignInstance:
 
     # ── Task-level accounting ───────────────────────────────────────────────
 
-    _TASK_END_EVENTS = ("TaskCompleted", "TaskFailed", "TaskCanceled")
+    _TASK_END_EVENTS = ("TaskCompleted", "TaskFailed", "TaskCanceled", "TaskCancelled")
 
     def _on_task_event(self, event: Any) -> None:
         """Charge a workflow from AsyncFlow task events (telemetry subscriber).
@@ -439,20 +479,64 @@ class _CampaignInstance:
         it; its completion-time estimate is then not charged.  While it runs,
         its in-flight estimate is reduced by what has already been charged.
         """
+        etype = getattr(event, "event_type", "")
         attrs = getattr(event, "attributes", None) or {}
         res = attrs.get("resources")
         tag = attrs.get("asyncflow.workflow_id")
+        task_uid = getattr(event, "task_id", None)
+
+        # Inner-block registration: asyncflow emits TaskCreated (no resources)
+        # for every block, tagged with its parent block/workflow.  If the parent
+        # is already mapped, propagate the mapping to the child so tasks inside
+        # nested blocks are charged to the same wf_id.
+        if not res and etype == "TaskCreated" and tag and task_uid:
+            if isinstance(task_uid, str) and task_uid.startswith("block."):
+                parent_wf_id = self._wf_tags.get(tag)
+                if parent_wf_id is not None and task_uid not in self._wf_tags:
+                    self._wf_tags[task_uid] = parent_wf_id
+                    logger.debug(
+                        "[BLOCK-TAG] inner block wf=%s parent=%s child=%s",
+                        parent_wf_id, tag, task_uid,
+                    )
+            return
+
         if not res or not tag:
+            if etype in ("TaskStarted", "TaskCompleted", "TaskFailed"):
+                logger.debug(
+                    "[SPEND-DBG] %s filtered: res=%s tag=%s",
+                    etype, bool(res), bool(tag),
+                )
             return
         wf_id = self._wf_tags.get(tag)
         if wf_id is None:
             return
-        etype = getattr(event, "event_type", "")
+
         if etype == "TaskCreated":
             self._task_level.add(wf_id)
             return
+
+        if etype == "TaskStarted":
+            self._task_level.add(wf_id)
+            if task_uid:
+                self._active_tasks[task_uid] = {
+                    "wf_id": wf_id,
+                    "resources": res,
+                    "start_time": getattr(event, "event_time", None),
+                }
+            logger.info(
+                "[SPEND] task_started  wf=%s  task=%s  cpus=%.0f  gpus=%.0f",
+                wf_id, task_uid,
+                float(res.get("cpus", 0)), float(res.get("gpus", 0)),
+            )
+            return
+
         if etype not in self._TASK_END_EVENTS:
             return
+
+        # Remove from active-tasks window before computing burn rate.
+        if task_uid:
+            self._active_tasks.pop(task_uid, None)
+
         self._task_level.add(wf_id)
         hours = float(getattr(event, "duration_seconds", 0.0) or 0.0) / 3600.0
         usage = {
@@ -473,6 +557,16 @@ class _CampaignInstance:
                 for k in ("cpu_hours", "gpu_hours")
             }
             self._allocator.set_in_flight(self.name, wf_id, remaining)
+        frac = self._allocator.spending_fraction(self.name)
+        logger.info(
+            "[SPEND] task_charged  wf=%s  task=%s  cpu_h=%.4f  gpu_h=%.4f"
+            "  wf_cpu_h=%.4f  wf_gpu_h=%.4f  budget_used=%.1f%%",
+            wf_id, task_uid,
+            usage.get("cpu_hours", 0.0), usage.get("gpu_hours", 0.0),
+            charged.get("cpu_hours", 0.0), charged.get("gpu_hours", 0.0),
+            frac * 100,
+        )
+
 
     # ── Workflow launch ──────────────────────────────────────────────────────
 
@@ -584,14 +678,20 @@ class _CampaignInstance:
         call_kwargs: dict,
     ) -> asyncio.Future:
         """Register ``body`` as an AsyncFlow block for workflow ``wf_id`` and start it."""
-        ctx = getattr(self._flow, "_workflow_id_ctx", None)
+        # _fut_box lets _block read its own future after registration
+        # completes.  asyncflow sets block_fut.block["uid"] inside
+        # async_wrapper (asynchronously), but that attribute is guaranteed to
+        # be present by the time execute_block calls _block, because asyncflow
+        # reads block_uid = block_fut.block["uid"] at line 1580 itself.
+        _fut_box: list = [None]
 
         async def _block(*a, **kw):
-            # Tasks registered inside the block are tagged with the block's
-            # uid; map it to this workflow for task-level accounting.
-            tag = ctx.get() if ctx is not None else None
-            if tag:
-                self._wf_tags[tag] = wf_id
+            f = _fut_box[0]
+            if f is not None:
+                block_uid = getattr(f, "block", {}).get("uid")
+                if block_uid:
+                    self._wf_tags[block_uid] = wf_id
+                    logger.debug("[BLOCK-TAG] wf=%s block_uid=%s", wf_id, block_uid)
             try:
                 return await body(*a, **kw)
             finally:
@@ -600,7 +700,8 @@ class _CampaignInstance:
         _block.__name__ = body.__name__
         _block.__qualname__ = body.__qualname__
         registered = self._flow.block(_block)
-        return registered(*call_args, workflow_id=wf_id, **call_kwargs)
+        _fut_box[0] = registered(*call_args, workflow_id=wf_id, **call_kwargs)
+        return _fut_box[0]
 
     @staticmethod
     def _wrap_cmd(launch_cmd: list[str], env: dict[str, str]) -> str:
@@ -632,9 +733,10 @@ class _CampaignInstance:
             request=request,
         )
         self._active[wf_id] = inst
-        # Until it finishes, the workflow counts against the campaign's spending
-        # limit with its full declared_spending (conservative estimate).
-        self._allocator.set_in_flight(self.name, wf_id, inst.declared_spending)
+        # Use learned cost estimate for in-flight tracking once enough completions
+        # exist; falls back to declared_spending before min_samples threshold (B3).
+        in_flight_est = self._learned_cost(request.workflow_type, inst.declared_spending)
+        self._allocator.set_in_flight(self.name, wf_id, in_flight_est)
         self._instances_run += 1
 
         self._flow._emit(
@@ -724,7 +826,32 @@ class _CampaignInstance:
             # in flight are recorded when they arrive.
             if _inst.wf_id not in self._task_level:
                 self._allocator.record(self.name, contribution)
+            # Update per-type cost model with actual spending (B3).
+            if contribution:
+                self._update_type_cost(_inst.workflow_type, contribution)
 
+            if _inst.wf_id in self._task_level:
+                actual_spent = dict(self._task_usage[_inst.wf_id])
+                spend_method = "exact"
+                spend_source = "task_telemetry"
+            else:
+                actual_spent = contribution
+                if any(final_metrics.get(k) is not None for k in ("cpu_hours", "gpu_hours")):
+                    spend_method = "exact"
+                    spend_source = "wf_reported"
+                elif contribution:
+                    spend_method = "estimated"
+                    spend_source = "wall_proration"
+                else:
+                    spend_method = "none"
+                    spend_source = "no_declared_spending"
+            logger.info(
+                "[SPEND] wf_done  wf=%s  method=%s  source=%s  cpu_h=%.4f  gpu_h=%.4f  wall_s=%.1f  rc=%s",
+                _inst.wf_id, spend_method, spend_source,
+                actual_spent.get("cpu_hours", 0.0),
+                actual_spent.get("gpu_hours", 0.0),
+                wall, rc,
+            )
             result = WorkflowResult(
                 workflow_id=_inst.wf_id,
                 workflow_type=_inst.workflow_type,
@@ -733,6 +860,7 @@ class _CampaignInstance:
                 final_metrics=final_metrics,
                 resource_profile=resource_profile,
                 final_score=final_score,
+                spent=actual_spent,
             )
 
             if self.spec.data_backend is not None:
@@ -832,6 +960,7 @@ class _CampaignInstance:
             queue=queue_records,
             active=active_records,
             paused_wf_ids=[],   # populated by caller when needed
+            dep_satisfied=list(self._dep_satisfied),
             spent=self._allocator.spent(self.name),
             instances_run=self._instances_run,
             completed=self._completed,
@@ -863,6 +992,10 @@ class _CampaignInstance:
         restart from scratch).
         Counters and spent are restored so the summary log is accurate.
         """
+        # Restore DAG unlock state BEFORE re-pushing queued requests so that
+        # enqueue() admits requests for already-satisfied targets immediately.
+        self._dep_satisfied.update(ckpt.dep_satisfied)
+
         # Restore counters
         self._instances_run = ckpt.instances_run
         self._completed = ckpt.completed
@@ -910,6 +1043,7 @@ class _CampaignInstance:
     # ── Scheduler loop ───────────────────────────────────────────────────────
 
     async def _scheduler_loop(self) -> None:
+        _idle_since: float | None = None
         while not self._done:
             self._slot_event.clear()
             await self._drain_queue()
@@ -917,6 +1051,20 @@ class _CampaignInstance:
                     and self._spending_limit_reached() and not self._done):
                 await self._shutdown(reason="spending_limit")
                 return
+            # Exit when the campaign is idle: queue empty, nothing running, no
+            # pending DAG requests, and at least one policy cycle has run (so the
+            # controller had a chance to add new requests before we give up).
+            no_pending = not any(self._dep_pending.values())
+            if not self._queue and not self._active and no_pending and self._policy_cycles > 0:
+                if _idle_since is None:
+                    _idle_since = time.time()
+                elif not self._done and (
+                    time.time() - _idle_since >= max(5.0, self.spec.policy_interval_s)
+                ):
+                    await self._shutdown(reason="campaign_idle")
+                    return
+            else:
+                _idle_since = None
             try:
                 await asyncio.wait_for(self._slot_event.wait(), timeout=2.0)
             except asyncio.TimeoutError:
@@ -1008,6 +1156,7 @@ class _CampaignInstance:
                 history=list(self._history),
                 policy_cycles=self._policy_cycles,
                 campaign_name=self.name,
+                budget_remaining_fraction=1.0 - self._allocator.spending_fraction(self.name),
             )
             selected = self._policy.select(normal, ctx)
             for req in selected:
@@ -1105,7 +1254,7 @@ class _CampaignInstance:
                 cpu_s = float(report.metrics.get("cpu_seconds", wall_s))
                 gpu_s = report.metrics.get("gpu_seconds")
                 # Prefer workflow-reported node_id over asyncflow TaskStarted event.
-                # Normalize: workflow may report FQDN ("cn106.delta.ncsa.illinois.edu")
+                # Normalize: workflow may report FQDN ("cn106.hpc.example.edu")
                 # while node_resources keys use "{backend}/{short}" ("dragon/cn106").
                 # Match by short hostname so the formats align.
                 reported_node = report.metrics.get("node_id")
@@ -1129,6 +1278,27 @@ class _CampaignInstance:
                     if key in decl:
                         consumption[key] = decl[key] * ratio
             running_consumption[wf_id] = consumption
+
+            # Live in-flight update for non-R1 workflows.  R1 workflows already
+            # update the ledger per task in _on_task_event; skip them here.
+            if wf_id not in self._task_level:
+                remaining: dict[str, float] = {}
+                # Path 1: workflow reported cumulative cpu/gpu hours — use as floor.
+                if report is not None and report.metrics:
+                    for key in ("cpu_hours", "gpu_hours"):
+                        if key in decl:
+                            reported_val = float(report.metrics.get(key) or 0.0)
+                            remaining[key] = max(0.0, decl[key] - reported_val)
+                # Path 2: prorate remaining by wall time when no live report.
+                if not remaining and decl_wall_h > 0:
+                    remaining_frac = max(0.0, 1.0 - elapsed_h / decl_wall_h)
+                    remaining = {
+                        k: decl[k] * remaining_frac
+                        for k in ("cpu_hours", "gpu_hours")
+                        if k in decl
+                    }
+                if remaining:
+                    self._allocator.set_in_flight(self.name, wf_id, remaining)
 
         return TelemetrySnapshot(
             running_wall_s=running_wall_s,
@@ -1209,6 +1379,21 @@ class _CampaignInstance:
             f"launches={len(result.launch_requests)} "
             f"terminate={result.terminate}"
         )
+        bv = self._allocator.campaign_view(self.name)
+        spent = bv.get("spent", {})
+        in_flight = bv.get("in_flight", {})
+        frac = self._allocator.spending_fraction(self.name)
+        if spent or in_flight:
+            logger.info(
+                "[SPEND] campaign=%s  spent_cpu_h=%.4f  spent_gpu_h=%.4f"
+                "  in_flight_cpu_h=%.4f  in_flight_gpu_h=%.4f  budget_used=%.1f%%",
+                self.name,
+                spent.get("cpu_hours", 0.0),
+                spent.get("gpu_hours", 0.0),
+                in_flight.get("cpu_hours", 0.0),
+                in_flight.get("gpu_hours", 0.0),
+                frac * 100,
+            )
 
         for wf_id, decision in result.decisions.items():
             inst = self._active.get(wf_id)
@@ -1324,6 +1509,9 @@ class _CampaignInstance:
                 logger.warning(
                     f"[CM] {self.name}: instances did not exit within {timeout}s"
                 )
+            # asyncio schedules done-callbacks via call_soon; yield once so they
+            # fire before _save_checkpoint() reads the counters they update.
+            await asyncio.sleep(0)
 
         # The campaign stays open in the ledger until CampaignManager closes it
         # (after building the CampaignOutcome); running estimates are dropped.

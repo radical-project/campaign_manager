@@ -7,7 +7,7 @@
 # Parallel driver: submits all 4 campaigns at once, runs 2 at a time.
 
 engine: concurrent
-verbose: false
+verbose: true
 
 driver:
   num_campaigns: 4

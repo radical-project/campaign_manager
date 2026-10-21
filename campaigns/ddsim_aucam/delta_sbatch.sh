@@ -2,31 +2,14 @@
 #
 # DDSim AuCaM Campaign — Delta HPC
 #
-# ENGINE controls the execution backend:
-#   ENGINE=dragon      Dragon single-node (default) — CPU partition
-#   ENGINE=concurrent  Plain asyncio                — GPU partition recommended
-#
-# Usage — CPU / Dragon (default):
-#   export WORK_DIR=/work/nvme/bdyk/$USER
+# Usage:
+#   export WORK_DIR=<your_work_dir>
+#   export SBATCH_ACCOUNT=<project>-delta-gpu   # or -delta-cpu for Dragon/CPU
 #   mkdir -p $WORK_DIR/campaign_manager/campaigns/ddsim_aucam/logs
-#   sbatch --account=bblj-delta-cpu campaigns/ddsim_aucam/delta_sbatch.sh
+#   sbatch campaigns/ddsim_aucam/delta_sbatch.sh
 #
-# Usage — GPU / concurrent:
-#   ENGINE=concurrent \
-#   sbatch --account=bblj-delta-gpu \
-#          --partition=gpuA100x4    \
-#          --gpus-per-node=1        \
-#          --cpus-per-task=16       \
-#          campaigns/ddsim_aucam/delta_sbatch.sh
-#
-# Optional env overrides (all engines):
-#   TELEMETRY_DIR=<path>
-#   GLOBAL_CONFIG=<path>
-#   CAMPAIGN_CONFIG=<path>
-#
-# All other run parameters (num_campaigns, max_concurrent, spending, goal_n, …)
-# live in the YAML configs — edit campaign_configs/global_hpc.yaml and
-# campaign_configs/campaign_hpc.yaml instead.
+# ENGINE=dragon (default) uses CPU partition; ENGINE=concurrent uses GPU.
+# Run parameters live in campaign_configs/global_hpc.yaml + campaign_hpc.yaml.
 #
 #SBATCH --partition=gpuA100x4
 #SBATCH --nodes=1
@@ -39,11 +22,6 @@
 #SBATCH --mail-type=ALL
 #SBATCH --output=logs/ddsim_%j.out
 #SBATCH --error=logs/ddsim_%j.err
-#
-# Dragon/CPU override:
-#   sbatch --partition=cpu --account=bblj-delta-cpu \
-#          --cpus-per-task=64 --no-requeue --exclusive \
-#          delta_sbatch.sh
 
 set -euo pipefail
 
@@ -64,7 +42,7 @@ echo "ENGINE   : ${ENGINE}"
 
 if [ -z "${WORK_DIR:-}" ]; then
     echo "ERROR: WORK_DIR is not set."
-    echo "       export WORK_DIR=/work/nvme/bdyk/\$USER && sbatch ..."
+    echo "       export WORK_DIR=<your_work_dir> && sbatch ..."
     exit 1
 fi
 

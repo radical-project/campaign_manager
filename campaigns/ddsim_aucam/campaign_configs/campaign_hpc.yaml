@@ -7,14 +7,16 @@
 # Estimated runtime per replica (1× A100, concurrent backend):
 #   fast: total_num_sim=20, num_step=1 000  →  ~15–30 min
 #   slow: total_num_sim=20, num_step=3 000  →  ~45–90 min
-# With goal_n=6 and max_concurrent=2, expect ~1–3 h per campaign.
+# With goal_n=6 and max_concurrent=1 (bandit demo), expect ~1–3 h per campaign.
+# The bandit requires max_concurrent=1 so it selects between arms each cycle;
+# with max_concurrent=2 both arms always fill both slots (no competition).
 
 controller:
   goal_n: 6
   score_ceiling: 0.95
 
 budget:
-  max_concurrent: 2
+  max_concurrent: 1
   max_concurrency_per_workflow: 1
   spending:
     cpu_hours: 0.25       # ~6 completions at ~120–220 s each; 0 or remove to disable

@@ -278,6 +278,8 @@ CampaignBudget(
 
 ### How spending is computed
 
+> Full accounting reference (all paths, ledger, log lines, pending work): `docs/budget.md`.
+
 Spending for a completed workflow is settled in priority order:
 
 1. **Workflow-reported** — the workflow emitted `cpu_hours` or `gpu_hours` directly via `reporter.emit(metrics={"gpu_hours": 0.04})`.  Most accurate for multi-stage workflows where GPU use is a fraction of wall time.

@@ -236,9 +236,8 @@ def test_workflow_result_resource_profile_default_empty():
 # ── Path 2 against the real telemetry JSONL (skipped if file absent) ─────────
 
 REAL_JSONL = Path(
-    f"/work/nvme/bdyk/{os.environ.get('USER', 'USER')}/campaign_manager/campaigns/dummy_campaign/aucam-tel/"
-    "asyncflow.session.18d8a0d3.1791314905.telemetry.jsonl"
-)
+    os.environ.get("WORK_DIR", str(Path.home()))
+) / "campaign_manager/campaigns/dummy_campaign/aucam-tel/asyncflow.session.18d8a0d3.1791314905.telemetry.jsonl"
 
 
 @pytest.mark.skipif(not REAL_JSONL.exists(), reason="real JSONL not present")
@@ -257,10 +256,7 @@ def test_path2_real_telemetry():
     assert prof, "expected non-empty profile from real JSONL"
     assert prof["n_samples"] == 4
     assert prof["cpu_percent_avg"] == pytest.approx((53.1 + 59.6 + 59.3 + 52.9) / 4, abs=0.1)
-    assert set(prof["nodes"]) == {
-        "cn069.delta.ncsa.illinois.edu",
-        "cn085.delta.ncsa.illinois.edu",
-    }
+    assert len(prof["nodes"]) == 2
     assert spending["cpu_hours"] > 0
     print(f"\nReal JSONL profile: {prof}")
     print(f"Spending: {spending}")

@@ -27,8 +27,6 @@ from __future__ import annotations
 
 import threading
 
-# Dimensions accounted for workflow in-flight estimates.
-_SPEND_KEYS = ("cpu_hours", "gpu_hours")
 
 
 def _add(into: dict[str, float], usage: dict[str, float]) -> None:
@@ -104,7 +102,7 @@ class BudgetAllocator:
         with self._lock:
             if campaign not in self._limits:
                 return
-            est = {k: float(estimate[k]) for k in _SPEND_KEYS if estimate.get(k)}
+            est = {k: float(v) for k, v in estimate.items() if v and k != "wall_hours"}
             self._in_flight[campaign][wf_id] = est
 
     def clear_in_flight(self, campaign: str, wf_id: str) -> None:
@@ -180,6 +178,27 @@ class BudgetAllocator:
         with self._lock:
             return self._committed_locked(key, exclude)
 
+    def spending_fraction(self, campaign: str) -> float:
+        """Fraction of budget consumed: max over all limit dimensions of
+        (spent + in_flight) / limit.  Returns 0.0 when no limits are set,
+        clamped to [0, 1].
+        """
+        with self._lock:
+            limits = self._limits.get(campaign, {})
+            if not limits:
+                return 0.0
+            spent = self._spent.get(campaign, {})
+            live: dict[str, float] = {}
+            for est in self._in_flight.get(campaign, {}).values():
+                _add(live, est)
+            max_frac = 0.0
+            for key, limit in limits.items():
+                if limit <= 0:
+                    continue
+                used = spent.get(key, 0.0) + live.get(key, 0.0)
+                max_frac = max(max_frac, used / limit)
+            return min(1.0, max_frac)
+
     def global_remaining(self, key: str, cap: float) -> float:
         """cap − global spent − committed, for one dimension."""
         with self._lock:
@@ -190,17 +209,30 @@ class BudgetAllocator:
         ``budget`` observation (controllers do not see other campaigns)::
 
             {"limits": {...}, "spent": {...}, "in_flight": {...},
-             "global_spent": {...}}
+             "global_spent": {...},
+             "burn": {dim: {"remaining": float, "fraction_left": float}}}
         """
         with self._lock:
             live: dict[str, float] = {}
             for est in self._in_flight.get(campaign, {}).values():
                 _add(live, est)
+            limits = dict(self._limits.get(campaign, {}))
+            spent = dict(self._spent.get(campaign, {}))
+            burn: dict[str, dict[str, float]] = {}
+            for key, limit in limits.items():
+                if limit > 0:
+                    used = spent.get(key, 0.0) + live.get(key, 0.0)
+                    remaining = max(0.0, limit - used)
+                    burn[key] = {
+                        "remaining": remaining,
+                        "fraction_left": remaining / limit,
+                    }
             return {
-                "limits": dict(self._limits.get(campaign, {})),
-                "spent": dict(self._spent.get(campaign, {})),
+                "limits": limits,
+                "spent": spent,
                 "in_flight": live,
                 "global_spent": dict(self._global_spent),
+                "burn": burn,
             }
 
     def snapshot(self) -> dict:
