@@ -422,7 +422,7 @@ class _CampaignInstance:
 
         Live path: reads from the in-memory _event_log so the result is available
         immediately in _on_done, before the background JSONL writer has flushed.
-        Post-hoc path (compare_paths.py --post, or when event_log is absent):
+        Post-hoc path (when event_log is absent):
         reads from the settled JSONL file on disk.
         """
         # ── Live path: in-memory event log (always current, no flush race) ──────
