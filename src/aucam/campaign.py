@@ -142,12 +142,12 @@ def _correlate_events(
 
 
 def _wants_reporter(fn: Any) -> bool:
-    """Return True if fn's first positional parameter is named 'reporter'."""
+    """Return True if fn accepts a 'reporter' keyword argument (any position)."""
     try:
-        params = list(inspect.signature(fn).parameters.values())
-        return bool(params) and params[0].name == "reporter"
+        param = inspect.signature(fn).parameters.get("reporter")
     except (ValueError, TypeError):
         return False
+    return param is not None and param.kind is not inspect.Parameter.POSITIONAL_ONLY
 
 
 def _wants_flow(fn: Any) -> bool:
@@ -267,6 +267,9 @@ class _CampaignInstance:
         self._task_level: set[str] = set()
         self._task_usage: dict[str, dict[str, float]] = {}
         self._active_tasks: dict[str, dict] = {}
+        # Cost estimate set at launch (learned or declared, B3), per running
+        # workflow.  The in-flight estimate is always derived from it.
+        self._estimates: dict[str, dict[str, float]] = {}
         # Exit code of each finished command-line workflow's program.
         self._exit_codes: dict[str, int] = {}
 
@@ -552,9 +555,11 @@ class _CampaignInstance:
             charged[k] = charged.get(k, 0.0) + v
         inst = self._active.get(wf_id)
         if inst is not None:
+            # Charges are already in `spent`; in-flight is what is still expected.
+            est = self._estimates.get(wf_id, inst.declared_spending)
             remaining = {
-                k: max(0.0, inst.declared_spending.get(k, 0.0) - charged.get(k, 0.0))
-                for k in ("cpu_hours", "gpu_hours")
+                k: max(0.0, v - charged.get(k, 0.0))
+                for k, v in est.items() if k != "wall_hours"
             }
             self._allocator.set_in_flight(self.name, wf_id, remaining)
         frac = self._allocator.spending_fraction(self.name)
@@ -579,7 +584,7 @@ class _CampaignInstance:
         # Every workflow runs as one AsyncFlow block: the block is CM's unit of
         # launch, cancellation (cancelling it cancels every task inside) and
         # accounting (tasks registered inside it are tagged with the block uid,
-        # which _register_block_tag maps to this workflow).
+        # which _run_as_block maps to this workflow in _wf_tags).
         if wfc.block is not None:
             # Python workflow: the workflow function is the block body; its
             # compute steps are AsyncFlow tasks submitted from inside it.
@@ -593,8 +598,10 @@ class _CampaignInstance:
             # as arguments (never through the shared process environment):
             # the WorkflowReporter (bound to wf_id and the DataBackend),
             # flow= (the shared engine) and context= (LaunchRequest.context).
-            call_args = (reporter,) if reporter is not None else ()
+            call_args: tuple = ()
             call_kwargs: dict[str, Any] = {}
+            if reporter is not None:
+                call_kwargs["reporter"] = reporter
             if _wants_flow(block_fn):
                 call_kwargs["flow"] = self._flow
             if _wants_context(block_fn):
@@ -681,8 +688,8 @@ class _CampaignInstance:
         # _fut_box lets _block read its own future after registration
         # completes.  asyncflow sets block_fut.block["uid"] inside
         # async_wrapper (asynchronously), but that attribute is guaranteed to
-        # be present by the time execute_block calls _block, because asyncflow
-        # reads block_uid = block_fut.block["uid"] at line 1580 itself.
+        # be present by the time execute_block calls _block, because asyncflow's
+        # execute_block reads block_fut.block["uid"] itself before calling it.
         _fut_box: list = [None]
 
         async def _block(*a, **kw):
@@ -736,6 +743,7 @@ class _CampaignInstance:
         # Use learned cost estimate for in-flight tracking once enough completions
         # exist; falls back to declared_spending before min_samples threshold (B3).
         in_flight_est = self._learned_cost(request.workflow_type, inst.declared_spending)
+        self._estimates[wf_id] = in_flight_est
         self._allocator.set_in_flight(self.name, wf_id, in_flight_est)
         self._instances_run += 1
 
@@ -826,12 +834,13 @@ class _CampaignInstance:
             # in flight are recorded when they arrive.
             if _inst.wf_id not in self._task_level:
                 self._allocator.record(self.name, contribution)
-            # Update per-type cost model with actual spending (B3).
-            if contribution:
-                self._update_type_cost(_inst.workflow_type, contribution)
+            self._estimates.pop(_inst.wf_id, None)
 
             if _inst.wf_id in self._task_level:
-                actual_spent = dict(self._task_usage[_inst.wf_id])
+                # .get(): a workflow can be marked task-level (TaskCreated) and
+                # end before any task was charged (cancelled mid-task, zero
+                # duration, or end events still in flight).
+                actual_spent = dict(self._task_usage.get(_inst.wf_id, {}))
                 spend_method = "exact"
                 spend_source = "task_telemetry"
             else:
@@ -845,6 +854,10 @@ class _CampaignInstance:
                 else:
                     spend_method = "none"
                     spend_source = "no_declared_spending"
+            # Update the per-type cost model (B3) from successful runs only:
+            # cancelled and failed runs are partial and would bias the mean.
+            if rc == 0 and actual_spent:
+                self._update_type_cost(_inst.workflow_type, actual_spent)
             logger.info(
                 "[SPEND] wf_done  wf=%s  method=%s  source=%s  cpu_h=%.4f  gpu_h=%.4f  wall_s=%.1f  rc=%s",
                 _inst.wf_id, spend_method, spend_source,
@@ -1051,16 +1064,17 @@ class _CampaignInstance:
                     and self._spending_limit_reached() and not self._done):
                 await self._shutdown(reason="spending_limit")
                 return
-            # Exit when the campaign is idle: queue empty, nothing running, no
-            # pending DAG requests, and at least one policy cycle has run (so the
-            # controller had a chance to add new requests before we give up).
+            # Exit when the campaign is idle (CampaignSpec.idle_exit_s): queue
+            # empty, nothing running, no pending DAG requests, and at least one
+            # policy cycle has run (so the controller had a chance to add new
+            # requests before we give up).
+            idle_after = self.spec.idle_exit_after()
             no_pending = not any(self._dep_pending.values())
-            if not self._queue and not self._active and no_pending and self._policy_cycles > 0:
+            if (idle_after is not None and not self._queue and not self._active
+                    and no_pending and self._policy_cycles > 0):
                 if _idle_since is None:
                     _idle_since = time.time()
-                elif not self._done and (
-                    time.time() - _idle_since >= max(5.0, self.spec.policy_interval_s)
-                ):
+                elif not self._done and time.time() - _idle_since >= idle_after:
                     await self._shutdown(reason="campaign_idle")
                     return
             else:
@@ -1279,26 +1293,25 @@ class _CampaignInstance:
                         consumption[key] = decl[key] * ratio
             running_consumption[wf_id] = consumption
 
-            # Live in-flight update for non-R1 workflows.  R1 workflows already
-            # update the ledger per task in _on_task_event; skip them here.
+            # Live in-flight update for workflows not charged per task (those
+            # update the ledger per task in _on_task_event and are skipped here).
+            # These workflows are charged only when they finish, so nothing of
+            # theirs is in `spent` yet: in-flight must hold their full expected
+            # cost (consumed so far + still to come), never less than the launch
+            # estimate.  It grows when a workflow reports, or runs, beyond it.
             if wf_id not in self._task_level:
-                remaining: dict[str, float] = {}
-                # Path 1: workflow reported cumulative cpu/gpu hours — use as floor.
-                if report is not None and report.metrics:
-                    for key in ("cpu_hours", "gpu_hours"):
-                        if key in decl:
-                            reported_val = float(report.metrics.get(key) or 0.0)
-                            remaining[key] = max(0.0, decl[key] - reported_val)
-                # Path 2: prorate remaining by wall time when no live report.
-                if not remaining and decl_wall_h > 0:
-                    remaining_frac = max(0.0, 1.0 - elapsed_h / decl_wall_h)
-                    remaining = {
-                        k: decl[k] * remaining_frac
-                        for k in ("cpu_hours", "gpu_hours")
-                        if k in decl
-                    }
-                if remaining:
-                    self._allocator.set_in_flight(self.name, wf_id, remaining)
+                est = self._estimates.get(wf_id, decl)
+                expected = {k: v for k, v in est.items() if k != "wall_hours"}
+                metrics = report.metrics if report is not None and report.metrics else {}
+                overrun = (wall_s / 3600.0) / decl_wall_h if decl_wall_h > 0 else 0.0
+                for key, base in list(expected.items()):
+                    reported_val = metrics.get(key)
+                    if reported_val is not None:
+                        expected[key] = max(base, float(reported_val))
+                    elif overrun > 1.0:
+                        expected[key] = base * overrun
+                if expected:
+                    self._allocator.set_in_flight(self.name, wf_id, expected)
 
         return TelemetrySnapshot(
             running_wall_s=running_wall_s,

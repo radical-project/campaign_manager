@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
 """
-AuCaM feature impact demo — three features in one run, visible across 6 campaigns.
+AuCaM capability demo — what AuCaM adds over launching workflows by hand.
 
-  1. Cancellation  — slow_poor killed mid-run, saving CPU-seconds
-  2. Bandit        — arm selection shifts from explore (50/50) to exploit (fast_good)
-  3. Backpressure  — slow_poor fills the 4-CPU pool, blocking others;
-                     fades as bandit learns to avoid it
+One driver runs two campaigns in sequence:
 
-Workflow types
-  fast_good  1 CPU unit · 1.5 s wall · score 0.75–0.95 (reliable)
-  slow_poor  4 CPU units · 5 s wall  · score trends down → cancelled at ~3 s
+  Campaign 1 "explore" — two workflow types compete for one workflow slot:
+      fast_good  1 CPU · 1.5 s · score 0.75–0.95, completes
+      slow_poor  4 CPU · 5 s   · score drifts down → cancelled at ~3 s
+    Shows:
+      1. Cancellation — the controller's CancelRule stops slow_poor runs whose
+         score falls below a floor, so they never use their full cost.
+      2. Bandit scheduling — the campaign's UCB1 bandit tries both types,
+         learns that slow_poor never completes, and launches it less and less.
+      3. Spending accounting — every run is charged in AuCaM's ledger
+         (prorated cpu_hours), reported back in CampaignOutcome.spent.
 
-Budget pool = 4 CPU units.  6 sequential campaigns, each with its own bandit
-(campaigns do not share learned state).  Per-campaign metrics are written to
-JSON for plotting.
+  Campaign 2 "follow-up" — the driver reads campaign 1's CampaignOutcome
+    (completions, cancellations, spending, the controller's summary), drops
+    workflow types that never completed, and submits a new campaign.
+      4. Driver feedback loop — results flow back to the driver, which plans
+         the next campaign.
 
 Run:
     cd $WORK_DIR/campaign_manager
     python campaigns/demo_campaign/run_impact.py --json-out /tmp/impact_run.json
+    python campaigns/demo_campaign/gen_impact_fig.py --json-in /tmp/impact_run.json
 """
 
 from __future__ import annotations
@@ -33,38 +40,36 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.aucam import (
+from src.aucam import (  # noqa: E402
+    BanditSchedulingPolicy,
     CampaignBudget,
     CampaignController,
     CampaignManager,
     CampaignSpec,
-    GlobalBudget,
-    SubmitResult,
     WorkflowConfig,
 )
-from src.aucam.controller import CancelRule, PolicyResult
-from src.aucam.reporter import WorkflowReporter
-from src.aucam.types import CampaignOutcome, WorkflowResult
-from src.aucam import BanditSchedulingPolicy
+from src.aucam.controller import CancelRule, PolicyResult  # noqa: E402
+from src.aucam.reporter import WorkflowReporter  # noqa: E402
+from src.aucam.types import CampaignOutcome, WorkflowResult  # noqa: E402
 
 # ── Parameters ─────────────────────────────────────────────────────────────────
 FAST_WALL_S       = 1.5
 SLOW_WALL_S       = 5.0
 FAST_CPU          = 1.0
 SLOW_CPU          = 4.0
-CPU_POOL          = 4.0
 CANCEL_FLOOR      = 0.30
-GOAL_N            = 5       # fast_good completions per campaign
-N_CAMPAIGNS       = 8
+GOAL_N            = 20      # fast_good completions per campaign
 POLICY_INTERVAL_S = 0.5
-MAX_CONCURRENT    = 1
+EXPLORATION       = 2.0     # UCB1 exploration weight
+SEED              = 7
 
 
-def _declared(cpu_units: float) -> dict[str, float]:
-    return {"wall_hours": 1.0, "cpu_hours": cpu_units}
+def _declared(cpu: float, wall_s: float) -> dict[str, float]:
+    """Expected cost of one run: cpu CPUs for wall_s seconds."""
+    return {"wall_hours": wall_s / 3600.0, "cpu_hours": cpu * wall_s / 3600.0}
 
 
-# ── Workflow blocks ────────────────────────────────────────────────────────────
+# ── Workflows ──────────────────────────────────────────────────────────────────
 
 async def fast_good(reporter: WorkflowReporter) -> None:
     score = random.uniform(0.75, 0.95)
@@ -72,146 +77,88 @@ async def fast_good(reporter: WorkflowReporter) -> None:
     for i in range(n_iter):
         await asyncio.sleep(FAST_WALL_S / n_iter)
         score = min(1.0, score + random.gauss(0.02, 0.04))
-        await reporter.emit(score=score, metrics={"score": round(score, 3)}, iteration=i)
+        await reporter.emit(score=score, iteration=i)
 
 
 async def slow_poor(reporter: WorkflowReporter) -> None:
-    # Score starts 0.30–0.45 and drifts down ~0.07 per step.
-    # Expected cancel at iteration 2 (t≈3 s): score ~0.16–0.31 → below floor.
+    # Score drifts down; expected cancel at iteration 2 (t≈3 s).
     score = random.uniform(0.30, 0.45)
     n_iter = 5
     for i in range(n_iter):
         await asyncio.sleep(SLOW_WALL_S / n_iter)
         score = max(0.0, score + random.gauss(-0.07, 0.03))
-        await reporter.emit(score=score, metrics={"score": round(score, 3)}, iteration=i)
+        await reporter.emit(score=score, iteration=i)
+
+
+WORKFLOWS = {
+    "fast_good": WorkflowConfig(name="fast_good", block=fast_good,
+                                declared_spending=_declared(FAST_CPU, FAST_WALL_S)),
+    "slow_poor": WorkflowConfig(name="slow_poor", block=slow_poor,
+                                declared_spending=_declared(SLOW_CPU, SLOW_WALL_S)),
+}
 
 
 # ── Controller ─────────────────────────────────────────────────────────────────
 
-class ImpactController(CampaignController):
-    """
-    Tracks three per-campaign metrics:
-      launches      — how many of each type were actually requested (enqueued)
-      cancel_events — wall time and CPU saved for each cancelled slow_poor run
-      bp_cycles     — scheduler cycles where only slow_poor active + queue > 0
-    """
+class DemoController(CampaignController):
+    """Keeps one request of each type queued, cancels low-scoring slow_poor
+    runs, and stops after GOAL_N fast_good completions.  Records every finished
+    workflow for the figure and returns per-type statistics to the driver."""
 
-    def __init__(self, name: str = "") -> None:
+    def __init__(self, types: list[str]) -> None:
         super().__init__(
-            launch=["fast_good", "slow_poor"],
+            launch=types,
             goal_type="fast_good",
             goal_n=GOAL_N,
-            rules=[
-                CancelRule(
-                    workflow_type="slow_poor",
-                    when=lambda r: (
-                        r.iteration >= 2
-                        and r.score is not None
-                        and r.score < CANCEL_FLOOR
-                    ),
-                ),
-            ],
+            rules=[CancelRule(
+                workflow_type="slow_poor",
+                when=lambda r: (r.iteration >= 2 and r.score is not None
+                                and r.score < CANCEL_FLOOR),
+            )],
         )
-        self._name      = name
-        self.launches:      dict[str, int] = {}
-        self.cancel_events: list[dict]     = []
-        self.bp_cycles:     int            = 0
-        self.cycle_log:     list[dict]     = []
-        self._cycle:        int            = 0
+        self.t0 = time.monotonic()
+        self.runs: list[dict] = []
+
+    def decide(self, obs: dict) -> PolicyResult:
+        return super().decide(obs)
 
     def on_complete(self, result: WorkflowResult) -> None:
         super().on_complete(result)
-        if result.workflow_type == "slow_poor" and result.returncode == -1:
-            saved = max(0.0, SLOW_WALL_S - result.wall_time_s)
-            self.cancel_events.append({
-                "actual_s":    round(result.wall_time_s, 2),
-                "expected_s":  SLOW_WALL_S,
-                "saved_cpu_s": round(saved * SLOW_CPU, 2),
-            })
-
-    def decide(self, obs: dict) -> PolicyResult:
-        self._cycle += 1
-        result = super().decide(obs)
-
-        for req in result.launch_requests:
-            t = req.workflow_type
-            self.launches[t] = self.launches.get(t, 0) + 1
-
-        live   = obs.get("live_reports", {})
-        types  = obs.get("wf_types", {})
-        q      = obs.get("queue_snapshot")
-        budget = obs.get("budget", {})
-
-        active_types = {types.get(wid) for wid in live}
-        q_total      = sum(q.by_type.values()) if q else 0
-        in_flight    = budget.get("in_flight", {}) if isinstance(budget, dict) else {}
-        cpu_used     = in_flight.get("cpu_hours", 0.0)   # estimate of running workflows
-
-        only_slow = active_types == {"slow_poor"}
-        bp        = only_slow and q_total > 0
-        if bp:
-            self.bp_cycles += 1
-
-        self.cycle_log.append({
-            "campaign":    self._name,
-            "cycle":       self._cycle,
-            "fast_active": sum(1 for wid in live if types.get(wid) == "fast_good"),
-            "slow_active": sum(1 for wid in live if types.get(wid) == "slow_poor"),
-            "queued":      q_total,
-            "cpu_used":    round(min(cpu_used, CPU_POOL), 2),
-            "backpressure": bp,
+        self.runs.append({
+            "type":     result.workflow_type,
+            "rc":       result.returncode,
+            "wall_s":   round(result.wall_time_s, 2),
+            "end_s":    round(time.monotonic() - self.t0, 2),
+            "cpu_s":    round(result.spent.get("cpu_hours", 0.0) * 3600.0, 2),
+            "score":    result.final_score,
         })
-        return result
 
     def get_summary(self) -> dict:
-        return {
-            "launches":      dict(self.launches),
-            "cancel_events": self.cancel_events,
-            "bp_cycles":     self.bp_cycles,
-            "bp_s":          round(self.bp_cycles * POLICY_INTERVAL_S, 2),
-            "cpu_saved":     round(sum(e["saved_cpu_s"] for e in self.cancel_events), 2),
-        }
+        """Returned to the driver in CampaignOutcome.summary."""
+        by_type: dict[str, dict] = {}
+        for r in self.runs:
+            s = by_type.setdefault(r["type"], {"runs": 0, "completed": 0,
+                                               "cancelled": 0, "cpu_s": 0.0})
+            s["runs"] += 1
+            s["completed"] += r["rc"] == 0
+            s["cancelled"] += r["rc"] == -1
+            s["cpu_s"] = round(s["cpu_s"] + r["cpu_s"], 2)
+        return {"by_type": by_type, "runs": self.runs}
 
 
-# ── Bandit reward ──────────────────────────────────────────────────────────────
-
-def _score_reward(result: WorkflowResult) -> float:
-    """Binary: 1.0 for any completion, 0.0 for cancellation/failure.
-    Using binary (not score-based) here because: fast_good always completes
-    (reward=1.0), slow_poor always gets cancelled (reward=0.0).  The gap is
-    maximum and deterministic, giving a clean explore→exploit transition.
-    """
+def _reward(result: WorkflowResult) -> float:
+    """Bandit reward: 1 for a completed run, 0 for a cancelled or failed one."""
     return 1.0 if result.returncode == 0 else 0.0
 
 
-# ── Spec builder ───────────────────────────────────────────────────────────────
-
-def _build_spec(
-    name: str,
-    policy: BanditSchedulingPolicy,
-) -> tuple[CampaignSpec, ImpactController]:
-    ctrl = ImpactController(name=name)
+def _spec(name: str, types: list[str]) -> tuple[CampaignSpec, DemoController]:
+    ctrl = DemoController(types)
     spec = CampaignSpec(
         name=name,
-        workflows=[
-            WorkflowConfig(
-                name="fast_good",
-                block=fast_good,
-                declared_spending=_declared(FAST_CPU),
-            ),
-            WorkflowConfig(
-                name="slow_poor",
-                block=slow_poor,
-                declared_spending=_declared(SLOW_CPU),
-            ),
-        ],
+        workflows=[WORKFLOWS[t] for t in types],
         controller=ctrl,
-        budget=CampaignBudget(
-            max_concurrent_workflows=MAX_CONCURRENT,
-            max_concurrency_per_workflow=1,
-            spending={},
-        ),
-        scheduling_policy=policy,
+        budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
+        scheduling_policy=BanditSchedulingPolicy(reward_fn=_reward, exploration=EXPLORATION),
         policy_interval_s=POLICY_INTERVAL_S,
     )
     return spec, ctrl
@@ -219,126 +166,89 @@ def _build_spec(
 
 # ── Driver ─────────────────────────────────────────────────────────────────────
 
-async def _driver(
-    cm: CampaignManager,
-    n_campaigns: int,
-    all_campaigns: list,
-    all_cycles: list,
-) -> None:
-    for i in range(n_campaigns):
-        name = f"impact-{chr(ord('a') + i)}"
-        print(f"\n{'─'*56}\n  Campaign {i+1}/{n_campaigns}: {name}\n{'─'*56}")
-
-        # Each campaign gets its own bandit (no cross-campaign learning).
-        policy = BanditSchedulingPolicy(reward_fn=_score_reward, exploration=2.0)
-        spec, ctrl = _build_spec(name, policy)
-        sub: SubmitResult = await cm.submit(spec)
-        if not sub.accepted:
-            print(f"  REJECTED: {sub.reason}")
-            continue
-
-        outcome: CampaignOutcome = await sub.wait()
-        summary  = ctrl.get_summary()
-        arm_stats = policy.arm_stats()
-
-        all_cycles.extend(ctrl.cycle_log)
-        all_campaigns.append({
-            "name":          name,
-            "elapsed_s":     round(outcome.elapsed_s, 2),
-            "completed":     dict(outcome.completed),
-            "cancelled":     dict(outcome.cancelled),
-            "launches":      summary["launches"],
-            "cancel_events": summary["cancel_events"],
-            "bp_cycles":     summary["bp_cycles"],
-            "bp_s":          summary["bp_s"],
-            "cpu_saved":     summary["cpu_saved"],
-            "arm_stats":     {k: dict(v) for k, v in arm_stats.items()},
-        })
-
-        fast_done  = outcome.completed.get("fast_good", 0)
-        slow_cancel = outcome.cancelled.get("slow_poor", 0)
-        slow_done   = outcome.completed.get("slow_poor", 0)
-        print(
-            f"  elapsed={outcome.elapsed_s:.1f}s  "
-            f"fast_done={fast_done}  "
-            f"slow_cancelled={slow_cancel}  slow_done={slow_done}  "
-            f"cpu_saved={summary['cpu_saved']:.1f}  bp={summary['bp_s']:.1f}s"
-        )
-        arms_s = "  ".join(
-            f"{k}→{v['mean']:.3f}(n={int(v['n'])})"
-            for k, v in sorted(arm_stats.items())
-        )
-        print(f"  bandit: {arms_s}")
-
-        if i < n_campaigns - 1:
-            await asyncio.sleep(0.3)
-
-    cm.driver_done()
+def plan_next(outcome: CampaignOutcome) -> list[str]:
+    """Driver logic: keep the workflow types that completed at least once."""
+    by_type = outcome.summary.get("by_type", {})
+    return [t for t, s in by_type.items() if s["completed"] > 0]
 
 
-# ── Entry point ────────────────────────────────────────────────────────────────
+def _record(outcome: CampaignOutcome, types: list[str]) -> dict:
+    by_type = outcome.summary.get("by_type", {})
+    return {
+        "name":       outcome.campaign_name,
+        "types":      types,
+        "elapsed_s":  round(outcome.elapsed_s, 2),
+        "goal_reached": outcome.goal_reached,
+        "completed":  dict(outcome.completed),
+        "cancelled":  dict(outcome.cancelled),
+        "cpu_s":      round(outcome.spent.get("cpu_hours", 0.0) * 3600.0, 2),
+        "by_type":    by_type,
+        "runs":       outcome.summary.get("runs", []),
+    }
 
-async def run(n_campaigns: int, json_out: str | None) -> None:
-    cm = CampaignManager(global_budget=GlobalBudget(max_concurrent_campaigns=1))
+
+def _print(rec: dict) -> None:
+    print(f"  elapsed={rec['elapsed_s']:.1f}s  goal_reached={rec['goal_reached']}  "
+          f"cpu_spent={rec['cpu_s']:.1f} CPU·s")
+    for t, s in sorted(rec["by_type"].items()):
+        print(f"    {t:10s} runs={s['runs']:2d}  completed={s['completed']:2d}  "
+              f"cancelled={s['cancelled']:2d}  cpu={s['cpu_s']:.1f} CPU·s")
+
+
+async def driver(cm: CampaignManager, results: list) -> None:
+    try:
+        types = ["fast_good", "slow_poor"]
+        for name in ("explore", "follow-up"):
+            print(f"\n── Campaign {name}: types={types}")
+            spec, _ = _spec(name, types)
+            sub = await cm.submit(spec)
+            if not sub.accepted:
+                print(f"  rejected: {sub.reason}")
+                return
+            outcome = await sub.wait()
+            rec = _record(outcome, types)
+            results.append(rec)
+            _print(rec)
+            types = plan_next(outcome)
+            dropped = sorted(set(rec["types"]) - set(types))
+            if name == "explore":
+                print(f"  driver: dropping {dropped or 'nothing'} for the next campaign")
+    finally:
+        cm.driver_done()
+
+
+async def run(json_out: str | None) -> None:
+    random.seed(SEED)
+    cm = CampaignManager()
     cm.expect_driver()
-
-    all_campaigns: list = []
-    all_cycles:    list = []
-
-    driver_task = asyncio.ensure_future(
-        _driver(cm, n_campaigns, all_campaigns, all_cycles)
-    )
-
-    async def _closer() -> None:
-        try:
-            await driver_task
-        except Exception:
-            logging.exception("[DRIVER] raised")
-
-    asyncio.ensure_future(_closer())
-
+    results: list = []
     t0 = time.monotonic()
+    task = asyncio.ensure_future(driver(cm, results))
     await cm.run()
-    elapsed = time.monotonic() - t0
-
-    print(f"\n{'═'*56}")
-    print(f"  IMPACT DEMO — {n_campaigns} campaigns · {elapsed:.1f}s total")
-    print(f"{'═'*56}\n")
+    await task
+    print(f"\nTotal {time.monotonic() - t0:.1f}s")
 
     if json_out:
         payload = {
-            "campaigns": all_campaigns,
-            "cycles":    all_cycles,
+            "campaigns": results,
             "meta": {
-                "cpu_pool":       CPU_POOL,
-                "cancel_floor":   CANCEL_FLOOR,
-                "fast_wall_s":    FAST_WALL_S,
-                "slow_wall_s":    SLOW_WALL_S,
-                "fast_cpu":       FAST_CPU,
-                "slow_cpu":       SLOW_CPU,
-                "goal_n":         GOAL_N,
-                "n_campaigns":    n_campaigns,
-                "elapsed_s":      round(elapsed, 1),
+                "fast_wall_s": FAST_WALL_S, "slow_wall_s": SLOW_WALL_S,
+                "fast_cpu": FAST_CPU, "slow_cpu": SLOW_CPU,
+                "cancel_floor": CANCEL_FLOOR, "goal_n": GOAL_N,
+                "exploration": EXPLORATION,
             },
         }
         Path(json_out).write_text(json.dumps(payload, indent=2))
-        print(f"  JSON → {json_out}\n")
+        print(f"JSON → {json_out}")
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="AuCaM feature impact demo")
-    ap.add_argument("--campaigns", type=int, default=N_CAMPAIGNS,
-                    help=f"number of sequential campaigns (default {N_CAMPAIGNS})")
+    ap = argparse.ArgumentParser(description="AuCaM capability demo")
     ap.add_argument("--json-out", default=None, metavar="FILE",
-                    help="write structured run data as JSON for re-plotting")
+                    help="write run data as JSON for gen_impact_fig.py")
     ap.add_argument("-v", "--verbose", action="store_true",
-                    help="enable INFO-level CM and bandit logging")
+                    help="enable INFO-level AuCaM logging")
     args = ap.parse_args()
-
-    if args.verbose:
-        logging.basicConfig(level=logging.INFO,
-                            format="%(levelname)s  %(name)s  %(message)s")
-    else:
-        logging.basicConfig(level=logging.WARNING)
-
-    asyncio.run(run(args.campaigns, args.json_out))
+    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
+                        format="%(levelname)s  %(name)s  %(message)s")
+    asyncio.run(run(args.json_out))

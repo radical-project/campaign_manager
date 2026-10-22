@@ -1,155 +1,203 @@
-# AuCaM Architecture — Conceptual Overview
+# AuCaM architecture overview
 
-*For scientists and researchers who want to understand what AuCaM does without needing to read code.*
-
----
-
-## The problem AuCaM solves
-
-Running HPC simulations adaptively — stopping poor performers early, launching more of what's working, staying within resource budgets — normally requires writing custom orchestration scripts for every new project.  AuCaM replaces those scripts with a reusable policy engine.  The campaign defines what "success" looks like and what to do with intermediate results; AuCaM handles launching, monitoring, cancelling, and stopping.
+*What AuCaM does, how its parts fit together and why, without code. What is
+planned but not built yet is listed in [known gaps](known-gaps.md).*
 
 ---
 
-## Key concepts
+## The problem
 
-### Campaign
-
-A **campaign** is one coordinated scientific run toward a defined goal.  Examples:
-
-- Run protein-folding simulations until 50 high-confidence structures are found.
-- Run parameter sweeps until the best energy found stops improving.
-- Run MD trajectories, analyse each one immediately, stop after 20 passing analyses.
-
-A campaign has a name, a goal, a budget, and a set of workflow types it can run.
-
-### Workflow
-
-A **workflow** is a single unit of computation — one simulation, one analysis job, one scoring pass.  Workflows are the things that actually run on HPC nodes.  Multiple workflows run in parallel, up to the concurrency limits declared in the campaign budget.
-
-AuCaM recognises two kinds of workflow:
-
-- **Block workflow** (`block=`) — a Python async function dispatched to the Rhapsody backend via asyncflow.  Best for analysis, scoring, and computation written in Python.
-- **Subprocess workflow** (`launch_cmd=`) — an external command launched as an executable task.  Best for simulation codes that have their own binary or haven't been adapted to asyncflow.
-
-### Policy cycle
-
-Every few seconds (the *policy interval*) AuCaM asks the **campaign controller**: *"Here is what is running right now and what has finished — what should I do next?"*  The campaign controller returns a decision: launch more workflows, cancel underperforming ones, or declare that the goal is reached.
-
-This loop — **Observe → Decide → Act** — repeats until the campaign controller signals success.
+Adaptive HPC science means stopping poor runs early, launching more of what
+works and staying within an allocation. Usually every project writes its own
+scripts for that. AuCaM is a reusable manager for it: a campaign says what
+success looks like and how to react to results; AuCaM launches, watches,
+cancels and stops.
 
 ---
 
-## The components and how they relate
+## Concepts
 
-Think of AuCaM like a research management system.  Here is each piece in plain terms:
+| Term | Meaning |
+|---|---|
+| **Campaign** | One coordinated scientific effort toward a goal, e.g. "run folding simulations until 50 high-confidence structures are found". It has workflow types, decision logic and limits. |
+| **Workflow** | One unit of work that AuCaM launches and cancels: a simulation, an analysis, a scoring pass. Many run in parallel, up to the campaign's limits. |
+| **Driver** | The code that decides which campaigns to run. It submits campaigns and receives each campaign's outcome when it ends. |
+| **Controller** | A campaign's decision logic: which workflows to launch, which to cancel, when the goal is reached. |
+| **Policy cycle** | The controller's periodic step: observe the campaign, decide, act. It runs every `policy_interval_s` and whenever a workflow finishes. |
+| **Budget** | Spending limits (CPU-hours, GPU-hours or any other dimension, such as LLM tokens) per campaign and across all campaigns, plus limits on how many workflows run at once. |
 
-![AuCaM architecture diagram](figures/aucam-architecture.png)
-
-### Campaign Manager
-
-The top-level overseer.  It holds the **global budget** — the total cpu_hours, gpu_hours, or llm_tokens allowed across all campaigns in a session.  When the driver tries to start a new campaign, the Manager checks whether there is room; if the global budget is already exhausted by running and completed campaigns, it rejects the request with a reason.
-
-### Driver
-
-The driver is the experiment planner.  It is an async coroutine that decides *which* campaigns to submit and *when*.  It may submit campaigns sequentially (waiting for each `CampaignOutcome` before deciding what to run next) or concurrently (submitting several campaigns without waiting for earlier ones to finish).  Either way, a `CampaignOutcome` is available for each campaign once it completes; it includes how many workflows succeeded, how much budget was spent, and any scientific aggregates the controller chose to surface (like best score found).
-
-### Campaign Controller
-
-The controller is where the scientific policy lives.  A controller is written by subclassing `CampaignController` and implementing:
-
-- **Decide** — given what is running and what has finished, return: what to launch, what to cancel, and whether the goal is reached.
-- **On complete** — called after each workflow finishes; update internal state (e.g., accumulate scores).
-- **Is goal reached** — return True when the campaign should stop.
-- **Get summary** — return a dict of scientific results for the driver to inspect (best score, score distribution, etc.).
-
-AuCaM ships a base controller with declarative rules (`LaunchRule`, `CancelRule`) so simple policies need no code at all.
-
-### Queue
-
-The queue is the waiting list of work requests.  Each policy cycle the CM calls `controller.decide()`, which returns what to launch; the CM translates those decisions into `LaunchRequest` items in the queue.  Items have priorities (CRITICAL, HIGH, NORMAL, LOW) and age — requests that wait too long are automatically upgraded to HIGH priority so they don't get stuck.
-
-When the goal is reached, the queue is cleared immediately — no queued work starts after the goal is met.
-
-### Scheduler
-
-The scheduler decides *which* queued item to run next, subject to concurrency limits.  The default is a **UCB1 bandit** (Upper Confidence Bound — balances exploiting high-performing workflow types with exploring under-sampled ones) that learns, over time, which workflow types give better outcomes and gives them preferential slots.  Plain FIFO and an LLM-guided ranker are also available.
-
-### Budget
-
-> Full reference: `docs/budget.md`.
-
-Two levels of budget accounting run simultaneously:
-
-**Per-campaign budget** — limits how many workflows run at once (concurrency) and how much total resource a single campaign is allowed to consume (spending).  If a campaign hits its spending limit, it terminates gracefully.
-
-**Global budget** — limits total spending across *all* campaigns in a session.  Checked at admission time: before a campaign is allowed to start, the Manager verifies that its declared spending, combined with already-consumed and currently-running spending, does not exceed the cap.
-
-### Data backend
-
-Workflows communicate back to the controller through a **data backend** — a shared key-value store.  The choice depends on how the workflows are deployed:
-
-- **`LocalDictBackend`** — in-process Python dict; zero setup, used for local testing and CI.
-- **`RadexDragonBackend`** — communicates via [radex](https://github.com/…/radex) `DragonClient` over Dragon's distributed dictionary (DDict); used for multi-node HPC runs under Dragon/SLURM.
-- **`RhapsodyRedisBackend`** — communicates via `redis-py` over a Redis instance launched by Rhapsody's `RedisDataBackend`; used when Dragon is unavailable or for cross-cluster deployments.
-
-The backend is selected via the `data_backend` field in `GlobalConfig` (see [Config quick reference](#config-quick-reference)).  Workflow code is identical in all cases — it only calls `reporter.emit()`; the CM constructs and injects the correct reporter implementation.
-
-### Concurrent campaigns in practice
-
-The Campaign Manager interleaves structurally different campaigns without any special coordination.
-Each campaign declares its own workflow types, concurrency limits, and budget; the CM schedules
-them against the shared resource pool independently.
-
-![Three concurrent campaigns](figures/concurrent_campaigns.png)
-
-The timeline shows three campaigns running simultaneously:
-- **Alpha** — 3 parallel workers, all launched at once (flat fan-out)
-- **Beta** — a DAG pipeline (prep → compute_a ∥ compute_b → report), where each step depends on the previous
-- **Gamma** — adaptive serial (4 tasks, each triggered after the previous completes)
-
-The CM accounts for each campaign's pool usage independently while enforcing the global budget across all three.
+A workflow is either a **Python function** or a **command-line program** in
+any language. Either way AuCaM runs it as one AsyncFlow *block*, so launching,
+cancelling and charging work the same for both: cancelling the block cancels
+all its tasks, and its tasks' resources are charged to the workflow. A Python
+workflow submits its compute steps as AsyncFlow tasks, which RHAPSODY places on
+the allocation; a command-line program runs as one task.
 
 ---
 
-## A complete story: one policy cycle
+## Components
 
-1. Campaign A has been running for 30 seconds.  Three `sim_worker` simulations are currently active.
-2. AuCaM wakes up (policy interval fires or a completion event arrives).
-3. It collects the latest score reports from all three running simulations via the data backend.
-4. It calls `controller.decide()` with a snapshot of everything: what is running, what has finished, current queue depth, resource usage.
-5. The controller sees that one simulation has a very low score (0.1) — below the 0.4 threshold.  It returns: cancel that simulation, launch two new ones, continue.
-6. AuCaM cancels the bad simulation, enqueues two new launch requests.
-7. The scheduler picks the best candidates from the queue (based on bandit arm scores) and launches them.
-8. The cancelled simulation's slot is freed; the budget is updated.
-9. Repeat in 0.5 seconds.
+![AuCaM architecture](figures/aucam-architecture.png)
+
+**Shared by all campaigns**
+
+- **Campaign Manager** — admits campaigns submitted by drivers, runs them,
+  and returns each one's outcome to its driver.
+- **Budget ledger** (`BudgetAllocator`) — one record of every campaign's
+  limits, actual spending and the expected cost of its running workflows.
+  Used to admit campaigns and to stop launching at a campaign's limit.
+- **Data backend** — the channel through which workflows report to AuCaM (a
+  score and metrics). An in-process store for local runs; Redis or Dragon for
+  multi-node runs.
+- **Execution** — a shared AsyncFlow engine on a RHAPSODY backend; AuCaM
+  launches and cancels workflows through it.
+
+**One set per campaign** — each part works out of the box; a campaign can
+replace the controller or the scheduling policy with its own.
+
+- **Controller** — the campaign's decision logic. Out of the box it keeps
+  launching new runs of the workflow types you list, up to the campaign's
+  concurrency limits (`LaunchRule`); cancels runs whose latest report meets a
+  condition, such as a score below a threshold (`CancelRule`); and ends the
+  campaign after N successful runs or when its goals are met — no code needed.
+  A subclass can extend or replace this with any logic, including an LLM or
+  ADR.
+- **Queue** — waiting launch requests, ordered by priority (CRITICAL, HIGH,
+  NORMAL, LOW) and arrival; NORMAL requests that wait too long become HIGH.
+- **Scheduler** — starts queued requests whenever a slot is free. CRITICAL
+  requests go first; a scheduling policy picks among the rest. Out of the box
+  this is a UCB1 (Upper Confidence Bound) bandit over workflow types: it
+  balances *exploring* (trying types it knows little about) with *exploiting*
+  (launching the types that complete most often), and explores less as the
+  budget runs down. FIFO is also built in, and a campaign can plug
+  in its own policy. Each campaign has its own policy, so learning stays within
+  the campaign.
+
+**What a campaign gets without writing any code**, compared with launching
+workflows by hand:
+
+- poor runs are cancelled early (`CancelRule`), and so are runs that stop
+  reporting or overrun their wall time;
+- the bandit shifts launches toward workflow types that complete;
+- AuCaM records what each run costs (CPU-hours, GPU-hours or another unit
+  such as LLM tokens), based on the resources its tasks requested and how long
+  they ran, or on what the workflow reports, and stops launching new runs once
+  the campaign reaches its spending limit;
+- a workflow type can wait for another to succeed (dependencies);
+- state is checkpointed, and a restarted campaign continues;
+- the outcome — counts, spending, the controller's summary — goes back to the
+  driver, which can analyse it and propose the next campaign (for example, drop
+  workflow types that never succeeded, or adjust parameters and limits).
+
+The [capability demo](cm-advantages.md) shows cancellation, the bandit,
+accounting and driver feedback on one run.
 
 ---
 
-## What happens at goal
+## Example: one policy cycle with the out-of-the-box controller (no code needed)
 
-When `controller.is_goal_reached()` returns True:
+1. Three of the campaign's simulations are running. A policy cycle starts,
+   either because the policy interval has passed since the last cycle, or
+   because one of the campaign's workflows has just finished (a finished
+   workflow triggers a cycle right away).
+2. AuCaM collects each running simulation's latest report, telemetry, the queue
+   and the campaign's budget state.
+3. The controller's built-in rules decide. `CancelRule` sees one simulation
+   scoring 0.1, below the campaign's 0.4 threshold, and cancels it.
+   `LaunchRule` sees no simulation request waiting in the queue and adds one.
+4. AuCaM cancels the simulation and queues the request.
+5. When the cancelled simulation ends, its slot is freed, its spending is
+   recorded and the controller is told its result.
+6. The scheduler starts the queued request in the freed slot, within the
+   campaign's workflow-count and spending limits.
 
-1. The queue is cleared immediately (no new work starts).
-2. All in-flight workflows are cancelled with a graceful shutdown period.
-3. The campaign writes its final state to a checkpoint (if configured).
-4. A SUMMARY line is logged with final counts and spending.
-5. The driver receives a `CampaignOutcome` with all results and `spent` amounts.
-6. The global budget ledger is updated with the campaign's actual spending.
+A custom controller could decide anything else in step 3, such as launching
+several runs or changing goals.
 
 ---
 
-## What happens at budget exhaustion
+## How a campaign ends
 
-If a campaign's cumulative spending hits its declared per-campaign limit, it terminates the same way as goal-reached.
+| Exit reason | When |
+|---|---|
+| `goals_satisfied` | Ended by AuCaM: the controller declares goals (target values for metrics, e.g. "best energy ≤ −8"), AuCaM checks them every cycle, and all are met. The goal is reached. |
+| `controller_terminate` | Ended by the controller, which decides to stop for its own reason: its goal is reached (the built-in "N successful runs" goal ends this way), or it gives up (e.g. the goal looks unreachable). The goal may or may not be reached. |
+| `spending_limit` | The spending limit is reached and no workflows are running |
+| `campaign_idle` | Nothing queued or running for a while (`idle_exit_s`, configurable or off) |
+| `signal` | AuCaM receives SIGTERM or SIGINT, e.g. before a SLURM job's time limit |
 
-If a *new campaign* is submitted and its declared spending, added to what is already spent and committed, would exceed the global cap, it is **rejected immediately** — before any workflows start.  The driver receives a rejection with the exact arithmetic.  The driver can react (try a cheaper campaign, skip, or stop entirely).
+In each case the queue is cleared, running workflows are cancelled with a
+grace period, a final checkpoint is written (if enabled), and the driver
+receives a `CampaignOutcome`: workflow counts per type, time, spending,
+whether the goal was reached, and the controller's summary (e.g. the best
+score). The driver can use it to plan its next campaign.
 
-A subtler case: if some budget remains but the driver keeps proposing campaigns whose declared spending exceeds the remainder, every submission is rejected and the CM never terminates.  To guard against this, set `GlobalBudget(max_rejections=N)`: once N consecutive budget rejections occur, the CM auto-closes.  `GlobalBudget.n_campaigns` triggers auto-close once that many campaigns complete.  A driver signals completion by calling `cm.driver_done()` after its last `submit()`.  Multiple drivers can be active simultaneously — each calls `expect_driver()` before `run()` to register itself, and `driver_done()` when finished.  The CM closes the submission queue only when all registered drivers have called `driver_done()`; `run()` then exits once all running campaigns finish.
+---
+
+## Budgets
+
+- **Per campaign:** at most `max_concurrent_workflows` running (and
+  `max_concurrency_per_workflow` per type), and a spending limit. AuCaM adds
+  what has been spent to the expected cost of the workflows still running, and
+  stops starting new workflows once that total reaches the limit. Workflows
+  already running are not cancelled: the campaign ends after they finish.
+- **Across campaigns:** a new campaign is admitted only if it fits: the
+  number of running campaigns stays within its limit, and what finished
+  campaigns spent plus the limits of running ones plus its own limit stays
+  under the global spending limit. Otherwise it is rejected with the reason,
+  and the driver can react.
+
+![Global budget admission](figures/aucam_global_budget.png)
+
+See [budgets and spending](budget.md) for how spending is measured.
+
+---
+
+## Drivers
+
+One or more drivers can submit campaigns, one after another or several at
+once; campaigns run side by side. Each driver registers with
+`expect_driver()` and calls `driver_done()` after its last submission. AuCaM
+stops accepting campaigns when all drivers are done (or after
+`GlobalBudget.n_campaigns` campaigns, or more than `max_rejections` budget
+rejections, or when the global spending budget is used up) and exits once the
+running campaigns have finished.
+
+---
+
+## Design decisions
+
+*Choices that may look like missing features, and why AuCaM makes them.*
+
+- **No limit on resources in use at once.** AuCaM limits what campaigns spend
+  and how many workflows run, not how many CPUs or GPUs are busy. *Why:* AuCaM
+  cannot know which nodes or GPUs a workflow's tasks hold at a given moment,
+  and the HPC allocation itself already bounds what can run at the same time.
+- **Campaigns don't learn from each other.** Each campaign has its own
+  controller and scheduling policy, and neither sees other campaigns. *Why:*
+  campaigns pursue different hypotheses, so what works in one can mislead
+  another. Knowledge passes between campaigns through the driver, which reads
+  each outcome and plans the next campaign.
+- **The controller makes the scientific decisions.** AuCaM itself cancels a
+  workflow only when it stops reporting or runs past its wall-time limit; every
+  other launch and cancel comes from the controller. *Why:* what counts as a
+  poor result depends on the science. AuCaM ships default rules, and a campaign
+  can replace them.
+- **Admission reserves a campaign's whole spending limit.** *Why:* an admitted
+  campaign can always spend up to its limit, without being cut short because
+  another campaign spent first. *Cost:* a new campaign can be refused while
+  reserved budget is still unspent.
+- **Idle campaigns end by default.** *Why:* a campaign without goals would
+  otherwise wait forever and keep its budget reserved. Set `idle_exit_s=None`
+  for a controller that waits on purpose.
 
 ---
 
 ## Further reading
 
-- **[Campaign developer guide](campaign-developer-guide.md)** — how to write a controller, define workflows, and submit campaigns.
-- **[Dummy campaign guide](demo-campaign-guide.md)** — a worked example with all the files explained.
-- **[Code walkthrough](code-walkthrough.md)** — classes, inheritance, and concurrency model for contributors.
+- [Demo campaign guide](demo-campaign-guide.md) — run a campaign in minutes.
+- [Capability demo](cm-advantages.md) — cancellation, learning, accounting and
+  driver feedback on one run.
+- [Campaign developer guide](campaign-developer-guide.md) — write workflows,
+  controllers and drivers.
+- [Code walkthrough](code-walkthrough.md) — module map for contributors.

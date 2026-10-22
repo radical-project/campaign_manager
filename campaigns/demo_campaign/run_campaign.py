@@ -118,7 +118,11 @@ def build_spec(
     use_tier2: bool = False,
 ) -> tuple[CampaignSpec, ScoreController]:
     """Build a CampaignSpec and its ScoreController from a CampaignConfig template."""
-    ctrl = ScoreController(goal_analyses=ccfg.controller.goal_analyses, use_tier2=use_tier2)
+    ctrl = ScoreController(
+        goal_analyses=ccfg.controller.goal_analyses,
+        use_tier2=use_tier2,
+        score_floor=ccfg.controller.score_floor,
+    )
 
     def _on_complete(result: WorkflowResult) -> None:
         # ctrl.on_complete is already called by CampaignManager; only do extras here.

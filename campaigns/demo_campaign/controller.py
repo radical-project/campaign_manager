@@ -34,24 +34,29 @@ class ScoreController(CampaignController):
     Only the domain knowledge (score floor, goal count) lives here.
     """
 
-    def __init__(self, goal_analyses: int = GOAL_ANALYSES, use_tier2: bool = False) -> None:
+    def __init__(
+        self,
+        goal_analyses: int = GOAL_ANALYSES,
+        use_tier2: bool = False,
+        score_floor: float = SCORE_FLOOR,
+    ) -> None:
         launch = ["sim_worker", "sim_worker_b"]
         if use_tier2:
             launch.append("tier2_sim_worker")
         rules = [
             CancelRule(
                 workflow_type="sim_worker",
-                when=lambda r: r.score is not None and r.score < SCORE_FLOOR,
+                when=lambda r: r.score is not None and r.score < score_floor,
             ),
             CancelRule(
                 workflow_type="sim_worker_b",
-                when=lambda r: r.score is not None and r.score < SCORE_FLOOR,
+                when=lambda r: r.score is not None and r.score < score_floor,
             ),
         ]
         if use_tier2:
             rules.append(CancelRule(
                 workflow_type="tier2_sim_worker",
-                when=lambda r: r.score is not None and r.score < SCORE_FLOOR,
+                when=lambda r: r.score is not None and r.score < score_floor,
             ))
         super().__init__(
             launch=launch,

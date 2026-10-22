@@ -1,356 +1,142 @@
-# Code Walkthrough
+# Code walkthrough
 
-*Component relationships, class hierarchies, and concurrency model for contributors and backend developers.*
+A map of the code for contributors: what each module holds and the main paths
+through it. Concepts and design decisions are in the [architecture overview](architecture-overview.md),
+planned work in [known gaps](known-gaps.md), and budget internals in
+[budgets and spending](budget.md) §8–9.
 
 ---
 
 ## Module map
 
-```
-src/aucam/
-├── __init__.py       Public API surface — all exported symbols
-├── manager.py        CampaignManager — multi-campaign orchestration + global budget
-├── campaign.py       _CampaignInstance — full per-campaign lifecycle (scheduler + policy loops)
-├── controller.py     CampaignController ABC, PolicyResult, Goal, LaunchRule, CancelRule
-├── types.py          Enums, WorkflowResult, TelemetrySnapshot, GlobalBudget, CampaignOutcome
-├── spec.py           WorkflowConfig, CampaignSpec, CampaignBudget, WorkflowDependency
-├── scheduler.py      SchedulingPolicy ABC + all implementations
-├── queue.py          WorkflowQueue — min-heap with priority + aging
-├── budget.py         BudgetAllocator — concurrency accounting
-├── data_backend.py   DataBackend protocol + Local/Dragon/Redis implementations
-├── reporter.py       WorkflowReporter ABC + LocalDictReporter
-├── checkpoint.py     CampaignCheckpoint, atomic JSON write, recovery
-└── profiler.py       BlockProfiler, TaskProfiler
-```
+| Module | Holds |
+|---|---|
+| `src/aucam/manager.py` | `CampaignManager`: admission (`submit()`, `_admit()`), driver bookkeeping (`expect_driver()`, `driver_done()`), the main `run()` loop, auto-close, signal handling |
+| `src/aucam/campaign.py` | `_CampaignInstance`: everything that runs one campaign — launch, policy cycle, scheduler, accounting, dependencies, checkpoint, shutdown |
+| `src/aucam/controller.py` | `CampaignController` base class, `CancelRule`, `LaunchRule`, `Goal`, `PolicyResult` |
+| `src/aucam/scheduler.py` | `SchedulingPolicy` (FIFO base), `FIFOSchedulingPolicy`, `BanditSchedulingPolicy` (UCB1), `ADRSchedulingPolicy` / `LLMSchedulingPolicy` (stubs), `SchedulingContext` |
+| `src/aucam/queue.py` | `WorkflowQueue`: priority heap with aging |
+| `src/aucam/budget.py` | `BudgetAllocator`: the spending ledger for all campaigns |
+| `src/aucam/spec.py` | `CampaignSpec`, `CampaignBudget`, `WorkflowConfig`, `WorkflowDependency` |
+| `src/aucam/types.py` | `WorkflowResult`, `LaunchRequest`, `GlobalBudget`, `CampaignOutcome`, `SubmitResult`, snapshots and enums |
+| `src/aucam/reporter.py` | `WorkflowReport`, `WorkflowReporter` (interface), `LocalDictReporter` |
+| `src/aucam/data_backend.py` | `DataBackend` protocol; `LocalDictBackend`, `RadexDragonBackend`, `RhapsodyRedisBackend` and their reporters |
+| `src/aucam/checkpoint.py` | `CampaignCheckpoint` and its JSON read/write |
+| `src/aucam/profiler.py` | `BlockProfiler`, `TaskProfiler`: optional CPU/memory sampling inside workflows |
+| `src/aucam_client/` | `Reporter` and the `aucam-report` command for command-line workflows (any language) |
+| `src/aucam/subprocess_client.py` | `SubprocessReporter`: old name for `aucam_client.Reporter` |
+| `campaigns/` | Example campaigns: `demo_campaign` (quick start, capability demo), `ddsim_aucam` (HPC example) |
 
 ---
 
-## Class hierarchy
+## Main paths
 
-### `CampaignController` (abstract base)
-
-```
-CampaignController  (controller.py)
-├── __init__(launch, goal_type, goal_n, rules)
-│   Sets up self._rules — list of LaunchRule/CancelRule
-├── observe(...)     → dict (obs)            [not usually overridden]
-├── decide(obs)      → PolicyResult          [override for custom policy]
-│   └── default: _apply_rules(self._rules, obs)
-│       ├── _apply_rules checks is_goal_reached() → terminate=True
-│       ├── evaluates each CancelRule: cancel running wf if predicate(report) is True
-│       └── evaluates each LaunchRule: add LaunchRequest if nothing queued for that type
-├── on_complete(result: WorkflowResult)      [ALWAYS call super() to keep counters]
-│   updates: self.completed / self.cancelled / self.failed (dicts[wf_type→int])
-├── is_goal_reached() → bool                 [override to define stopping condition]
-│   default: completed[goal_type] >= goal_n
-└── get_summary()   → dict                   [override to expose scientific results]
-    default: {}                              called once at completion; stored in CampaignOutcome
-```
-
-**Key subclass contract**: when overriding `decide()`, you must return a `PolicyResult` (never modify `obs` in place).  When overriding `on_complete()`, always call `super().on_complete(result)` first or the `completed`/`cancelled`/`failed` counters won't increment.
-
-`LaunchRule` and `CancelRule` are data classes (not subclasses) consumed by `_apply_rules`.
-
-### `SchedulingPolicy` (abstract base)
+### Admission — `CampaignManager`
 
 ```
-SchedulingPolicy  (scheduler.py)
-└── select(candidates: list[LaunchRequest], ctx: SchedulingContext) → list[LaunchRequest]
-    Returns the subset to launch this cycle (respecting concurrency caps in ctx).
-
-    Implementations:
-    ├── FIFOSchedulingPolicy     — pass candidates through in queue order
-    ├── BanditSchedulingPolicy   — UCB1 multi-armed bandit; arms keyed by (wf_type, context_key)
-    │   ├── record_outcome(wf_type, context_key, reward)  called by _on_done
-    │   └── _ucb1_score(arm)     exploration-exploitation balance
-    ├── ADRSchedulingPolicy      — rule-override hook + ADR engine (stub → falls back to FIFO)
-    ├── LLMSchedulingPolicy      — LLM-guided ranking (model-agnostic; stub → FIFO)
-    └── DefaultSchedulingPolicy  — alias for FIFOSchedulingPolicy
+submit(spec) / submit_campaign(spec)
+└── _admit(spec)
+    ├── _policy_check()          scheduling-policy instance not used by another campaign
+    ├── _admission_check()       running campaigns, total concurrent workflows (GlobalBudget)
+    └── BudgetAllocator.admit()  spent + committed limits + new limit ≤ global spending
 ```
 
-`SchedulingContext` is a dataclass carrying `running_by_type`, `max_concurrency`, `max_concurrency_per_type`, `telemetry`, `history`, `policy_cycles`, and `campaign_name`.
+Rejected → `SubmitResult(accepted=False, reason=…)`. Accepted → the spec goes
+to the submission queue; `run()` starts it with `_start_campaign()`, which
+creates a `_CampaignInstance` and a task for its `run()`. When the task ends,
+`_resolve_future()` closes the campaign in the ledger and resolves the
+driver's `CampaignOutcome`.
 
-### `DataBackend` (protocol)
+`run()` creates the shared AsyncFlow engine (and telemetry, if enabled), then
+waits on campaign tasks, the submission queue and a shutdown event until all
+drivers are done and all campaigns have finished.
 
-```
-DataBackend  (data_backend.py, Protocol)
-├── write_report(wf_id, report: WorkflowReport)
-├── get_report(wf_id)                  → WorkflowReport | None
-├── delete_report(wf_id)
-├── write_signal(wf_id, decision: CampaignDecision)
-└── get_signal(wf_id)                  → CampaignDecision | None
-
-Implementations:
-├── LocalDictBackend      in-process dict; used in tests and local dev
-│   └── sync_get_report(wf_id)  duck-typed extra method for _on_done callback
-├── DragonDictBackend     Dragon DDict; cross-node on HPC
-└── RhapsodyRedisBackend  Redis via Rhapsody; requires rhapsody-py
-```
-
-The protocol is structural (no ABC inheritance) — backends just need to implement the five methods.
-
-### `WorkflowReporter` (abstract base)
+### One campaign — `_CampaignInstance.run()`
 
 ```
-WorkflowReporter  (reporter.py)
-├── emit(score, metrics, iteration)     workflow → CM channel
-├── poll()                              → CampaignDecision | None  (CM → workflow signal)
-└── wait_for_resume()                   50 ms yield loop until RESUME signal
-
-Implementations:
-└── LocalDictReporter    wraps LocalDictBackend; used for block workflows
+run()
+├── restore from checkpoint (if any), else enqueue the initial requests
+├── _scheduler_loop()   ─┐ two asyncio tasks
+├── _policy_loop()      ─┘
+└── _shutdown(reason)
 ```
 
-For command-line workflows, `src/aucam_client` (the `aucam-report` command, or `Reporter` in Python) reads `CM_WORKFLOW_ID`, `CM_DATA_ENDPOINT` and `CM_DATA_BACKEND` from the environment and writes JSON reports directly to the backend — the Rhapsody-managed Redis instance for `redis`, or the Dragon DDict for `dragon`. `RhapsodyRedisBackend.get_report()` decodes JSON (command-line workflows) and pickle (Python reporters). `SubprocessReporter` in `src/aucam/subprocess_client.py` is a backward-compatible alias.
+- **`_policy_loop()`** wakes every `policy_interval_s` or when a workflow
+  finishes and calls `_run_policy_cycle()`:
+  `_collect_live_reports()` → `_collect_telemetry()` → `controller.observe()`
+  → `controller.decide()` → `_apply_auto_cancels()` (stale reporter, wall time)
+  → apply decisions (CANCEL / PAUSE / RESUME, `cancel_queued`, new requests,
+  goal changes) → write checkpoint → end if `terminate` (`controller_terminate`)
+  or all goals met (`goals_satisfied`).
+- **`_scheduler_loop()`** calls `_drain_queue()` whenever a slot frees up or a
+  request arrives (at least every 2 s): stop if the spending limit is reached;
+  otherwise launch CRITICAL requests, then the requests the `SchedulingPolicy`
+  selects, within the workflow-count limits. It also ends the campaign on
+  `spending_limit` (nothing running) and `campaign_idle` (`idle_exit_s`).
 
----
-
-## `CampaignManager` (manager.py)
-
-Single instance per CM process (the head process running `run_campaign.py`).  Key state:
-
-```python
-_submission_queue: asyncio.Queue[CampaignSpec | None]   # None = sentinel (close)
-_active_specs:     dict[str, CampaignSpec]              # name → spec (running campaigns)
-_reserved_specs:   dict[str, CampaignSpec]              # name → spec (admitted, not yet started)
-_global_spent:     dict[str, float]                     # resource key → actual spent
-_has_driver:       bool                                 # True if expect_driver() was called
-```
-
-### Admission check (`_admission_check`)
-
-Called inside `submit()` while holding no lock (asyncio is single-threaded).  Computes:
-
-```python
-all_committed = {**self._reserved_specs, **self._active_specs}
-committed = sum(s.budget.spending.get(key, 0.0) for s in all_committed.values())
-incoming  = spec.budget.spending.get(key, 0.0)
-if already_spent + committed + incoming > limit:
-    return rejection_reason
-```
-
-`_reserved_specs` closes the admit-to-start race: `submit()` adds the spec here immediately after a passing admission check; `_start_campaign()` moves it to `_active_specs` when the run loop picks it up.  Both dicts are unioned in every subsequent `_admission_check` (campaign and workflow counts). The spending limit of an admitted campaign is committed in the `BudgetAllocator` ledger by `admit()` at submit time, so a concurrent `submit()` cannot double-admit against the same global spending cap.
-
-### Run loop (`run`)
-
-```python
-async def run(self):
-    if not self._has_driver:
-        self._submission_queue.put_nowait(None)   # no driver → auto-close
-    async with asyncio.TaskGroup() as tg:
-        tg.create_task(self._dispatch_loop())
-        # _dispatch_loop dequeues CampaignSpecs and spawns _CampaignInstance tasks
-```
-
-`_dispatch_loop` dequeues from `_submission_queue`, calls `_start_campaign(spec)` for each, spawns an asyncio task per campaign, and exits when `None` is dequeued.  The `TaskGroup` keeps `run()` alive until all campaign tasks finish.
-
----
-
-## `_CampaignInstance` (campaign.py)
-
-The core orchestration class.  One instance per running campaign.  Owns:
-
-```python
-_queue:        WorkflowQueue                # priority-heap of LaunchRequests
-_allocator:    BudgetAllocator              # shared spending ledger
-_scheduler:    SchedulingPolicy
-_controller:   CampaignController
-_active:       dict[str, _WorkflowInst]    # wf_id → running instance
-_done:         bool
-```
-
-### Two concurrent asyncio tasks per campaign
+### Launching a workflow — `_launch()`
 
 ```
-_scheduler_loop                      _policy_loop
-─────────────────────────────        ───────────────────────────────────
-while not _done:                     while not _done:
-  req = await _queue.get()             try:
-  if not spending_limit_reached:          await asyncio.wait_for(
-    launch(req)                              _completion_event.wait(),
-  else:                                      timeout=policy_interval_s)
-    _queue.put_back(req)               except TimeoutError:
-    await _slot_event.wait()               pass
-                                       _completion_event.clear()
-                                       await _run_policy_cycle()
+_launch(request)
+├── _learned_cost() → estimate → BudgetAllocator.set_in_flight()
+└── _make_future()
+    ├── Python block:  _run_as_block(block)            reporter / flow= / context= injected
+    └── launch_cmd:    _run_as_block(_cmd_block)       one executable task: _wrap_cmd() → bash -c 'export …; exec cmd'
 ```
 
-`_slot_event` is set whenever a workflow completes (freeing a budget slot).
-`_completion_event` is set by the synchronous `_on_done` callback.
+Every workflow is one AsyncFlow block. `_run_as_block()` maps the block's uid
+to the workflow (`_wf_tags`) so task telemetry events can be charged to it
+(`_on_task_event()`). The future's done-callback `_on_done` (inside
+`_launch()`):
 
-The two tasks share `_queue`, `_budget`, and `_active` — all accessed from the same event loop, so there is **no locking**.
+1. maps the outcome to a `returncode` (0 / −1 cancelled / exit code);
+2. charges spending (`_compute_workflow_spent()`, unless charged per task) and
+   updates the learned cost (`_update_type_cost()`, successful runs only);
+3. builds the `WorkflowResult` and passes it, in this order, to
+   `SchedulingPolicy.on_outcome()`, `controller.on_complete()`, the workflow's
+   `on_completion` hook and `_check_dag()` (dependencies).
 
-### Policy cycle (`_run_policy_cycle`)
+### Dependencies — `enqueue()` and `_check_dag()`
 
-```python
-1. _collect_live_reports()   → reports: dict[wf_id, WorkflowReport]
-2. controller.observe(...)   → TelemetrySnapshot
-3. controller.decide(obs)    → PolicyResult
-4. _apply_auto_cancels(pr)   → stale/wall-time overrides merged into pr.decisions
-5. _execute_decisions(pr)
-   ├── CANCEL  → inst.future.cancel()
-   ├── PAUSE   → data_backend.write_signal(wf_id, PAUSE)  if supports_pause
-   ├── RESUME  → data_backend.write_signal(wf_id, RESUME)
-   └── launch_requests → _queue.put(req) for each
-6. if pr.terminate:
-   └── _shutdown()    # sets _done, clears queue, cancels in-flight
-7. if checkpoint_dir:
-   └── asyncio.to_thread(write_checkpoint, ...)   # atomic file write, off event loop
-```
+`enqueue()` holds requests for a dependency target in `_dep_pending` until the
+target is unlocked (`_dep_satisfied`). `_check_dag()` runs on every finished
+workflow: if a dependency's condition passes, it unlocks the target, releases
+held requests, or adds one new request.
+These are dependencies between workflow types at campaign level, with
+conditions on results. Dependencies between tasks inside one workflow use
+AsyncFlow's own (pass one task's future to another).
 
-### Shutdown sequence (`_shutdown`)
+### Reporting — `DataBackend`
 
-```python
-async def _shutdown(self, reason):
-    self._done = True           # scheduler loop exits on next iteration
-    self._slot_event.set()      # unblocks scheduler if it's waiting
-    self._queue.clear()         # purge all queued LaunchRequests immediately
-    for inst in _active.values():
-        inst.future.cancel()    # signal all in-flight tasks
-    await asyncio.wait(         # collect all futures; give them shutdown_timeout_s
-        [f for f in _active...],
-        timeout=shutdown_timeout_s
-    )
-```
-
-Setting `_done=True` is the primary guard: the scheduler loop exits on `while not self._done` and `_drain_queue` returns immediately if `_done`.  The queue is then cleared before cancelling futures as a belt-and-suspenders measure — discarding any requests that LaunchRules may have pre-filled so they don't linger in memory.
-
----
-
-## `WorkflowQueue` (queue.py)
-
-Min-heap keyed by `(-priority.value, age_adjusted_time)`.  Higher priority and older requests sort first.
-
-```python
-class WorkflowQueue:
-    _heap: list[tuple]      # (sort_key, seq, LaunchRequest)
-
-    def put(self, req: LaunchRequest) -> None
-    def get(self) -> LaunchRequest         # raises Empty
-    def clear() -> int                    # purges all items; returns count
-    def snapshot() -> QueueSnapshot
-```
-
-Age promotion: items waiting longer than `age_threshold_s` have their effective priority bumped by 1 level (LOW → NORMAL → HIGH).  This prevents starvation when the queue mixes priorities.
-
----
-
-## `BudgetAllocator` (budget.py)
-
-The single spending ledger (resource-hours per dimension) for all campaigns.  There is no concurrency budget: workflows are heterogeneous task sets placed by RHAPSODY, so CM cannot know which GPUs/nodes a workflow holds; capacity is limited by the allocation and the workflow-count caps.
-
-```python
-class BudgetAllocator:
-    def admit(campaign, limits, global_limits) -> str | None  # global spent + committed + limits <= cap
-    def open(campaign, limits)                     # register without a global check (no-op if admitted)
-    def set_in_flight(campaign, wf_id, estimate)   # on launch: declared_spending
-    def clear_in_flight(campaign, wf_id)           # on finish
-    def record(campaign, usage)                    # on finish: actual spending
-    def limit_reached(campaign)                    # actual + in-flight >= campaign limit
-    def close(campaign) -> dict                    # spent → global total; limits no longer committed
-    def campaign_view(campaign) -> dict            # passed to observe() as `budget` (own campaign only)
-    def snapshot() -> dict                         # whole ledger, for CM-level inspection
-```
-
-`_CampaignInstance._compute_workflow_spent()` computes a finished workflow's actual spending; the campaign records it in the ledger, and `_spending_limit_reached()` reads the ledger before each `_drain_queue()` call.  `CampaignManager` admits campaigns and closes them through the same ledger.
-
-The allocator only keeps the books.  **It never cancels workflows** — only the controller can do that via `PolicyResult.decisions`.
-
----
-
-## Data flow end-to-end
-
-```
-Driver
-  │  cm.submit(spec)
-  ▼
-CampaignManager._admission_check()
-  │  BudgetAllocator.admit() — spending limit counts as committed
-  │  enqueue spec in _submission_queue
-  ▼
-CampaignManager._dispatch_loop()
-  │  dequeue spec → _start_campaign(spec)
-  │  move _reserved_specs → _active_specs
-  ▼
-_CampaignInstance  (asyncio task)
-  │
-  ├── _scheduler_loop                       ├── _policy_loop
-  │   │                                     │   │
-  │   │ dequeue LaunchRequest               │   │ collect WorkflowReport per wf_id
-  │   │ spending limit check (ledger)       │   │   (DataBackend.get_report)
-  │   │   → launch asyncio.Task             │   │ controller.observe() → TelemetrySnapshot
-  │   │       │                             │   │ controller.decide(obs) → PolicyResult
-  │   │       │ block workflow(reporter)    │   │ _execute_decisions
-  │   │       │   reporter.emit() ──────────┼───┤   CANCEL/PAUSE/RESUME signals
-  │   │       │   reporter.poll() ◄─────────┼───┤   new LaunchRequests → queue
-  │   │       │                             │   │ if terminate → _shutdown()
-  │   │       │ subprocess workflow         │   │
-  │   │       │   CM_DATA_ENDPOINT env      │   │
-  │   │       │                             │   │
-  │   │       └── future.done() callback    │   │
-  │   │               _on_done (sync):      │   │
-  │   │               _compute_workflow_spent()  │
-  │   │               BudgetAllocator       │   │
-  │   │                 .record(actual)     │   │
-  │   │               controller            │   │
-  │   │                 .on_complete()      │   │
-  │   │               _completion_event.set()   │
-  │   │               _slot_event.set()     │   │
-  │                                         │
-  └─────────────────────────────────────────┘
-  │
-  │ campaign finishes
-  ▼
-CampaignManager._resolve_future()
-  │  moves _active_specs → done
-  │  _global_spent updated with actual
-  │  CampaignOutcome built:
-  │    summary = ctrl.get_summary()
-  │    spent   = inst._spent
-  ▼
-SubmitResult.wait() resolves with CampaignOutcome
-  │
-  ▼
-Driver receives outcome → submits next campaign
-```
-
----
-
-## Checkpointing
-
-`write_checkpoint` is dispatched via `asyncio.to_thread()` (never blocks the event loop):
-
-```python
-path = tempfile.mkstemp(dir=checkpoint_dir, suffix=".tmp")
-json.dump(checkpoint.to_dict(), f)
-os.replace(tmp_path, final_path)   # POSIX rename(2) — atomic
-```
-
-On recovery (`_CampaignInstance.__init__` if checkpoint exists):
-
-1. `read_checkpoint()` deserializes JSON to `CampaignCheckpoint`
-2. Counters and `_spent` are restored
-3. Queued `LaunchRequest`s are re-pushed at HIGH priority with `recovered_from` context
-4. Previously active workflows are re-enqueued (they can't be re-attached to their old futures)
-
-The spec (controller object, block callables) is NOT in the checkpoint — the driver must re-supply it.
-
----
-
-## Threading model
-
-The CM head process is **single-threaded asyncio**.  Workflow execution is dispatched to the Rhapsody backend via asyncflow — block workflows run inside asyncflow's execution environment (Dragon function tasks or concurrent tasks), not on the CM event loop.
-
-Within the CM itself, blocking file I/O (checkpoint writes, `LocalDictBackend` reads/writes, Redis calls) is wrapped in `asyncio.to_thread()` so it never stalls the event loop.
+A Python workflow gets `backend.make_reporter(wf_id)` and calls `emit()`;
+command-line workflows use `aucam_client` with Redis or Dragon. Each policy
+cycle `_collect_live_reports()` reads `get_report()` for every running workflow;
+PAUSE / RESUME go out with `write_signal()`.
 
 ---
 
 ## Extension points
 
-| What to extend | Where | How |
-|----------------|-------|-----|
-| Custom policy | `CampaignController` subclass | Override `decide()`, `is_goal_reached()`, `get_summary()` |
-| Custom scheduling | `SchedulingPolicy` subclass | Implement `select(candidates, ctx)` |
-| New data backend | Implement `DataBackend` protocol | Five methods: write/get/delete report, write/get signal |
-| Spending declaration | `WorkflowConfig.declared_spending` | Keys `wall_hours`, `cpu_hours`, `gpu_hours`; drives proration and pool sizing |
-| Pre/post hooks | `WorkflowConfig.on_completion` | Sync callback after each `WorkflowResult` |
+| To add | Implement | Pass it via |
+|---|---|---|
+| Decision logic | subclass `CampaignController` (`observe`, `decide`, `on_complete`, `get_summary`, `goals`) | `CampaignSpec.controller` |
+| Scheduling policy | subclass `SchedulingPolicy` (`select`, optionally `on_outcome`) | `CampaignSpec.scheduling_policy` |
+| Data channel | the `DataBackend` protocol and a `WorkflowReporter` | `CampaignSpec.data_backend` |
+
+## Tests
+
+`tests/` covers each area; start with `test_design_alignment.py` (design rules),
+`test_new_features.py` (budget features, idle exit), `test_launch_cmd.py` and
+`test_aucam_client.py` (command-line workflows), `test_spending_ledger.py` and
+`test_task_level_accounting.py` (accounting).
+
+## Figures
+
+The figures in `docs/figures/` are generated, so they can be redrawn when the
+code changes:
+
+| Figure | Script |
+|---|---|
+| `aucam-architecture.png` | `python docs/figures/src/architecture.py` |
+| `aucam_budget_burn.png`, `aucam_bandit_budget.png`, `aucam_global_budget.png` | `python campaigns/demo_campaign/doc_figures.py` (real runs, ~1 min) |
+| `aucam_impact.png` | `campaigns/demo_campaign/run_impact.py --json-out …`, then `gen_impact_fig.py` |

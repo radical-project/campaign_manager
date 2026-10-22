@@ -62,8 +62,9 @@ class WorkflowResult:
     # Score of the workflow's last report (None if it never reported).
     final_score: Any = None
     # Actual resource spending charged to this workflow (cpu_hours, gpu_hours, …).
-    # Populated from task-level events (R1) when available, otherwise from proration.
-    # Empty dict for cancelled workflows or when no spending is configured.
+    # Charged per task (AsyncFlow telemetry) when available, otherwise from the
+    # workflow's reported values or proration (see docs/budget.md).  Empty when
+    # nothing was charged.
     spent: dict = field(default_factory=dict)
 
 

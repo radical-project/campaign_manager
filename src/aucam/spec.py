@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from .types import WorkflowResult
 
@@ -49,10 +49,11 @@ class WorkflowConfig(BaseModel):
     name: str
     block: Callable | None = None
     launch_cmd: list[str] | None = None
-    # Expected cost for one full execution.  Keys: wall_hours, cpu_hours, gpu_hours.
-    # Counts against the campaign's spending limit while the workflow runs
-    # (in-flight estimate) and prorates actual spending when nothing better
-    # is reported.
+    # Expected cost for one full execution: wall_hours (expected run time, used
+    # only to prorate) plus any budget dimension (cpu_hours, gpu_hours,
+    # llm_tokens, ...).  Counts against the campaign's spending limit while the
+    # workflow runs (until learned costs replace it) and prorates actual
+    # spending when nothing better is measured.  See docs/budget.md.
     declared_spending: dict[str, float] = {}
     # Set True only for workflows that handle PAUSE/RESUME: Python workflows via
     # reporter.poll() + wait_for_resume(); launch_cmd programs via
@@ -132,8 +133,30 @@ class CampaignSpec(BaseModel):
     # The instance belongs to this campaign only: CampaignManager rejects a
     # spec whose policy instance is already used by another campaign.
     scheduling_policy: Any | None = None
+    # End the campaign after it has been idle this many seconds: queue empty,
+    # no workflows running or paused, no requests held by dependencies, and at
+    # least one policy cycle run.  "auto" (default) = max(5 s,
+    # policy_interval_s), so decide() gets at least one cycle to add work;
+    # None = never end an idle campaign (it ends by goals, terminate, the
+    # spending limit or a signal).
+    idle_exit_s: float | Literal["auto"] | None = "auto"
 
     model_config = {"arbitrary_types_allowed": True}
+
+    @field_validator("idle_exit_s")
+    @classmethod
+    def _check_idle_exit_s(cls, v):
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v < 0:
+            raise ValueError("idle_exit_s must be >= 0, 'auto' or None")
+        return v
+
+    def idle_exit_after(self) -> float | None:
+        """Seconds of idleness after which the campaign ends (None = never)."""
+        if self.idle_exit_s is None:
+            return None
+        if self.idle_exit_s == "auto":
+            return max(5.0, self.policy_interval_s)
+        return float(self.idle_exit_s)
 
     def model_post_init(self, __context: Any) -> None:
         if self.data_backend is None:
