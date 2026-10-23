@@ -58,7 +58,7 @@ class WorkflowConfig(BaseModel):
     declared_spending: dict[str, float] = {}
     # Set True only for workflows that handle PAUSE/RESUME: Python workflows via
     # reporter.poll() + wait_for_resume(); launch_cmd programs via
-    # SubprocessReporter.poll_signal() (needs a remote DataBackend).
+    # aucam_client.Reporter.poll_signal() (needs a remote DataBackend).
     supports_pause: bool = False
     launch_on_start: bool = True
     max_wall_time_s: float | None = None

@@ -24,7 +24,6 @@ planned work in [known gaps](known-gaps.md), and budget internals in
 | `src/aucam/checkpoint.py` | `CampaignCheckpoint` and its JSON read/write |
 | `src/aucam/profiler.py` | `BlockProfiler`, `TaskProfiler`: optional CPU/memory sampling inside workflows |
 | `src/aucam_client/` | `Reporter` and the `aucam-report` command for command-line workflows (any language) |
-| `src/aucam/subprocess_client.py` | `SubprocessReporter`: old name for `aucam_client.Reporter` |
 | `campaigns/` | Example campaigns: `demo_campaign` (quick start, capability demo), `ddsim_aucam` (HPC example) |
 
 ---

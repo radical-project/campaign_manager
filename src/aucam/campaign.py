@@ -664,7 +664,7 @@ class _CampaignInstance:
         ep = self.spec.data_backend.endpoint() if self.spec.data_backend is not None else None
         if ep is not None:
             env["CM_DATA_ENDPOINT"] = ep
-            # Tell SubprocessReporter which backend protocol to use.
+            # Tell aucam_client which backend protocol to use.
             backend_name = type(self.spec.data_backend).__name__
             if "Redis" in backend_name:
                 env["CM_DATA_BACKEND"] = "redis"
