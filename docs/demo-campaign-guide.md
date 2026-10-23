@@ -118,4 +118,4 @@ Set `SBATCH_ACCOUNT`, and adjust the node count and time limit for your site.
 | `campaign_configs/` | `global.yaml`, `campaign.yaml` (local); `global_hpc.yaml`, `campaign_hpc.yaml` (HPC) |
 | `delta_sbatch.sh` | SLURM batch script |
 | `run_impact.py`, `gen_impact_fig.py` | Capability demo and its figure |
-| `tier2_sim_worker.py` | A command-line workflow, added automatically with the Redis or Dragon backend |
+| `cmd_sim_worker.py` | A command-line workflow, added automatically with the Redis or Dragon backend |

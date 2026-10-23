@@ -2,7 +2,6 @@
 # Override individual keys on the CLI; use global_hpc.yaml for Dragon runs.
 
 engine: concurrent            # concurrent | dragon
-asyncflow_blocks: false
 verbose: false
 num_campaigns: 1              # how many campaign instances to submit
 

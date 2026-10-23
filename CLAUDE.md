@@ -53,7 +53,7 @@ Guidance for Claude Code in this repository.
 pip install -e ".[dev]"      # Python ≥ 3.10; [dragon] needs ≥ 3.11; [redis] for Redis + aucam-report
 pytest                       # tests needing unreleased radical.asyncflow features skip (known-gaps X1)
 pytest -m "not slow"
-ruff check .
+ruff check --no-fix . && ruff format --check .   # lint (plain `ruff check .` edits files)
 python docs/figures/src/architecture.py              # redraw the architecture figure
 python campaigns/demo_campaign/doc_figures.py        # redraw the budget/bandit figures (~1 min)
 ```

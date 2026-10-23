@@ -1,5 +1,5 @@
 """
-Observability chunk tests.
+Observability tests.
 
 1. final_metrics  — WorkflowResult.final_metrics populated from last emit().
 2. summary log    — campaign SUMMARY line appears at shutdown with correct counters.

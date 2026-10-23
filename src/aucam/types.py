@@ -9,11 +9,6 @@ from enum import Enum
 from typing import Any
 
 
-class ScoreDirection(str, Enum):
-    HIGHER = "higher"  # higher value = better (e.g. pLDDT, reward, diversity)
-    LOWER = "lower"  # lower  value = better (e.g. binding energy, RMSD)
-
-
 class WorkflowStatus(str, Enum):
     PENDING = "PENDING"
     RUNNING = "RUNNING"
@@ -37,12 +32,6 @@ class LaunchPriority(str, Enum):
     LOW = "LOW"
 
 
-class SchedulingDecision(str, Enum):
-    LAUNCH = "LAUNCH"
-    HOLD = "HOLD"
-    DROP = "DROP"
-
-
 @dataclass
 class WorkflowResult:
     workflow_id: str
@@ -51,13 +40,12 @@ class WorkflowResult:
     # code (128 + N if killed by signal N) or 1 (Python workflow, or no code).
     returncode: int
     wall_time_s: float
-    output_dir: str | None = None
     # Last metrics snapshot the workflow emitted before finishing.
     # Empty dict if the workflow had no reporter or exited before its first emit.
     final_metrics: dict = field(default_factory=dict)
     # Per-block resource profile: keys include cpu_percent_avg, memory_percent_avg,
-    # duration_s, node_id, etc.  Populated from BlockProfiler/TaskProfiler (Path 1)
-    # or from telemetry JSONL correlation (Path 2).  Empty dict when unavailable.
+    # duration_s, node_id, etc.  Populated from telemetry JSONL correlation or, if
+    # absent, from BlockProfiler/TaskProfiler data the workflow reported.  Empty dict when unavailable.
     resource_profile: dict = field(default_factory=dict)
     # Score of the workflow's last report (None if it never reported).
     final_score: Any = None
@@ -127,10 +115,8 @@ class TelemetrySnapshot:
     node_resources  — latest CPU/GPU/memory readings per node, keyed by
                       "{backend}/{node_id}"; populated when Rhapsody telemetry
                       is enabled, empty otherwise.
-    spent                — cumulative spending for completed workflows in this
-                           campaign; keyed by budget dimension, e.g.
-                           "cpu_wall_seconds" (CM-measured wall_s, authoritative)
-                           and "gpu_wall_seconds" (workflow self-reported, Path 1).
+    spent                — spending charged to this campaign so far (from the
+                           ledger), keyed by budget dimension, e.g. "cpu_hours".
     running_consumption  — live resource consumption per active workflow,
                            keyed by wf_id → {"cpu_wall_seconds": float, ...};
                            uses workflow-reported cpu_seconds/gpu_seconds from
@@ -220,7 +206,7 @@ class SubmitResult:
     campaign_name: str
     reason: str | None = None
     # Set by CampaignManager.submit() when accepted; None for rejected submissions
-    # and for campaigns submitted via the legacy submit_campaign() API.
+    # and for campaigns submitted via submit_campaign().
     outcome_future: asyncio.Future[CampaignOutcome] | None = field(
         default=None, init=False, repr=False, compare=False
     )
@@ -229,13 +215,13 @@ class SubmitResult:
         """Wait for the campaign to finish and return its outcome.
 
         Raises :exc:`RuntimeError` if the campaign was rejected or was
-        submitted via the legacy ``submit_campaign()`` API.
+        submitted via ``submit_campaign()``.
         """
         if not self.accepted:
             raise RuntimeError(f"Campaign '{self.campaign_name}' was not accepted: {self.reason}")
         if self.outcome_future is None:
             raise RuntimeError(
                 f"Campaign '{self.campaign_name}' has no outcome future; "
-                "it was submitted via submit_campaign() (legacy API)."
+                "it was submitted via submit_campaign(); use submit() to get one."
             )
         return await self.outcome_future

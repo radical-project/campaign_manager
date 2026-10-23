@@ -5,7 +5,6 @@ from .checkpoint import CampaignCheckpoint, checkpoint_path, read_checkpoint, wr
 from .controller import CampaignController, CancelRule, Goal, LaunchRule, PolicyResult
 from .data_backend import (
     DataBackend,
-    DragonDictBackend,  # alias for RadexDragonBackend
     LocalDictBackend,
     RadexDragonBackend,
     RadexDragonReporter,
@@ -18,7 +17,6 @@ from .reporter import WorkflowReport, WorkflowReporter
 from .scheduler import (
     ADRSchedulingPolicy,
     BanditSchedulingPolicy,
-    DefaultSchedulingPolicy,
     FIFOSchedulingPolicy,
     LLMSchedulingPolicy,
     SchedulingContext,
@@ -33,8 +31,6 @@ from .types import (
     LaunchRequest,
     NodeResources,
     QueueSnapshot,
-    SchedulingDecision,
-    ScoreDirection,
     SubmitResult,
     TelemetrySnapshot,
     WorkflowResult,
@@ -62,11 +58,9 @@ __all__ = [
     "DataBackend",
     "ADRSchedulingPolicy",
     "BanditSchedulingPolicy",
-    "DefaultSchedulingPolicy",
     "FIFOSchedulingPolicy",
     "LLMSchedulingPolicy",
     "SchedulingContext",
-    "DragonDictBackend",
     "RadexDragonBackend",
     "RadexDragonReporter",
     "Goal",
@@ -77,8 +71,6 @@ __all__ = [
     "PolicyResult",
     "QueueSnapshot",
     "RhapsodyRedisBackend",
-    "ScoreDirection",
-    "SchedulingDecision",
     "SchedulingPolicy",
     "TelemetrySnapshot",
     "WorkflowConfig",

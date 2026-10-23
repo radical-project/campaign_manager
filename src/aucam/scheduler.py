@@ -102,14 +102,10 @@ class SchedulingPolicy:
         pass
 
 
-# Explicit FIFO name + backward-compat alias
 class FIFOSchedulingPolicy(SchedulingPolicy):
     """FIFO policy — same as the SchedulingPolicy base; provided as an explicit name."""
 
     pass
-
-
-DefaultSchedulingPolicy = FIFOSchedulingPolicy
 
 
 # ---------------------------------------------------------------------------

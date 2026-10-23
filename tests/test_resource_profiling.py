@@ -1,5 +1,5 @@
 """Tests for block resource profiling: BlockProfiler, TaskProfiler, and
-_compute_workflow_spent (Path 1 profiler data + Path 2 JSONL correlation)."""
+_compute_workflow_spent (reported profiler data and telemetry JSONL correlation)."""
 
 from __future__ import annotations
 
@@ -81,10 +81,10 @@ async def test_block_profiler_very_short():
     assert m["n_samples"] == 0  # no ticks fired
 
 
-# ── Path 2: JSONL correlation ─────────────────────────────────────────────────
+# ── JSONL correlation ────────────────────────────────────────────────────────
 
 
-def test_path2_correlation_basic(tmp_path):
+def test_jsonl_correlation_basic(tmp_path):
     """_correlate_from_jsonl finds block window and ResourceUpdates."""
     t0 = time.time()
     events = [
@@ -125,7 +125,7 @@ def test_path2_correlation_basic(tmp_path):
     assert spending["cpu_hours"] == pytest.approx(70.0 / 100.0 * 3.0 / 3600.0)
 
 
-def test_path2_no_events_for_wf(tmp_path):
+def test_jsonl_no_events_for_wf(tmp_path):
     """Returns empty dicts when wf_id is not in the JSONL."""
     t0 = time.time()
     events = [
@@ -147,7 +147,7 @@ def test_path2_no_events_for_wf(tmp_path):
     assert spending == {}
 
 
-def test_path2_no_resource_updates_in_window(tmp_path):
+def test_jsonl_no_resource_updates_in_window(tmp_path):
     """Returns empty dicts when ResourceUpdates fall outside the block window."""
     t0 = time.time()
     events = [
@@ -168,7 +168,7 @@ def test_path2_no_resource_updates_in_window(tmp_path):
     assert prof == {}
 
 
-def test_path2_uses_wall_s_when_no_completed(tmp_path):
+def test_jsonl_uses_wall_s_when_no_completed(tmp_path):
     """Falls back to wall_s for end_time when TaskCompleted is absent."""
     t0 = time.time()
     events = [
@@ -193,8 +193,8 @@ def test_path2_uses_wall_s_when_no_completed(tmp_path):
 # ── _compute_workflow_spent integration ──────────────────────────────────────
 
 
-def test_compute_spent_path1_profiler_data(tmp_path):
-    """Path 1: cpu_hours/gpu_hours reported directly in final_metrics are used as-is."""
+def test_compute_spent_reported_profiler_data(tmp_path):
+    """Reported: cpu_hours/gpu_hours reported directly in final_metrics are used as-is."""
     camp = _make_campaign()
     final_metrics = {
         "cpu_hours": 0.5,
@@ -216,8 +216,8 @@ def test_compute_spent_path1_profiler_data(tmp_path):
     assert profile["cpu_percent_avg"] == 50.0
 
 
-def test_compute_spent_path2_jsonl(tmp_path):
-    """Path 2: JSONL correlation when no profiler data in final_metrics."""
+def test_compute_spent_jsonl(tmp_path):
+    """JSONL correlation when no profiler data in final_metrics."""
     t0 = time.time()
     events = [
         {"event_type": "TaskStarted", "task_id": "tc.sim_worker.aabb", "event_time": t0},

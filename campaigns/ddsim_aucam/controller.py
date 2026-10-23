@@ -48,7 +48,6 @@ class MiniAppsController(CampaignController):
             ],
         )
         self._goal_n = goal_n
-        self._score_ceiling = score_ceiling
         self._scores: dict[str, list[float]] = {wt: [] for wt in self.WORKFLOW_TYPES}
 
     # ── Goal ──────────────────────────────────────────────────────────────────

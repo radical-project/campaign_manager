@@ -1,6 +1,6 @@
 # Campaign template — local / dev defaults.
 # The driver instantiates one CampaignSpec per run from this template,
-# assigning a unique name (dummy-campaign-a, dummy-campaign-b, …).
+# assigning a unique name (demo-campaign-a, demo-campaign-b, …).
 
 controller:
   goal_analyses: 3            # number of analysis_worker completions before terminating

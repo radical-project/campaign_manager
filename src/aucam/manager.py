@@ -21,7 +21,7 @@ class CampaignManager:
     """
     Runs many campaigns concurrently under a shared budget.
 
-    **Legacy usage** (all campaigns submitted before run)::
+    **Fixed set of campaigns** (all submitted before run)::
 
         cm = CampaignManager()
         cm.submit_campaign(spec_a)
@@ -96,7 +96,7 @@ class CampaignManager:
     # ── Public API ─────────────────────────────────────────────────────────────
 
     def submit_campaign(self, spec: CampaignSpec) -> SubmitResult:
-        """Enqueue a campaign for the next ``run()`` call (legacy API).
+        """Enqueue a campaign for the next ``run()`` call (no outcome future).
 
         Applies the same admission check as ``submit()`` (campaign and
         workflow counts, global spending); a rejected campaign is logged and
@@ -205,7 +205,7 @@ class CampaignManager:
             logger.info("[CM] all drivers done — no more submissions")
 
     def close(self) -> None:
-        """Directly close the submission queue (legacy / single-driver shorthand).
+        """Directly close the submission queue (single-driver shorthand).
 
         Prefer ``driver_done()`` when multiple drivers may be active.
         Safe to call more than once.
@@ -220,9 +220,9 @@ class CampaignManager:
         Create the shared WorkflowEngine, start campaigns, and run until all
         finish or SIGTERM is received.
 
-        *Legacy mode*: if only ``submit_campaign()`` was used (no calls to
-        ``submit()``), the method behaves exactly as before — all pending
-        campaigns start immediately and ``run()`` exits when they all complete.
+        *Fixed set*: if only ``submit_campaign()`` was used (no calls to
+        ``submit()``), all pending campaigns start immediately and ``run()``
+        exits when they all complete.
 
         *Driver mode*: ``run()`` also monitors the submission queue fed by
         ``submit()``; it exits only after ``close()`` is called **and** all
@@ -248,11 +248,11 @@ class CampaignManager:
 
         self._install_signal_handlers()
 
-        # Pre-seed queue from legacy submit_campaign() calls.
+        # Pre-seed the queue with campaigns from submit_campaign().
         for spec in self._pending:
             self._submission_queue.put_nowait(spec)
 
-        # Legacy mode: no driver registered → automatically close after pending batch.
+        # No driver registered → automatically close after pending batch.
         if self._pending_drivers == 0:
             self._submission_queue.put_nowait(None)
 
@@ -283,7 +283,7 @@ class CampaignManager:
                         elapsed_s = time.monotonic() - self._campaign_start_times.pop(
                             name, time.monotonic()
                         )
-                        self._resolve_future(name, elapsed_s=elapsed_s, task_cancelled=True)
+                        self._resolve_future(name, elapsed_s=elapsed_s)
                     if q_t and not q_t.done():
                         q_t.cancel()
                     return
@@ -311,7 +311,7 @@ class CampaignManager:
                         name, time.monotonic()
                     )
                     # Resolve driver future before removing the spec (outcome needs controller).
-                    self._resolve_future(name, elapsed_s=elapsed_s, task_cancelled=t.cancelled())
+                    self._resolve_future(name, elapsed_s=elapsed_s)
                     self._active_specs.pop(name, None)
                     active.pop(name, None)
                     self._allocator.close(name)  # no-op if already closed
@@ -350,8 +350,8 @@ class CampaignManager:
         # Move from reserved → active (clears the admit-to-start gap).
         self._reserved_specs.pop(spec.name, None)
 
-        # Campaigns admitted by submit() are already open in the ledger;
-        # legacy submit_campaign() specs are opened here without a global check.
+        # Admitted campaigns are already open in the ledger (_admit); open() is
+        # then a no-op.
         self._allocator.open(spec.name, spec.budget.spending)
         self._active_specs[spec.name] = spec
         self._campaign_start_times[spec.name] = time.monotonic()
@@ -360,7 +360,7 @@ class CampaignManager:
         logger.info("[CM] %s: started", spec.name)
         return asyncio.create_task(inst.run(), name=f"campaign-{spec.name}")
 
-    def _resolve_future(self, name: str, elapsed_s: float, task_cancelled: bool) -> None:
+    def _resolve_future(self, name: str, elapsed_s: float) -> None:
         """Build a CampaignOutcome from the controller and resolve the driver future, if any.
 
         Also updates the global spending ledger from the campaign instance's

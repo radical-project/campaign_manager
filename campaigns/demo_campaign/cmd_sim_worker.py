@@ -1,4 +1,4 @@
-"""Tier 2 subprocess worker for the demo campaign.
+"""Command-line workflow for the demo campaign.
 
 Launched by the CM via WorkflowConfig(launch_cmd=[sys.executable, __file__]).
 Reads CM_WORKFLOW_ID / CM_DATA_ENDPOINT / CM_DATA_BACKEND from the environment,
@@ -27,8 +27,8 @@ from src.aucam_client import Reporter  # noqa: E402
 def main() -> int:
     reporter = Reporter()
 
-    n_iters = int(os.environ.get("CM_T2_N_ITERS", "10"))
-    sleep_s = float(os.environ.get("CM_T2_SLEEP_S", "0.08"))
+    n_iters = int(os.environ.get("DEMO_N_ITERS", "10"))
+    sleep_s = float(os.environ.get("DEMO_SLEEP_S", "0.08"))
     converge = random.random() < 0.65  # 65% convergence rate (same as sim_worker)
 
     score = 0.5

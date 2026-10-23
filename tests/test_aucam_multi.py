@@ -1,5 +1,5 @@
 """
-Multi-campaign integration test for AuCaM Phase 1.
+Multi-campaign integration test.
 
 Three campaigns run concurrently through a single CampaignManager:
 

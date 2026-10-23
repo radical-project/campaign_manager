@@ -147,8 +147,7 @@ class BudgetAllocator:
 
         A limit is reached when actual spending plus the in-flight estimate of
         running workflows meets or exceeds it (conservative, like SLURM
-        accounting).  The legacy key ``cpu_wall_seconds`` is compared against
-        in-flight ``cpu_hours`` converted to seconds.
+        accounting).
         """
         with self._lock:
             limits = self._limits.get(campaign, {})
@@ -159,10 +158,7 @@ class BudgetAllocator:
             for est in self._in_flight.get(campaign, {}).values():
                 _add(live, est)
             for key, limit in limits.items():
-                if key == "cpu_wall_seconds":
-                    inflight = live.get("cpu_hours", 0.0) * 3600.0
-                else:
-                    inflight = live.get(key, 0.0)
+                inflight = live.get(key, 0.0)
                 done = spent.get(key, 0.0)
                 if done + inflight >= limit:
                     return key, done, inflight, limit

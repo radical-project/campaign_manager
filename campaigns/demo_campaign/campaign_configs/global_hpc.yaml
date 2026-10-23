@@ -1,10 +1,9 @@
 # Global CampaignManager configuration — Dragon / SLURM (Delta HPC).
-# Used by delta_dragon_sbatch.sh via --global-config config/global_hpc.yaml.
+# Used by delta_sbatch.sh via --global-config campaign_configs/global_hpc.yaml.
 # telemetry.dir and spending are still passed as CLI flags from the sbatch script
 # so SLURM_JOB_ID can be embedded in the path.
 
 engine: dragon
-asyncflow_blocks: true
 verbose: false
 num_campaigns: 3
 

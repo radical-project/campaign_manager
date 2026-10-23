@@ -127,9 +127,6 @@ class CampaignSpec(BaseModel):
     data_backend: Any | None = None  # DataBackend
     # Directory to write/read checkpoint files.  None = no checkpointing.
     checkpoint_dir: str | None = None
-    # Deprecated, ignored: every workflow now runs as an AsyncFlow block.
-    # Kept so existing specs and configs that set it still validate.
-    use_asyncflow_blocks: bool = True
     # Scheduling policy for this campaign.  None = BanditSchedulingPolicy().
     # The instance belongs to this campaign only: CampaignManager rejects a
     # spec whose policy instance is already used by another campaign.

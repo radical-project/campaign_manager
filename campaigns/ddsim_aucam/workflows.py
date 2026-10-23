@@ -16,9 +16,8 @@ Adapter design (thin layer):
     The config is captured in the closure, so concurrent campaigns with
     different configs never share or overwrite each other's state.
   - The asyncflow engine (flow=) is shared with MiniAppsWorkflow so that
-    sim/train/predict tasks are registered on the same engine.  Callers
-    must therefore run this block with use_asyncflow_blocks=False so
-    AuCaM passes flow= to the coroutine.
+    sim/train/predict tasks are registered on the same engine.  AuCaM
+    passes flow= because the block declares a ``flow`` parameter.
 """
 
 from __future__ import annotations
@@ -123,8 +122,8 @@ def make_miniapps_worker(cfg: dict, arm_label: str = "wf", engine: str = "concur
     concurrent campaigns with different configs each get their own closure
     and never clobber each other's settings.
 
-    The returned coroutine must run with use_asyncflow_blocks=False so that
-    AuCaM injects the shared asyncflow engine via flow=.
+    The returned coroutine declares ``flow``, so AuCaM passes it the shared
+    asyncflow engine.
     """
 
     async def miniapps_worker(reporter: WorkflowReporter, flow=None) -> None:

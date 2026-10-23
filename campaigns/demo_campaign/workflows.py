@@ -95,7 +95,7 @@ async def sim_worker(reporter: WorkflowReporter, flow=None) -> None:
     cancellation are exercised properly.
 
     BlockProfiler wraps the entire block to measure head-node overhead.
-    TaskProfiler wraps _simulate to capture worker-node CPU/memory (Path 1).
+    TaskProfiler wraps _simulate to capture worker-node CPU/memory.
     """
     converging = random.random() > 0.35  # ~65 % converging
 

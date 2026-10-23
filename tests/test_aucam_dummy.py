@@ -1,7 +1,7 @@
 """
-Dummy campaign integration test for Phase 1.
+Single-campaign integration test.
 
-Two Tier-2 workflows (fast_job and slow_job, launched as block coroutines)
+Two Python workflows (fast_job and slow_job)
 run concurrently.  A third (follow_up) is gated behind a DAG dependency on
 fast_job completing successfully.  The controller terminates after all three
 have finished.

@@ -39,7 +39,7 @@ slow_step_multiplier: 3   # miniapps_slow uses num_step × this
 
 # Declared spending per workflow arm (wall_hours, cpu_hours, gpu_hours).
 # Budget accounting: reserved at launch, settled (prorated) at completion.
-# Option A (max_wall_time_s set) → actual ≤ declared; Option B → overrun allowed.
+# With max_wall_time_s set, actual ≤ declared; without it, a run may overrun.
 workflows:
   fast_spending:
     wall_hours:  0.5     # ~15–30 min; used as proration denominator

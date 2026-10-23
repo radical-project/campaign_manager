@@ -31,8 +31,8 @@ Config-driven usage
         --driver --num-campaigns 3 --driver-delay 1.0 \\
         --max-concurrent-campaigns 2
 
-Legacy / quick-start usage (no config files — defaults match campaign_configs/global.yaml)
-----------------------------------------------------------------------------------
+Quick start (no config files — defaults match campaign_configs/global.yaml)
+---------------------------------------------------------------------------
     python run_campaign.py --policy bandit
     python run_campaign.py --policy adr --num-campaigns 2
     python run_campaign.py --spending-cpu-hours 0.01
@@ -113,15 +113,14 @@ def build_spec(
     name: str,
     ccfg: CampaignConfig,
     results_writer: _ResultsWriter | None = None,
-    use_asyncflow_blocks: bool = False,
     data_backend=None,
     scheduling_policy: SchedulingPolicy | None = None,
-    use_tier2: bool = False,
+    use_cmd_worker: bool = False,
 ) -> tuple[CampaignSpec, ScoreController]:
     """Build a CampaignSpec and its ScoreController from a CampaignConfig template."""
     ctrl = ScoreController(
         goal_analyses=ccfg.controller.goal_analyses,
-        use_tier2=use_tier2,
+        use_cmd_worker=use_cmd_worker,
         score_floor=ccfg.controller.score_floor,
     )
 
@@ -171,14 +170,14 @@ def build_spec(
             *(
                 [
                     WorkflowConfig(
-                        name="tier2_sim_worker",
+                        name="cmd_sim_worker",
                         launch_cmd=[
                             sys.executable,
-                            str(Path(__file__).parent / "tier2_sim_worker.py"),
+                            str(Path(__file__).parent / "cmd_sim_worker.py"),
                         ],
                         env={
-                            "CM_T2_N_ITERS": str(ccfg.workflows.sim_worker.n_iters),
-                            "CM_T2_SLEEP_S": str(ccfg.workflows.sim_worker.iter_sleep_s),
+                            "DEMO_N_ITERS": str(ccfg.workflows.sim_worker.n_iters),
+                            "DEMO_SLEEP_S": str(ccfg.workflows.sim_worker.iter_sleep_s),
                         },
                         stale_timeout_s=ccfg.workflows.sim_worker.stale_timeout_s,
                         launch_on_start=True,
@@ -186,7 +185,7 @@ def build_spec(
                         declared_spending=ccfg.workflows.sim_worker.declared_spending,
                     )
                 ]
-                if use_tier2
+                if use_cmd_worker
                 else []
             ),
         ],
@@ -204,19 +203,18 @@ def build_spec(
             *(
                 [
                     WorkflowDependency(
-                        source="tier2_sim_worker",
+                        source="cmd_sim_worker",
                         target="analysis_worker",
                         condition=lambda r: r.returncode == 0,
                     )
                 ]
-                if use_tier2
+                if use_cmd_worker
                 else []
             ),
         ],
         policy_interval_s=ccfg.policy_interval_s,
         shutdown_timeout_s=ccfg.shutdown_timeout_s,
         checkpoint_dir=ccfg.checkpoint_dir,
-        use_asyncflow_blocks=use_asyncflow_blocks,
         data_backend=data_backend,
         scheduling_policy=scheduling_policy,
     )
@@ -244,20 +242,14 @@ async def _make_data_backend(
     resolved = data_backend_type if data_backend_type != "auto" else engine
 
     if resolved == "dragon":
-        print(
-            "[TRACE] _make_data_backend: starting DDict via Rhapsody DragonDataBackend", flush=True
-        )
         from rhapsody.backends.data import DragonDataBackend as _RhapsodyDDB
 
         rdb = await _RhapsodyDDB(managers_per_node=1, n_nodes=1, total_mem=256 * 1024 * 1024)
         descriptor = rdb.endpoints[0].serialize()
-        print("[TRACE] _make_data_backend: RadexDragonBackend ready", flush=True)
+        logging.info("Dragon data backend ready")
         return RadexDragonBackend(descriptor), rdb
 
     if resolved == "redis":
-        print(
-            "[TRACE] _make_data_backend: starting Redis via Rhapsody RedisDataBackend", flush=True
-        )
         from rhapsody.backends.data import RedisDataBackend as _RhapsodyRDB
 
         kwargs = {}
@@ -265,7 +257,7 @@ async def _make_data_backend(
             kwargs["redis_server_path"] = redis_server_path
         rdb = await _RhapsodyRDB(**kwargs)
         descriptor = rdb.endpoints[0].serialize()
-        print(f"[TRACE] _make_data_backend: RhapsodyRedisBackend ready at {descriptor}", flush=True)
+        logging.info("Redis data backend ready at %s", descriptor)
         return RhapsodyRedisBackend(descriptor), rdb
 
     return None, None
@@ -282,7 +274,6 @@ async def _driver(
     n_campaigns: int,
     policy_name: str,
     policies: list,
-    use_asyncflow_blocks: bool,
     data_backend,
     telemetry_dir: str | None,
 ) -> None:
@@ -338,10 +329,9 @@ async def _driver(
             name=name,
             ccfg=ccfg,
             results_writer=rw,
-            use_asyncflow_blocks=use_asyncflow_blocks,
             data_backend=data_backend,
             scheduling_policy=policy,
-            use_tier2=data_backend is not None,
+            use_cmd_worker=data_backend is not None,
         )
 
         result: SubmitResult = await cm.submit(spec)
@@ -381,15 +371,12 @@ async def _driver(
 
 
 async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace) -> None:
-    print("[TRACE] run() started — Python is alive", flush=True)
     n = gcfg.num_campaigns
     labels = [chr(ord("a") + i) for i in range(n)] if n > 1 else [""]
 
     # Each campaign gets its own scheduling policy instance.
     policies: list = []  # (campaign name, policy)
-    print(f"[TRACE] making execution backend (engine={gcfg.engine})", flush=True)
     backend = await _make_backend(gcfg.engine)
-    print("[TRACE] execution backend ready, making data backend", flush=True)
     data_backend, _rdb = await _make_data_backend(
         gcfg.engine, gcfg.data_backend, gcfg.redis_server_path
     )
@@ -412,14 +399,12 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
             max_rejections=gb.max_rejections,
         )
 
-    print("[TRACE] creating CampaignManager", flush=True)
     cm = CampaignManager(
         backend=backend,
         global_budget=global_budget,
-        enable_telemetry=gcfg.asyncflow_blocks,
+        enable_telemetry=gcfg.telemetry.enabled,
         telemetry_checkpoint_dir=gcfg.telemetry.dir,
     )
-    print("[TRACE] CampaignManager created", flush=True)
 
     t0 = time.monotonic()
 
@@ -436,7 +421,6 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
                 n_campaigns=n,
                 policy_name=gcfg.scheduling.policy,
                 policies=policies,
-                use_asyncflow_blocks=gcfg.asyncflow_blocks,
                 data_backend=data_backend,
                 telemetry_dir=gcfg.telemetry.dir,
             )
@@ -456,7 +440,7 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
 
         asyncio.ensure_future(_close_when_done())
     else:
-        # ── Legacy mode: submit all upfront ───────────────────────────────────
+        # ── Without --driver: submit all campaigns up front ──────────────────
         writers: list[_ResultsWriter | None] = []
         for label in labels:
             name = f"demo-campaign-{label}" if label else "demo-campaign"
@@ -472,35 +456,22 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
                 name=name,
                 ccfg=ccfg,
                 results_writer=rw,
-                use_asyncflow_blocks=gcfg.asyncflow_blocks,
                 data_backend=data_backend,
                 scheduling_policy=policy,
-                use_tier2=data_backend is not None,
+                use_cmd_worker=data_backend is not None,
             )
             cm.submit_campaign(spec)
             logging.info("[DRIVER] submitted '%s'", name)
 
-    print("[TRACE] calling cm.run()", flush=True)
     await cm.run()
-    print("[TRACE] cm.run() returned", flush=True)
     elapsed = time.monotonic() - t0
 
     # ── Summary ───────────────────────────────────────────────────────────────
-    # In legacy mode the controller objects live in the specs; in driver mode
-    # the driver already logged outcomes via result.wait().
+    # In driver mode the driver already logged each outcome via result.wait().
     if not gcfg.driver.enabled:
-        for i, label in enumerate(labels):
-            name = f"demo-campaign-{label}" if label else "demo-campaign"
-            rw = writers[i]
+        for rw in writers:
             if rw is not None:
                 rw.close()
-
-        # Re-derive summary from spec controllers (legacy only; driver logs its own).
-        # We don't have direct access to ctrls here in legacy mode — they're embedded
-        # in the specs which live inside _CampaignInstance after run().
-        # The summary below relies on CampaignManager not exposing controllers yet;
-        # see the driver path for the outcome-driven summary.
-        pass
 
     for cname, cpolicy in policies:
         print(f"\n  campaign {cname}:")
@@ -510,23 +481,17 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
     if _rdb is not None:
         if hasattr(data_backend, "close"):
             data_backend.close()
-        print("[TRACE] shutting down data backend", flush=True)
         await _rdb.shutdown()
-        print("[TRACE] data backend shutdown complete", flush=True)
     if backend is not None and hasattr(backend, "shutdown"):
-        print("[TRACE] shutting down exec backend", flush=True)
         await backend.shutdown()
-        print("[TRACE] exec backend shutdown complete", flush=True)
 
     # Cancel any background asyncio tasks left by Dragon/CM so that
     # asyncio.run() can close the event loop without hanging.
     pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
     if pending:
-        print(f"[TRACE] cancelling {len(pending)} remaining asyncio tasks", flush=True)
         for t in pending:
             t.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
-    print("[TRACE] run() complete", flush=True)
 
 
 # ── Argument parser ───────────────────────────────────────────────────────────
@@ -560,15 +525,9 @@ def _build_parser(gcfg: GlobalConfig, ccfg: CampaignConfig) -> argparse.Argument
         help="execution backend",
     )
     p.add_argument(
-        "--asyncflow-blocks",
-        action="store_true",
-        default=gcfg.asyncflow_blocks,
-        help="run Tier 1 blocks via asyncflow.block",
-    )
-    p.add_argument(
         "--telemetry-dir",
         default=gcfg.telemetry.dir,
-        help="directory for telemetry JSONL (implies --asyncflow-blocks)",
+        help="directory for telemetry JSONL (enables telemetry)",
     )
     p.add_argument(
         "--num-campaigns",
@@ -669,16 +628,13 @@ def main() -> None:
     # Apply CLI overrides back into the config objects so run() sees one source.
     gcfg.engine = args.engine if args.engine != "default" else gcfg.engine
     gcfg.verbose = args.verbose
-    gcfg.asyncflow_blocks = args.asyncflow_blocks
     gcfg.num_campaigns = args.num_campaigns
     gcfg.scheduling.policy = args.policy
     gcfg.driver.enabled = args.driver
     gcfg.driver.delay_s = args.driver_delay
     gcfg.telemetry.dir = args.telemetry_dir
     if args.telemetry_dir:
-        gcfg.asyncflow_blocks = True
-    if gcfg.engine == "concurrent":
-        gcfg.asyncflow_blocks = False
+        gcfg.telemetry.enabled = True
     if args.max_concurrent_campaigns is not None:
         gcfg.global_budget.max_concurrent_campaigns = args.max_concurrent_campaigns
 
@@ -701,7 +657,7 @@ def main() -> None:
         level=level,
         format="%(asctime)s %(levelname)-8s %(name)-30s %(message)s",
         datefmt="%H:%M:%S",
-        stream=sys.stdout,  # route to stdout so Dragon captures it alongside [TRACE] prints
+        stream=sys.stdout,  # stdout, so Dragon captures logs with the program output
         force=True,  # Dragon's api_setup pre-configures the root logger; force overrides it
     )
 

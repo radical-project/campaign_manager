@@ -3,7 +3,6 @@
 # Use global_hpc.yaml for Dragon multi-node runs.
 
 engine: concurrent
-asyncflow_blocks: false
 verbose: false
 
 # Driver: all campaigns submitted simultaneously and run in parallel.

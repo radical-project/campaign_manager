@@ -231,9 +231,6 @@ class RadexDragonBackend:
         await asyncio.to_thread(_del)
 
 
-DragonDictBackend = RadexDragonBackend
-
-
 class RadexDragonReporter(WorkflowReporter):
     """Reporter using radex DragonClient inside Dragon worker processes.
 
@@ -277,9 +274,6 @@ class RadexDragonReporter(WorkflowReporter):
             return None
         client.put_picklable(key, None)
         return CampaignDecision(val)
-
-
-DragonDictReporter = RadexDragonReporter
 
 
 class RhapsodyRedisBackend:

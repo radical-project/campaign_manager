@@ -58,7 +58,6 @@ class GlobalConfig:
     engine: str = "concurrent"  # concurrent | dragon
     data_backend: str = "auto"  # auto | dragon | redis | local
     redis_server_path: str | None = None  # path to redis-server binary (redis backend only)
-    asyncflow_blocks: bool = False
     verbose: bool = False
     num_campaigns: int = 1
     scheduling: SchedulingConfig = field(default_factory=SchedulingConfig)
@@ -136,7 +135,6 @@ def load_global(path: str | Path) -> GlobalConfig:
         engine=d.get("engine", "concurrent"),
         data_backend=d.get("data_backend", "auto"),
         redis_server_path=d.get("redis_server_path") or None,
-        asyncflow_blocks=bool(d.get("asyncflow_blocks", False)),
         verbose=bool(d.get("verbose", False)),
         num_campaigns=int(d.get("num_campaigns", 1)),
         scheduling=SchedulingConfig(

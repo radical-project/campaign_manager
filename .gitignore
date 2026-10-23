@@ -1,14 +1,11 @@
 # Python
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
-*.pyc
 *.egg-info/
+*.egg
+.eggs/
 dist/
 build/
-.eggs/
-*.egg
 *.whl
 
 # Virtual environments
@@ -16,51 +13,33 @@ build/
 venv/
 env/
 
-# Test / coverage
+# Test, lint and coverage
 .pytest_cache/
+.ruff_cache/
 .coverage
 htmlcov/
 .tox/
 
-# asyncflow / Dragon runtime artifacts
+# AsyncFlow / RHAPSODY / Dragon runtime output
 asyncflow.session*/
 runinfo/
+rhapsody.data.*/
+ddict_orc_*
 
-# AuCaM telemetry and run output
-aucam-tel-*/
+# AuCaM telemetry, checkpoints and run output
 aucam-tel/
-campaigns/*/aucam-tel/
-campaigns/*/aucam-tel-*/
+aucam-tel-*/
 campaigns/*/logs/
-campaigns/*/campaign_configs/
-campaigns/*/runinfo/
 campaigns/*/checkpoints/
-campaigns/*/rhapsody.data.*/
 campaigns/*/*.log
+campaigns/*/*.json
+campaigns/*/*.png
 campaigns/*/slurm.yaml
+tests/*.json
 
 # SLURM logs
 slurm-*.out
-
-# Benchmark result data files
-# campaigns/*/benchmark*.json
-
-# Runtime output directories (campaign artifacts)
-campaigns/*/ESM2/results/
-campaigns/*/ESM2/client_inference_*.json
-campaigns/*/ESM2/metrics_*.json
-campaigns/*/ESM2/_dragon_config_*.json
-campaigns/*/Dummy/
-campaigns/*/MiniApps/
-campaigns/*/cache/
-campaigns/*/adr-logs/
-campaigns/*/plots/
-campaigns/*/telemetry-results-*/
-campaigns/*/*.npy
-campaigns/*/slurm-*
-campaigns/*/*png
-campaigns/*/runs/*
-campaigns/*/ddict_orc_*
+slurm-*.err
 
 # Editor / OS
 .DS_Store
@@ -72,14 +51,3 @@ campaigns/*/ddict_orc_*
 
 # Local Claude Code settings
 .claude/settings.local.json
-
-# Plotting scripts kept locally but not committed
-campaigns/plotting/make_presentation.py
-campaigns/plotting/plot_policy_comparison.py
-campaigns/plotting/plot_replica_timeline.py
-campaigns/plotting/plot_deadline_yield.py
-
-# Symlinks and result files
-*_in
-campaigns/*/*.json
-tests/*.json

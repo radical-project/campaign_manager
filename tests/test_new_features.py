@@ -1,12 +1,12 @@
-"""Tests for features added in the easy-to-do batch:
+"""Tests for budget, idle-exit and checkpoint features (IDs as in docs/known-gaps.md):
 
 B0     — any budget dimension in set_in_flight / _compute_workflow_spent
 B1     — burn entry in campaign_view
 B3     — learned cost estimates replace declared_spending after min_samples
 idle   — campaign exits with reason="campaign_idle" when queue drains
-Gap1   — dep_satisfied persisted in checkpoint and restored before re-push
-R1     — inner-block uid propagation in _on_task_event
-live   — live in-flight update for non-R1 paths (proration and reported)
+R2     — dep_satisfied persisted in checkpoint and restored before re-push
+tasks  — inner-block uid propagation in _on_task_event (per-task accounting)
+live   — live in-flight update for workflows not charged per task
 """
 
 from __future__ import annotations
@@ -265,10 +265,10 @@ def test_idle_exit_s_none_keeps_campaign_waiting() -> None:
     assert asyncio.run(asyncio.wait_for(run(), timeout=20.0)) == "waiting"
 
 
-# ── Gap 1: dep_satisfied in checkpoint ───────────────────────────────────────
+# ── R2: dep_satisfied in checkpoint ──────────────────────────────────────────
 
 
-def test_gap1_dep_satisfied_roundtrip() -> None:
+def test_dep_satisfied_roundtrip() -> None:
     """dep_satisfied persists through CampaignCheckpoint JSON round-trip."""
     ckpt = CampaignCheckpoint(
         campaign_name="dep_test",
@@ -280,7 +280,7 @@ def test_gap1_dep_satisfied_roundtrip() -> None:
     assert set(restored.dep_satisfied) == {"dep_test.source.abc", "dep_test.source.def"}
 
 
-def test_gap1_dep_satisfied_missing_in_old_checkpoint() -> None:
+def test_dep_satisfied_missing_in_old_checkpoint() -> None:
     """Checkpoints without dep_satisfied field (old format) default to empty."""
     d = {
         "campaign_name": "old_format",
@@ -291,7 +291,7 @@ def test_gap1_dep_satisfied_missing_in_old_checkpoint() -> None:
     assert restored.dep_satisfied == []
 
 
-def test_gap1_dep_satisfied_restored_before_queue(tmp_path: Path) -> None:
+def test_dep_satisfied_restored_before_queue(tmp_path: Path) -> None:
     """After recovery, dep_satisfied is restored so queued target-type requests
     launch immediately without waiting for a redundant source completion."""
     from src.aucam import WorkflowDependency
@@ -351,7 +351,7 @@ def test_gap1_dep_satisfied_restored_before_queue(tmp_path: Path) -> None:
     )
 
 
-# ── R1: inner-block uid propagation ──────────────────────────────────────────
+# ── Per-task accounting: inner-block uid propagation────────────────────────────────────────
 
 
 def test_inner_block_uid_registered_in_wf_tags() -> None:
@@ -446,11 +446,11 @@ def test_inner_block_cross_campaign_not_registered() -> None:
     assert "block.000003" not in inst._wf_tags
 
 
-# ── live in-flight update for non-R1 paths ───────────────────────────────────
+# ── live in-flight update, not charged per task─────────────────────────────────
 
 
 def test_live_inflight_proration_holds_full_cost_and_grows_on_overrun() -> None:
-    """A non-R1 workflow is charged only when it ends, so while it runs the
+    """A workflow not charged per task is charged only when it ends, so while it runs the
     ledger must hold its full expected cost: in_flight never drops below the
     launch estimate, and grows when the workflow runs past its declared wall
     time (declared x elapsed / declared_wall)."""
@@ -496,7 +496,7 @@ def test_live_inflight_proration_holds_full_cost_and_grows_on_overrun() -> None:
 
 
 def test_live_inflight_reported_path_raises_estimate() -> None:
-    """For a non-R1 workflow that reports cumulative cpu_hours, in_flight is
+    """For a workflow not charged per task that reports cumulative cpu_hours, in_flight is
     max(estimate, reported): a report below the estimate leaves it unchanged,
     a report above it raises in_flight to the reported value."""
 

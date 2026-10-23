@@ -37,12 +37,12 @@ class ScoreController(CampaignController):
     def __init__(
         self,
         goal_analyses: int = GOAL_ANALYSES,
-        use_tier2: bool = False,
+        use_cmd_worker: bool = False,
         score_floor: float = SCORE_FLOOR,
     ) -> None:
         launch = ["sim_worker", "sim_worker_b"]
-        if use_tier2:
-            launch.append("tier2_sim_worker")
+        if use_cmd_worker:
+            launch.append("cmd_sim_worker")
         rules = [
             CancelRule(
                 workflow_type="sim_worker",
@@ -53,10 +53,10 @@ class ScoreController(CampaignController):
                 when=lambda r: r.score is not None and r.score < score_floor,
             ),
         ]
-        if use_tier2:
+        if use_cmd_worker:
             rules.append(
                 CancelRule(
-                    workflow_type="tier2_sim_worker",
+                    workflow_type="cmd_sim_worker",
                     when=lambda r: r.score is not None and r.score < score_floor,
                 )
             )

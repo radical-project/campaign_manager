@@ -116,4 +116,13 @@ asyncio.run(main())
 pytest                   # full suite
 pytest -m "not slow"     # skip slow integration tests
 pytest --cov=src         # with coverage
+
+ruff check --no-fix .    # lint (pyproject sets fix = true; plain `ruff check .` edits files)
+ruff format --check .    # formatting
 ```
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).

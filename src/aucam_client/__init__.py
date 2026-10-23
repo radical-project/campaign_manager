@@ -1,4 +1,4 @@
-"""Lightweight reporting client for command-line (Tier 2) workflows.
+"""Lightweight reporting client for command-line workflows.
 
 A program launched by CM through ``WorkflowConfig.launch_cmd`` can be written
 in any language.  It reports to CM and receives PAUSE / RESUME signals through

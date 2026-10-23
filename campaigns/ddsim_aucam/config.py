@@ -59,7 +59,6 @@ class DriverConfig:
 @dataclass
 class GlobalConfig:
     engine: str = "concurrent"
-    asyncflow_blocks: bool = False
     verbose: bool = False
     scheduling: SchedulingConfig = field(default_factory=SchedulingConfig)
     global_budget: GlobalBudgetConfig = field(default_factory=GlobalBudgetConfig)
@@ -192,7 +191,6 @@ def load_global(path: str | Path) -> GlobalConfig:
 
     return GlobalConfig(
         engine=d.get("engine", "concurrent"),
-        asyncflow_blocks=bool(d.get("asyncflow_blocks", False)),
         verbose=bool(d.get("verbose", False)),
         scheduling=SchedulingConfig(policy=sched.get("policy", "bandit")),
         global_budget=GlobalBudgetConfig(

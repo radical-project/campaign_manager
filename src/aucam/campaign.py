@@ -234,7 +234,6 @@ class _CampaignInstance:
         self._done = False
         self._slot_event = asyncio.Event()
         self._completion_event = asyncio.Event()  # set on each workflow done → early policy wake
-        self._result: dict | None = None
         # Spending is kept in the shared BudgetAllocator ledger (per campaign).
         self._allocator.open(self.name, spec.budget.spending)
 
@@ -362,29 +361,31 @@ class _CampaignInstance:
 
         Returns (spending_contribution, resource_profile).
 
-        Three-path accounting:
-          1. Workflow-reported: workflow emitted cpu_hours/gpu_hours via reporter.emit().
-          2. Prorate: declared × (actual_wall / declared_wall) — Option A (capped) or
-             Option B (overrun, ratio > 1.0).
+        In order of priority, per dimension:
+          1. Reported: values the workflow emitted via reporter.emit().
+          2. Prorated: declared × (actual_wall / declared_wall); the ratio can
+             exceed 1 when the workflow runs longer than declared.
           3. Zero: declared_spending absent — campaign emitted a warning at init.
         """
         wall_h = wall_s / 3600.0
         spending: dict[str, float] = {}
 
-        # Path 1: workflow-reported values take top priority.
+        # 1. Reported values take top priority.
         # Always check cpu_hours/gpu_hours (supplied by AsyncFlow telemetry); also
         # pick up any custom dimensions declared in declared_spending (e.g. llm_tokens).
-        p1_keys = {"cpu_hours", "gpu_hours"} | {k for k in declared_spending if k != "wall_hours"}
-        for key in p1_keys:
+        reported_keys = {"cpu_hours", "gpu_hours"} | {
+            k for k in declared_spending if k != "wall_hours"
+        }
+        for key in reported_keys:
             val = final_metrics.get(key)
             if val is not None:
                 spending[key] = float(val)
 
-        # Path 2: prorate declared spending by actual / declared wall time.
+        # 2. Prorate declared spending by actual / declared wall time.
         # Only prorate dimensions that appear in declared_spending (need a base value).
         decl_wall_h = declared_spending.get("wall_hours", 0.0)
         if decl_wall_h > 0:
-            ratio = wall_h / decl_wall_h  # < 1 = underspend; > 1 = Option B overrun
+            ratio = wall_h / decl_wall_h  # < 1 = underspend; > 1 = overrun
             for key in (k for k in declared_spending if k != "wall_hours"):
                 if key not in spending:
                     spending[key] = declared_spending[key] * ratio
@@ -1366,7 +1367,7 @@ class _CampaignInstance:
                     self._stale_cancels += 1
                     continue
 
-            # Wall-time limit — applies to all workflow tiers.
+            # Wall-time limit — applies to all workflows.
             if wfc.max_wall_time_s is not None:
                 wall = now - inst.started_at
                 if wall > wfc.max_wall_time_s:

@@ -161,10 +161,6 @@ def build_spec(
                 declared_spending=ccfg.workflows.resolved_slow_spending(),
             ),
         ],
-        # use_asyncflow_blocks=False is required: MiniAppsWorkflow registers
-        # asyncflow tasks in __init__ via @flow.executable_task, which needs the
-        # shared engine injected as flow= into the block coroutine.
-        use_asyncflow_blocks=False,
         policy_interval_s=ccfg.policy_interval_s,
         shutdown_timeout_s=ccfg.shutdown_timeout_s,
         checkpoint_dir=ccfg.checkpoint_dir,
@@ -581,10 +577,6 @@ def main() -> None:
     gcfg.telemetry.dir = args.telemetry_dir
     gcfg.driver.num_campaigns = args.num_campaigns
     gcfg.driver.max_concurrent = args.max_concurrent_campaigns
-    if args.telemetry_dir:
-        gcfg.asyncflow_blocks = True
-    if gcfg.engine == "concurrent":
-        gcfg.asyncflow_blocks = False
 
     ccfg.controller.goal_n = args.goal_n
     ccfg.controller.score_ceiling = args.score_ceiling
