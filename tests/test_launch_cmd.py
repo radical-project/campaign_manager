@@ -1,4 +1,5 @@
 """Command-line workflows: inline wrapper, exported variables, real exit codes."""
+
 from __future__ import annotations
 
 import asyncio
@@ -71,12 +72,16 @@ def _asyncflow_reports_exit_code() -> bool:
     return "exit_code" in inspect.getsource(workflow_manager)
 
 
-@pytest.mark.skipif(not _asyncflow_reports_exit_code(),
-                    reason="radical.asyncflow without task exit codes")
+@pytest.mark.skipif(
+    not _asyncflow_reports_exit_code(), reason="radical.asyncflow without task exit codes"
+)
 def test_exit_code_reaches_workflow_result() -> None:
     wfs = [
-        WorkflowConfig(name=f"exit{c}", launch_on_start=False,
-                       launch_cmd=[sys.executable, "-c", f"import sys; sys.exit({c})"])
+        WorkflowConfig(
+            name=f"exit{c}",
+            launch_on_start=False,
+            launch_cmd=[sys.executable, "-c", f"import sys; sys.exit({c})"],
+        )
         for c in (0, 3)
     ]
     reqs = [LaunchRequest.make(w.name, LaunchPriority.NORMAL) for w in wfs]
@@ -93,11 +98,12 @@ def test_program_environment(tmp_path) -> None:
         "json.dump({k: os.environ.get(k) for k in keys}, open(sys.argv[1], 'w'))"
     )
     wf = WorkflowConfig(
-        name="envprog", launch_on_start=False, env={"MY_VAR": "x y 'z'"},
+        name="envprog",
+        launch_on_start=False,
+        env={"MY_VAR": "x y 'z'"},
         launch_cmd=[sys.executable, "-c", script, str(out)],
     )
-    ctl = _run([wf], [LaunchRequest.make("envprog", LaunchPriority.NORMAL,
-                                         context={"seed": 7})])
+    ctl = _run([wf], [LaunchRequest.make("envprog", LaunchPriority.NORMAL, context={"seed": 7})])
     assert ctl.results[0].returncode == 0
     env = json.loads(out.read_text())
     assert env["CM_WORKFLOW_ID"] == ctl.results[0].workflow_id

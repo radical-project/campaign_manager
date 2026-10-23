@@ -26,12 +26,12 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
 # ── Global config ─────────────────────────────────────────────────────────────
+
 
 @dataclass
 class SchedulingConfig:
-    policy: str = "bandit"          # bandit | fifo | adr | llm
+    policy: str = "bandit"  # bandit | fifo | adr | llm
 
 
 @dataclass
@@ -51,7 +51,7 @@ class TelemetryConfig:
 
 @dataclass
 class DriverConfig:
-    num_campaigns: int = 2          # total campaigns (alternates fast/slow)
+    num_campaigns: int = 2  # total campaigns (alternates fast/slow)
     max_concurrent: int | None = 2  # max running simultaneously
     spending_cpu_hours: list[float | None] = field(default_factory=list)
 
@@ -69,15 +69,16 @@ class GlobalConfig:
 
 # ── Campaign config ───────────────────────────────────────────────────────────
 
+
 @dataclass
 class ControllerConfig:
-    goal_n: int = 4                 # stop after N miniapps workflow completions
-    score_ceiling: float = 0.90     # cancel workflow if mean MSE exceeds this
+    goal_n: int = 4  # stop after N miniapps workflow completions
+    score_ceiling: float = 0.90  # cancel workflow if mean MSE exceeds this
 
 
 @dataclass
 class BudgetConfig:
-    max_concurrent: int = 2         # parallel miniapps replicas per campaign
+    max_concurrent: int = 2  # parallel miniapps replicas per campaign
     max_concurrency_per_workflow: int = 1
     spending: dict[str, float | None] = field(default_factory=dict)
 
@@ -85,6 +86,7 @@ class BudgetConfig:
 @dataclass
 class MiniAppsConfig:
     """Parameters forwarded to MiniAppsWorkflow.__init__(config=...)."""
+
     total_num_sim: int = 10
     max_sim_batch: int = 4
     training_cores: int = 1
@@ -92,7 +94,7 @@ class MiniAppsConfig:
     num_step: int = 100
     num_epochs: int = 100
     stale_timeout_s: float = 600.0
-    home_dir: str = ""              # empty → ~/MiniApps (expanded at runtime)
+    home_dir: str = ""  # empty → ~/MiniApps (expanded at runtime)
     debug: bool = False
     free_resources_for_train: bool = True
     clean_unregistered_sims: bool = False
@@ -103,15 +105,15 @@ class MiniAppsConfig:
     def to_dict(self) -> dict:
         """Return a dict suitable for MiniAppsWorkflow(config=...)."""
         d = {
-            "total_num_sim":            self.total_num_sim,
-            "max_sim_batch":            self.max_sim_batch,
-            "training_cores":           self.training_cores,
-            "miniapps_data_ready":      self.miniapps_data_ready,
-            "num_step":                 self.num_step,
-            "num_epochs":               self.num_epochs,
+            "total_num_sim": self.total_num_sim,
+            "max_sim_batch": self.max_sim_batch,
+            "training_cores": self.training_cores,
+            "miniapps_data_ready": self.miniapps_data_ready,
+            "num_step": self.num_step,
+            "num_epochs": self.num_epochs,
             "free_resources_for_train": self.free_resources_for_train,
-            "clean_unregistered_sims":  self.clean_unregistered_sims,
-            "debug":                    self.debug,
+            "clean_unregistered_sims": self.clean_unregistered_sims,
+            "debug": self.debug,
         }
         if self.home_dir:
             d["home_dir"] = self.home_dir
@@ -123,7 +125,7 @@ class MiniAppsConfig:
 @dataclass
 class WorkflowsConfig:
     miniapps: MiniAppsConfig = field(default_factory=MiniAppsConfig)
-    slow_step_multiplier: int = 3   # miniapps_slow uses num_step × this
+    slow_step_multiplier: int = 3  # miniapps_slow uses num_step × this
     # Declared spending per workflow arm — keys: wall_hours, cpu_hours, gpu_hours.
     # fast_spending/slow_spending drive budget accounting; slow defaults to
     # fast × slow_step_multiplier when absent.
@@ -157,6 +159,7 @@ class CampaignConfig:
 
 # ── Per-campaign variation ─────────────────────────────────────────────────────
 
+
 def vary_config(template: CampaignConfig, idx: int) -> CampaignConfig:
     """Return a per-campaign config variant.
 
@@ -170,14 +173,15 @@ def vary_config(template: CampaignConfig, idx: int) -> CampaignConfig:
 
 # ── Loaders ───────────────────────────────────────────────────────────────────
 
-def load_global(path: str | Path) -> GlobalConfig:
-    d     = _load_yaml(path)
-    sched = d.get("scheduling") or {}
-    gb    = d.get("global_budget") or {}
-    tel   = d.get("telemetry") or {}
-    drv   = d.get("driver") or {}
 
-    raw_spending = (drv.get("spending_cpu_hours") or "")
+def load_global(path: str | Path) -> GlobalConfig:
+    d = _load_yaml(path)
+    sched = d.get("scheduling") or {}
+    gb = d.get("global_budget") or {}
+    tel = d.get("telemetry") or {}
+    drv = d.get("driver") or {}
+
+    raw_spending = drv.get("spending_cpu_hours") or ""
     spending_list: list[float | None] = []
     if isinstance(raw_spending, (int, float)):
         spending_list = [float(raw_spending)]
@@ -194,11 +198,7 @@ def load_global(path: str | Path) -> GlobalConfig:
         global_budget=GlobalBudgetConfig(
             max_concurrent_campaigns=gb.get("max_concurrent_campaigns"),
             max_total_concurrent_workflows=gb.get("max_total_concurrent_workflows"),
-            spending={
-                k: float(v)
-                for k, v in (gb.get("spending") or {}).items()
-                if v is not None
-            },
+            spending={k: float(v) for k, v in (gb.get("spending") or {}).items() if v is not None},
             n_campaigns=_optional_int(gb.get("n_campaigns")),
             max_rejections=_optional_int(gb.get("max_rejections")),
         ),
@@ -215,12 +215,12 @@ def load_global(path: str | Path) -> GlobalConfig:
 
 
 def load_campaign(path: str | Path) -> CampaignConfig:
-    d    = _load_yaml(path)
+    d = _load_yaml(path)
     ctrl = d.get("controller") or {}
-    bud  = d.get("budget") or {}
-    sp   = bud.get("spending") or {}
-    ma   = d.get("miniapps") or {}
-    wf   = d.get("workflows") or {}
+    bud = d.get("budget") or {}
+    sp = bud.get("spending") or {}
+    ma = d.get("miniapps") or {}
+    wf = d.get("workflows") or {}
 
     def _spending_dict(raw: dict | None) -> dict[str, float]:
         if not raw:
@@ -263,6 +263,7 @@ def load_campaign(path: str | Path) -> CampaignConfig:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _load_yaml(path: str | Path) -> dict:
     try:

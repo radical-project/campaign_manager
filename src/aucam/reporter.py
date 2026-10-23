@@ -64,6 +64,7 @@ class WorkflowReporter(ABC):
         Only meaningful after poll() returned PAUSE.
         """
         from .types import CampaignDecision  # noqa: PLC0415
+
         while True:
             sig = await self.poll()
             if sig == CampaignDecision.RESUME:

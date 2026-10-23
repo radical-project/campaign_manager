@@ -46,14 +46,20 @@ import asyncio
 import random
 
 from src.aucam import (
-    CampaignBudget, CampaignController, CampaignManager, CampaignSpec,
-    WorkflowConfig, WorkflowReporter,
+    CampaignBudget,
+    CampaignController,
+    CampaignManager,
+    CampaignSpec,
+    WorkflowConfig,
+    WorkflowReporter,
 )
+
 
 async def my_sim(reporter: WorkflowReporter) -> None:
     for step in range(5):
         await asyncio.sleep(0.05)
         await reporter.emit(score=random.random(), iteration=step)
+
 
 spec = CampaignSpec(
     name="my_campaign",
@@ -62,6 +68,7 @@ spec = CampaignSpec(
     workflows=[WorkflowConfig(name="sim", block=my_sim)],
     policy_interval_s=0.5,
 )
+
 
 async def main() -> None:
     cm = CampaignManager()
@@ -77,6 +84,7 @@ async def main() -> None:
     task = asyncio.create_task(driver())
     await cm.run()
     await task
+
 
 asyncio.run(main())
 ```
@@ -97,19 +105,17 @@ line like:
 
 ```python
 WorkflowConfig(
-    name="sim_worker",                 # unique within the campaign
-    block=my_async_fn,                 # a Python workflow ── or ──
-    launch_cmd=["./sim", "--fast"],    # a command-line program (any language)
-
-    declared_spending={"wall_hours": 0.5, "cpu_hours": 4.0},   # expected cost of one run (§9)
-    task_description={"ranks": 4, "cores_per_rank": 8},       # launch_cmd: resource request
-    env={"OMP_NUM_THREADS": "8"},      # launch_cmd: extra environment variables
-
-    launch_on_start=True,              # queue one request when the campaign starts
-    max_wall_time_s=3600.0,            # cancel a run that takes longer
-    stale_timeout_s=120.0,             # cancel a run that stops reporting (after its first report)
-    supports_pause=False,              # True only if the workflow handles PAUSE/RESUME
-    on_completion=callback,            # called with the WorkflowResult of every run
+    name="sim_worker",  # unique within the campaign
+    block=my_async_fn,  # a Python workflow ── or ──
+    launch_cmd=["./sim", "--fast"],  # a command-line program (any language)
+    declared_spending={"wall_hours": 0.5, "cpu_hours": 4.0},  # expected cost of one run (§9)
+    task_description={"ranks": 4, "cores_per_rank": 8},  # launch_cmd: resource request
+    env={"OMP_NUM_THREADS": "8"},  # launch_cmd: extra environment variables
+    launch_on_start=True,  # queue one request when the campaign starts
+    max_wall_time_s=3600.0,  # cancel a run that takes longer
+    stale_timeout_s=120.0,  # cancel a run that stops reporting (after its first report)
+    supports_pause=False,  # True only if the workflow handles PAUSE/RESUME
+    on_completion=callback,  # called with the WorkflowResult of every run
 )
 ```
 
@@ -130,8 +136,8 @@ them (in any order):
 ```python
 async def my_worker(reporter: WorkflowReporter, flow=None, context=None) -> None:
     @flow.function_task
-    async def step(i):
-        ...
+    async def step(i): ...
+
     for i in range(context.get("n_steps", 10)):
         result = await step(i)
         await reporter.emit(score=result, iteration=i)
@@ -177,16 +183,18 @@ still runs; AuCaM then only tracks its lifecycle.
 ```python
 async def my_worker(reporter: WorkflowReporter) -> None:
     for step in range(n_steps):
-        if await reporter.poll() == CampaignDecision.PAUSE:   # only with supports_pause=True
+        if await reporter.poll() == CampaignDecision.PAUSE:  # only with supports_pause=True
             save_state()
             await reporter.wait_for_resume()
 
         result = run_step(step)
         await reporter.emit(
             score=result.energy,
-            metrics={"loss": result.loss,
-                     "node_id": socket.gethostname(),        # lets AuCaM match node telemetry
-                     "cpu_hours": cpu_s_so_far / 3600},     # own spending, cumulative (§9)
+            metrics={
+                "loss": result.loss,
+                "node_id": socket.gethostname(),  # lets AuCaM match node telemetry
+                "cpu_hours": cpu_s_so_far / 3600,
+            },  # own spending, cumulative (§9)
             iteration=step,
         )
 ```
@@ -240,12 +248,15 @@ Set with `CampaignSpec.data_backend`:
 
 ```python
 CampaignController(
-    launch=["sim_worker", "analysis_worker"],   # keep one request of each queued
-    goal_type="analysis_worker", goal_n=50,     # end after 50 successful analyses
-    rules=[CancelRule(
-        workflow_type="sim_worker",
-        when=lambda r: r.score is not None and r.score < 0.3,   # r: latest WorkflowReport
-    )],
+    launch=["sim_worker", "analysis_worker"],  # keep one request of each queued
+    goal_type="analysis_worker",
+    goal_n=50,  # end after 50 successful analyses
+    rules=[
+        CancelRule(
+            workflow_type="sim_worker",
+            when=lambda r: r.score is not None and r.score < 0.3,  # r: latest WorkflowReport
+        )
+    ],
 )
 ```
 
@@ -281,12 +292,12 @@ The observation has these keys (plus any your `observe()` adds):
 
 ```python
 PolicyResult(
-    decisions={wf_id: CampaignDecision.CANCEL},       # CANCEL, PAUSE, RESUME, NOOP
+    decisions={wf_id: CampaignDecision.CANCEL},  # CANCEL, PAUSE, RESUME, NOOP
     launch_requests=[LaunchRequest.make("sim_worker", context={"seed": 7})],
-    cancel_queued={"sim_worker": 2},                   # drop up to 2 queued requests of a type
+    cancel_queued={"sim_worker": 2},  # drop up to 2 queued requests of a type
     goals=[Goal("best", metric="best_energy", threshold=-8.0, direction="minimize")],
     remove_goals=["old_goal"],
-    terminate=False,                                   # True ends the campaign
+    terminate=False,  # True ends the campaign
 )
 ```
 
@@ -304,10 +315,12 @@ class BestScore(CampaignController):
     def on_complete(self, result: WorkflowResult) -> None:
         super().on_complete(result)
         if result.returncode == 0 and result.final_score is not None:
-            self.best = result.final_score if self.best is None else max(self.best, result.final_score)
+            self.best = (
+                result.final_score if self.best is None else max(self.best, result.final_score)
+            )
 
     def decide(self, obs: dict) -> PolicyResult:
-        result = super().decide(obs)                       # keep the launch rule
+        result = super().decide(obs)  # keep the launch rule
         result.terminate = self.best is not None and self.best > 0.95
         return result
 
@@ -350,10 +363,13 @@ CampaignSpec(
         WorkflowConfig(name="sim_worker", block=sim),
         WorkflowConfig(name="analysis_worker", block=analysis, launch_on_start=False),
     ],
-    dependencies=[WorkflowDependency(
-        source="sim_worker", target="analysis_worker",
-        condition=lambda r: r.returncode == 0,          # the default
-    )],
+    dependencies=[
+        WorkflowDependency(
+            source="sim_worker",
+            target="analysis_worker",
+            condition=lambda r: r.returncode == 0,  # the default
+        )
+    ],
 )
 ```
 
@@ -388,9 +404,9 @@ for a new bandit); AuCaM rejects an instance already used by another campaign.
 
 ```python
 CampaignBudget(
-    max_concurrent_workflows=4,         # running at once in this campaign
-    max_concurrency_per_workflow=2,     # running at once per workflow type
-    spending={"gpu_hours": 10.0},       # lifetime limit per dimension (optional)
+    max_concurrent_workflows=4,  # running at once in this campaign
+    max_concurrency_per_workflow=2,  # running at once per workflow type
+    spending={"gpu_hours": 10.0},  # lifetime limit per dimension (optional)
 )
 ```
 
@@ -427,17 +443,19 @@ async def my_driver(cm: CampaignManager) -> None:
             if not result.accepted:
                 print("rejected:", result.reason)
                 continue
-            outcome = await result.wait()            # when the campaign ends
+            outcome = await result.wait()  # when the campaign ends
             print(outcome.goal_reached, outcome.completed, outcome.spent, outcome.summary)
     finally:
-        cm.driver_done()                             # no more submissions from this driver
+        cm.driver_done()  # no more submissions from this driver
+
 
 async def main() -> None:
-    cm = CampaignManager(global_budget=GlobalBudget(
-        max_concurrent_campaigns=2, spending={"gpu_hours": 100.0}))
-    cm.expect_driver()                               # before cm.run()
+    cm = CampaignManager(
+        global_budget=GlobalBudget(max_concurrent_campaigns=2, spending={"gpu_hours": 100.0})
+    )
+    cm.expect_driver()  # before cm.run()
     task = asyncio.create_task(my_driver(cm))
-    await cm.run()                                   # until all drivers are done and campaigns end
+    await cm.run()  # until all drivers are done and campaigns end
     await task
 ```
 

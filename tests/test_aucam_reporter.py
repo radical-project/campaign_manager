@@ -25,7 +25,6 @@ from src.aucam import (
     CampaignManager,
     CampaignSpec,
     LaunchRequest,
-    LocalDictBackend,
     PolicyResult,
     WorkflowConfig,
     WorkflowReport,
@@ -35,12 +34,13 @@ from src.aucam import (
 
 THRESHOLD = 0.5
 GOAL_COMPLETIONS = 2
-LOSS_THRESHOLD = 1.0   # cancel if loss > this
+LOSS_THRESHOLD = 1.0  # cancel if loss > this
 
 
 # ── Workflow coroutines ───────────────────────────────────────────────────────
 
 # -- scalar-score workers --
+
 
 async def good_worker(reporter: WorkflowReporter) -> None:
     for i in range(5):
@@ -50,13 +50,14 @@ async def good_worker(reporter: WorkflowReporter) -> None:
 
 async def bad_worker(reporter: WorkflowReporter) -> None:
     i = 0
-    while True:                         # runs until cancelled
+    while True:  # runs until cancelled
         await asyncio.sleep(0.05)
         await reporter.emit(score=0.1, metrics={"iter": i})
         i += 1
 
 
 # -- dict-score workers --
+
 
 async def sim_worker(reporter: WorkflowReporter) -> None:
     """Converging simulation — emits a dict score."""
@@ -82,6 +83,7 @@ async def diverging_worker(reporter: WorkflowReporter) -> None:
 
 # ── Controllers ───────────────────────────────────────────────────────────────
 
+
 class ScoreController(CampaignController):
     """Scalar-score controller: cancel if score (float) < THRESHOLD."""
 
@@ -105,26 +107,17 @@ class ScoreController(CampaignController):
         requests: list[LaunchRequest] = []
 
         good_inflight = (
-            self.completions
-            + running.get("good_worker", 0)
-            + q.by_type.get("good_worker", 0)
+            self.completions + running.get("good_worker", 0) + q.by_type.get("good_worker", 0)
         )
         if good_inflight < GOAL_COMPLETIONS:
             requests.append(LaunchRequest.make("good_worker", requester="score-ctrl"))
 
-        bad_inflight = (
-            running.get("bad_worker", 0)
-            + q.by_type.get("bad_worker", 0)
-        )
+        bad_inflight = running.get("bad_worker", 0) + q.by_type.get("bad_worker", 0)
         if bad_inflight == 0 and not decisions and not self._bad_launched:
             requests.append(LaunchRequest.make("bad_worker", requester="score-ctrl"))
             self._bad_launched = True
 
-        terminate = (
-            self.completions >= GOAL_COMPLETIONS
-            and not running
-            and q.total_queued == 0
-        )
+        terminate = self.completions >= GOAL_COMPLETIONS and not running and q.total_queued == 0
         return PolicyResult(terminate=terminate, decisions=decisions, launch_requests=requests)
 
 
@@ -152,30 +145,22 @@ class DictScoreController(CampaignController):
         requests: list[LaunchRequest] = []
 
         sim_inflight = (
-            self.completions
-            + running.get("sim_worker", 0)
-            + q.by_type.get("sim_worker", 0)
+            self.completions + running.get("sim_worker", 0) + q.by_type.get("sim_worker", 0)
         )
         if sim_inflight < 1:
             requests.append(LaunchRequest.make("sim_worker", requester="dict-ctrl"))
 
-        div_inflight = (
-            running.get("diverging_worker", 0)
-            + q.by_type.get("diverging_worker", 0)
-        )
+        div_inflight = running.get("diverging_worker", 0) + q.by_type.get("diverging_worker", 0)
         if div_inflight == 0 and not decisions and not self._div_launched:
             requests.append(LaunchRequest.make("diverging_worker", requester="dict-ctrl"))
             self._div_launched = True
 
-        terminate = (
-            self.completions >= 1
-            and not running
-            and q.total_queued == 0
-        )
+        terminate = self.completions >= 1 and not running and q.total_queued == 0
         return PolicyResult(terminate=terminate, decisions=decisions, launch_requests=requests)
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
+
 
 def test_scalar_score_cancellation() -> None:
     """Float score: cancel workers below threshold, complete the rest."""
@@ -204,10 +189,13 @@ async def _run_scalar() -> None:
         budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=3),
         controller=ctrl,
         workflows=[
-            WorkflowConfig(name="good_worker", block=good_worker,
-                           launch_on_start=False, on_completion=good_hook),
-            WorkflowConfig(name="bad_worker",  block=bad_worker,
-                           launch_on_start=False),
+            WorkflowConfig(
+                name="good_worker",
+                block=good_worker,
+                launch_on_start=False,
+                on_completion=good_hook,
+            ),
+            WorkflowConfig(name="bad_worker", block=bad_worker, launch_on_start=False),
         ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
@@ -235,10 +223,10 @@ async def _run_dict() -> None:
         budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=3),
         controller=ctrl,
         workflows=[
-            WorkflowConfig(name="sim_worker",       block=sim_worker,
-                           launch_on_start=False, on_completion=sim_hook),
-            WorkflowConfig(name="diverging_worker", block=diverging_worker,
-                           launch_on_start=False),
+            WorkflowConfig(
+                name="sim_worker", block=sim_worker, launch_on_start=False, on_completion=sim_hook
+            ),
+            WorkflowConfig(name="diverging_worker", block=diverging_worker, launch_on_start=False),
         ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
@@ -269,10 +257,13 @@ async def _run_both() -> None:
         budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=3),
         controller=scalar_ctrl,
         workflows=[
-            WorkflowConfig(name="good_worker", block=good_worker,
-                           launch_on_start=False, on_completion=good_hook),
-            WorkflowConfig(name="bad_worker",  block=bad_worker,
-                           launch_on_start=False),
+            WorkflowConfig(
+                name="good_worker",
+                block=good_worker,
+                launch_on_start=False,
+                on_completion=good_hook,
+            ),
+            WorkflowConfig(name="bad_worker", block=bad_worker, launch_on_start=False),
         ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
@@ -282,10 +273,10 @@ async def _run_both() -> None:
         budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=3),
         controller=dict_ctrl,
         workflows=[
-            WorkflowConfig(name="sim_worker",       block=sim_worker,
-                           launch_on_start=False, on_completion=sim_hook),
-            WorkflowConfig(name="diverging_worker", block=diverging_worker,
-                           launch_on_start=False),
+            WorkflowConfig(
+                name="sim_worker", block=sim_worker, launch_on_start=False, on_completion=sim_hook
+            ),
+            WorkflowConfig(name="diverging_worker", block=diverging_worker, launch_on_start=False),
         ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,

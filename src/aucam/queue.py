@@ -48,7 +48,11 @@ class WorkflowQueue:
     def remove_by_type(self, workflow_type: str, count: int) -> int:
         """Evict up to `count` lowest-priority requests of `workflow_type`."""
         targets = sorted(
-            [(pri, t, seq, req) for pri, t, seq, req in self._heap if req.workflow_type == workflow_type],
+            [
+                (pri, t, seq, req)
+                for pri, t, seq, req in self._heap
+                if req.workflow_type == workflow_type
+            ],
             key=lambda e: (-e[0], e[1]),
         )
         to_remove = {id(e[3]) for e in targets[:count]}

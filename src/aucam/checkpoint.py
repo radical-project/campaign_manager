@@ -11,6 +11,7 @@ visible to the reader.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -40,7 +41,7 @@ class QueuedRequestRecord:
     """Serializable snapshot of one queued LaunchRequest."""
 
     workflow_type: str
-    priority: str          # LaunchPriority.value
+    priority: str  # LaunchPriority.value
     enqueued_at: float
     context: dict
     requester: str
@@ -84,6 +85,7 @@ class CampaignCheckpoint:
 
 # ── Serialization ─────────────────────────────────────────────────────────────
 
+
 def _to_json(ckpt: CampaignCheckpoint) -> dict[str, Any]:
     d = asdict(ckpt)
     return d
@@ -120,6 +122,7 @@ def _from_json(d: dict[str, Any]) -> CampaignCheckpoint:
 
 # ── I/O ───────────────────────────────────────────────────────────────────────
 
+
 def checkpoint_path(checkpoint_dir: str, campaign_name: str) -> Path:
     return Path(checkpoint_dir) / f"{campaign_name}.json"
 
@@ -131,13 +134,12 @@ def write_checkpoint(path: Path | str, ckpt: CampaignCheckpoint) -> None:
     cycle thread pool and the shutdown path don't race on the same temp file.
     """
     import tempfile  # noqa: PLC0415
+
     path = Path(path)
     tmp: Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp_str = tempfile.mkstemp(
-            dir=path.parent, prefix=path.stem + ".", suffix=".tmp"
-        )
+        fd, tmp_str = tempfile.mkstemp(dir=path.parent, prefix=path.stem + ".", suffix=".tmp")
         tmp = Path(tmp_str)
         with os.fdopen(fd, "w") as fh:
             json.dump(_to_json(ckpt), fh, indent=2)
@@ -146,7 +148,7 @@ def write_checkpoint(path: Path | str, ckpt: CampaignCheckpoint) -> None:
     except Exception:
         logger.warning(f"[CKPT] write failed: {path}", exc_info=True)
         if tmp is not None:
-            with suppress_os_error():
+            with contextlib.suppress(OSError):
                 tmp.unlink(missing_ok=True)
 
 
@@ -169,13 +171,3 @@ def read_checkpoint(path: Path | str) -> CampaignCheckpoint | None:
     except Exception:
         logger.warning(f"[CKPT] read failed (corrupt?): {path}", exc_info=True)
         return None
-
-
-class suppress_os_error:
-    """Context manager that silently ignores OSError."""
-
-    def __enter__(self) -> "suppress_os_error":
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
-        return exc_type is not None and issubclass(exc_type, OSError)

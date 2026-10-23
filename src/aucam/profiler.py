@@ -128,7 +128,7 @@ class _ProfilerBase:
 class BlockProfiler(_ProfilerBase):
     """Async context manager — use inside block functions on the head node."""
 
-    async def __aenter__(self) -> "BlockProfiler":
+    async def __aenter__(self) -> BlockProfiler:
         self._start_sampling()
         return self
 
@@ -139,7 +139,7 @@ class BlockProfiler(_ProfilerBase):
 class TaskProfiler(_ProfilerBase):
     """Sync context manager — use inside function tasks on Dragon worker nodes."""
 
-    def __enter__(self) -> "TaskProfiler":
+    def __enter__(self) -> TaskProfiler:
         self._start_sampling()
         return self
 

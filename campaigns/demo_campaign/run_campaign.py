@@ -51,21 +51,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.aucam import (
-    CampaignBudget,
-    CampaignManager,
-    CampaignOutcome,
-    CampaignSpec,
-    RadexDragonBackend,
-    RhapsodyRedisBackend,
-    GlobalBudget,
-    SchedulingPolicy,
-    SubmitResult,
-    WorkflowConfig,
-    WorkflowDependency,
-    WorkflowResult,
-)
-
+import workflows as _workflows_mod
 from config import (
     CampaignConfig,
     GlobalConfig,
@@ -74,11 +60,25 @@ from config import (
 )
 from controller import ScoreController
 from scheduler import make_policy, print_policy_summary
-import workflows as _workflows_mod
 from workflows import analysis_worker, sim_worker, sim_worker_b
 
+from src.aucam import (
+    CampaignBudget,
+    CampaignManager,
+    CampaignOutcome,
+    CampaignSpec,
+    GlobalBudget,
+    RadexDragonBackend,
+    RhapsodyRedisBackend,
+    SchedulingPolicy,
+    SubmitResult,
+    WorkflowConfig,
+    WorkflowDependency,
+    WorkflowResult,
+)
 
 # ── Results writer ─────────────────────────────────────────────────────────────
+
 
 class _ResultsWriter:
     """Appends each WorkflowResult to a JSONL file for post-hoc analysis."""
@@ -90,13 +90,13 @@ class _ResultsWriter:
 
     def write(self, result: WorkflowResult) -> None:
         record = {
-            "workflow_id":      result.workflow_id,
-            "workflow_type":    result.workflow_type,
-            "returncode":       result.returncode,
-            "wall_time_s":      result.wall_time_s,
-            "spent":            result.spent,
+            "workflow_id": result.workflow_id,
+            "workflow_type": result.workflow_type,
+            "returncode": result.returncode,
+            "wall_time_s": result.wall_time_s,
+            "spent": result.spent,
             "resource_profile": result.resource_profile,
-            "final_metrics":    result.final_metrics,
+            "final_metrics": result.final_metrics,
         }
         self._f.write(json.dumps(record) + "\n")
         self._f.flush()
@@ -107,11 +107,12 @@ class _ResultsWriter:
 
 # ── Spec builder ───────────────────────────────────────────────────────────────
 
+
 def build_spec(
     *,
     name: str,
     ccfg: CampaignConfig,
-    results_writer: "_ResultsWriter | None" = None,
+    results_writer: _ResultsWriter | None = None,
     use_asyncflow_blocks: bool = False,
     data_backend=None,
     scheduling_policy: SchedulingPolicy | None = None,
@@ -168,19 +169,25 @@ def build_spec(
                 declared_spending=ccfg.workflows.analysis_worker.declared_spending,
             ),
             *(
-                [WorkflowConfig(
-                    name="tier2_sim_worker",
-                    launch_cmd=[sys.executable, str(Path(__file__).parent / "tier2_sim_worker.py")],
-                    env={
-                        "CM_T2_N_ITERS": str(ccfg.workflows.sim_worker.n_iters),
-                        "CM_T2_SLEEP_S":  str(ccfg.workflows.sim_worker.iter_sleep_s),
-                    },
-                    stale_timeout_s=ccfg.workflows.sim_worker.stale_timeout_s,
-                    launch_on_start=True,
-                    on_completion=_on_complete,
-                    declared_spending=ccfg.workflows.sim_worker.declared_spending,
-                )]
-                if use_tier2 else []
+                [
+                    WorkflowConfig(
+                        name="tier2_sim_worker",
+                        launch_cmd=[
+                            sys.executable,
+                            str(Path(__file__).parent / "tier2_sim_worker.py"),
+                        ],
+                        env={
+                            "CM_T2_N_ITERS": str(ccfg.workflows.sim_worker.n_iters),
+                            "CM_T2_SLEEP_S": str(ccfg.workflows.sim_worker.iter_sleep_s),
+                        },
+                        stale_timeout_s=ccfg.workflows.sim_worker.stale_timeout_s,
+                        launch_on_start=True,
+                        on_completion=_on_complete,
+                        declared_spending=ccfg.workflows.sim_worker.declared_spending,
+                    )
+                ]
+                if use_tier2
+                else []
             ),
         ],
         dependencies=[
@@ -195,12 +202,15 @@ def build_spec(
                 condition=lambda r: r.returncode == 0,
             ),
             *(
-                [WorkflowDependency(
-                    source="tier2_sim_worker",
-                    target="analysis_worker",
-                    condition=lambda r: r.returncode == 0,
-                )]
-                if use_tier2 else []
+                [
+                    WorkflowDependency(
+                        source="tier2_sim_worker",
+                        target="analysis_worker",
+                        condition=lambda r: r.returncode == 0,
+                    )
+                ]
+                if use_tier2
+                else []
             ),
         ],
         policy_interval_s=ccfg.policy_interval_s,
@@ -215,30 +225,41 @@ def build_spec(
 
 # ── Backend factories ──────────────────────────────────────────────────────────
 
+
 async def _make_backend(engine: str):
     if engine == "dragon":
         from rhapsody.backends.execution.dragon import DragonExecutionBackend
+
         return await DragonExecutionBackend()
     if engine == "concurrent":
         from rhapsody.backends.execution.concurrent import ConcurrentExecutionBackend
+
         return await ConcurrentExecutionBackend()
     return None  # CampaignManager default
 
 
-async def _make_data_backend(engine: str, data_backend_type: str = "auto", redis_server_path: str | None = None):
+async def _make_data_backend(
+    engine: str, data_backend_type: str = "auto", redis_server_path: str | None = None
+):
     resolved = data_backend_type if data_backend_type != "auto" else engine
 
     if resolved == "dragon":
-        print("[TRACE] _make_data_backend: starting DDict via Rhapsody DragonDataBackend", flush=True)
+        print(
+            "[TRACE] _make_data_backend: starting DDict via Rhapsody DragonDataBackend", flush=True
+        )
         from rhapsody.backends.data import DragonDataBackend as _RhapsodyDDB
+
         rdb = await _RhapsodyDDB(managers_per_node=1, n_nodes=1, total_mem=256 * 1024 * 1024)
         descriptor = rdb.endpoints[0].serialize()
         print("[TRACE] _make_data_backend: RadexDragonBackend ready", flush=True)
         return RadexDragonBackend(descriptor), rdb
 
     if resolved == "redis":
-        print("[TRACE] _make_data_backend: starting Redis via Rhapsody RedisDataBackend", flush=True)
+        print(
+            "[TRACE] _make_data_backend: starting Redis via Rhapsody RedisDataBackend", flush=True
+        )
         from rhapsody.backends.data import RedisDataBackend as _RhapsodyRDB
+
         kwargs = {}
         if redis_server_path:
             kwargs["redis_server_path"] = redis_server_path
@@ -251,6 +272,7 @@ async def _make_data_backend(engine: str, data_backend_type: str = "auto", redis
 
 
 # ── Driver ────────────────────────────────────────────────────────────────────
+
 
 async def _driver(
     cm: CampaignManager,
@@ -276,24 +298,23 @@ async def _driver(
     labels = [chr(ord("a") + i) for i in range(n_campaigns)] if n_campaigns > 1 else [""]
     prev_outcome: CampaignOutcome | None = None
 
-    for i, label in enumerate(labels):
+    for label in labels:
         name = f"demo-campaign-{label}" if label else "demo-campaign"
 
         if prev_outcome is not None:
             # ── Adapt based on previous outcome ──────────────────────────────
-            sims_ok = (
-                prev_outcome.completed.get("sim_worker", 0)
-                + prev_outcome.completed.get("sim_worker_b", 0)
+            sims_ok = prev_outcome.completed.get("sim_worker", 0) + prev_outcome.completed.get(
+                "sim_worker_b", 0
             )
-            sims_can = (
-                prev_outcome.cancelled.get("sim_worker", 0)
-                + prev_outcome.cancelled.get("sim_worker_b", 0)
+            sims_can = prev_outcome.cancelled.get("sim_worker", 0) + prev_outcome.cancelled.get(
+                "sim_worker_b", 0
             )
             cancel_rate = sims_can / max(1, sims_ok + sims_can)
             logging.info(
                 "[DRIVER] %s → planning %s | prev: goal_reached=%s  "
                 "cancel_rate=%.0f%%  analyses=%d  elapsed=%.1fs",
-                prev_outcome.campaign_name, name,
+                prev_outcome.campaign_name,
+                name,
                 prev_outcome.goal_reached,
                 cancel_rate * 100,
                 prev_outcome.completed.get("analysis_worker", 0),
@@ -339,38 +360,39 @@ async def _driver(
 
         # Log actual spending from this campaign.
         if prev_outcome.spent:
-            spent_str = "  ".join(
-                f"{k}={v:.5f}" for k, v in sorted(prev_outcome.spent.items())
-            )
+            spent_str = "  ".join(f"{k}={v:.5f}" for k, v in sorted(prev_outcome.spent.items()))
             logging.info("[DRIVER] %s: actual spent: %s", prev_outcome.campaign_name, spent_str)
 
         # Log scientific summary so driver decisions are traceable.
         if prev_outcome.summary:
-            best  = prev_outcome.summary.get("best_score")
-            avg   = prev_outcome.summary.get("avg_score")
-            n_s   = prev_outcome.summary.get("n_scores")
+            best = prev_outcome.summary.get("best_score")
+            avg = prev_outcome.summary.get("avg_score")
+            n_s = prev_outcome.summary.get("n_scores")
             logging.info(
                 "[DRIVER] %s: science summary — n_scores=%s  best=%.3f  avg=%.3f",
                 prev_outcome.campaign_name,
                 n_s,
                 best if best is not None else float("nan"),
-                avg  if avg  is not None else float("nan"),
+                avg if avg is not None else float("nan"),
             )
 
 
 # ── Main run ──────────────────────────────────────────────────────────────────
 
+
 async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace) -> None:
     print("[TRACE] run() started — Python is alive", flush=True)
-    n      = gcfg.num_campaigns
+    n = gcfg.num_campaigns
     labels = [chr(ord("a") + i) for i in range(n)] if n > 1 else [""]
 
     # Each campaign gets its own scheduling policy instance.
-    policies: list = []          # (campaign name, policy)
+    policies: list = []  # (campaign name, policy)
     print(f"[TRACE] making execution backend (engine={gcfg.engine})", flush=True)
-    backend       = await _make_backend(gcfg.engine)
+    backend = await _make_backend(gcfg.engine)
     print("[TRACE] execution backend ready, making data backend", flush=True)
-    data_backend, _rdb = await _make_data_backend(gcfg.engine, gcfg.data_backend, gcfg.redis_server_path)
+    data_backend, _rdb = await _make_data_backend(
+        gcfg.engine, gcfg.data_backend, gcfg.redis_server_path
+    )
 
     # Global budget — only meaningful with multiple campaigns.
     global_budget: GlobalBudget | None = None
@@ -408,7 +430,9 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
         cm.expect_driver()
         driver_task = asyncio.ensure_future(
             _driver(
-                cm, gcfg, ccfg,
+                cm,
+                gcfg,
+                ccfg,
                 n_campaigns=n,
                 policy_name=gcfg.scheduling.policy,
                 policies=policies,
@@ -417,6 +441,7 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
                 telemetry_dir=gcfg.telemetry.dir,
             )
         )
+
         # cm.close() must run after the driver finishes, but concurrently with
         # cm.run() — the driver awaits campaign outcomes, which requires cm.run()
         # to be processing. Schedule a closer coroutine that waits for the driver
@@ -428,11 +453,12 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
                 logging.exception("[CM] _driver raised: %s", exc)
             finally:
                 cm.driver_done()
+
         asyncio.ensure_future(_close_when_done())
     else:
         # ── Legacy mode: submit all upfront ───────────────────────────────────
-        writers: list["_ResultsWriter | None"] = []
-        for i, label in enumerate(labels):
+        writers: list[_ResultsWriter | None] = []
+        for label in labels:
             name = f"demo-campaign-{label}" if label else "demo-campaign"
             rw = None
             if gcfg.telemetry.dir:
@@ -505,6 +531,7 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
 
 # ── Argument parser ───────────────────────────────────────────────────────────
 
+
 def _build_parser(gcfg: GlobalConfig, ccfg: CampaignConfig) -> argparse.ArgumentParser:
     """Build an argparse parser whose defaults come from the loaded configs."""
     p = argparse.ArgumentParser(
@@ -513,53 +540,105 @@ def _build_parser(gcfg: GlobalConfig, ccfg: CampaignConfig) -> argparse.Argument
     )
 
     # Config file paths
-    p.add_argument("--global-config",   default="campaign_configs/global.yaml",
-                   help="path to global YAML config (default: campaign_configs/global.yaml)")
-    p.add_argument("--campaign-config", default="campaign_configs/campaign.yaml",
-                   help="path to campaign YAML config (default: campaign_configs/campaign.yaml)")
+    p.add_argument(
+        "--global-config",
+        default="campaign_configs/global.yaml",
+        help="path to global YAML config (default: campaign_configs/global.yaml)",
+    )
+    p.add_argument(
+        "--campaign-config",
+        default="campaign_configs/campaign.yaml",
+        help="path to campaign YAML config (default: campaign_configs/campaign.yaml)",
+    )
 
     # Operational overrides — these CLI flags override config file values.
     p.add_argument("-v", "--verbose", action="store_true", default=gcfg.verbose)
-    p.add_argument("--engine", choices=["default", "concurrent", "dragon"],
-                   default=gcfg.engine,
-                   help="execution backend")
-    p.add_argument("--asyncflow-blocks", action="store_true",
-                   default=gcfg.asyncflow_blocks,
-                   help="run Tier 1 blocks via asyncflow.block")
-    p.add_argument("--telemetry-dir", default=gcfg.telemetry.dir,
-                   help="directory for telemetry JSONL (implies --asyncflow-blocks)")
-    p.add_argument("--num-campaigns", type=int, default=gcfg.num_campaigns,
-                   help="number of concurrent / sequential campaigns")
-    p.add_argument("--policy",
-                   choices=["bandit", "fifo", "adr", "llm"],
-                   default=gcfg.scheduling.policy,
-                   help="scheduling policy")
+    p.add_argument(
+        "--engine",
+        choices=["default", "concurrent", "dragon"],
+        default=gcfg.engine,
+        help="execution backend",
+    )
+    p.add_argument(
+        "--asyncflow-blocks",
+        action="store_true",
+        default=gcfg.asyncflow_blocks,
+        help="run Tier 1 blocks via asyncflow.block",
+    )
+    p.add_argument(
+        "--telemetry-dir",
+        default=gcfg.telemetry.dir,
+        help="directory for telemetry JSONL (implies --asyncflow-blocks)",
+    )
+    p.add_argument(
+        "--num-campaigns",
+        type=int,
+        default=gcfg.num_campaigns,
+        help="number of concurrent / sequential campaigns",
+    )
+    p.add_argument(
+        "--policy",
+        choices=["bandit", "fifo", "adr", "llm"],
+        default=gcfg.scheduling.policy,
+        help="scheduling policy",
+    )
 
     # Driver
-    p.add_argument("--driver", action="store_true", default=gcfg.driver.enabled,
-                   help="use dynamic cm.submit()/cm.close() driver API")
-    p.add_argument("--driver-delay", type=float, default=gcfg.driver.delay_s,
-                   help="seconds between campaign submissions in driver mode")
-    p.add_argument("--max-concurrent-campaigns", type=int,
-                   default=gcfg.global_budget.max_concurrent_campaigns,
-                   help="global budget: max concurrent campaigns (driver mode)")
+    p.add_argument(
+        "--driver",
+        action="store_true",
+        default=gcfg.driver.enabled,
+        help="use dynamic cm.submit()/cm.close() driver API",
+    )
+    p.add_argument(
+        "--driver-delay",
+        type=float,
+        default=gcfg.driver.delay_s,
+        help="seconds between campaign submissions in driver mode",
+    )
+    p.add_argument(
+        "--max-concurrent-campaigns",
+        type=int,
+        default=gcfg.global_budget.max_concurrent_campaigns,
+        help="global budget: max concurrent campaigns (driver mode)",
+    )
 
     # Campaign overrides
-    p.add_argument("--goal-analyses", type=int, default=ccfg.controller.goal_analyses,
-                   help="number of analyses before terminating")
-    p.add_argument("--max-concurrent", type=int, default=ccfg.budget.max_concurrent,
-                   help="max concurrent workflows per campaign")
-    p.add_argument("--checkpoint-dir", default=ccfg.checkpoint_dir,
-                   help="directory for checkpoint files")
+    p.add_argument(
+        "--goal-analyses",
+        type=int,
+        default=ccfg.controller.goal_analyses,
+        help="number of analyses before terminating",
+    )
+    p.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=ccfg.budget.max_concurrent,
+        help="max concurrent workflows per campaign",
+    )
+    p.add_argument(
+        "--checkpoint-dir", default=ccfg.checkpoint_dir, help="directory for checkpoint files"
+    )
 
     # Workflow timing
-    p.add_argument("--n-iters", type=int, default=ccfg.workflows.sim_worker.n_iters,
-                   help="iterations per sim_worker block")
-    p.add_argument("--iter-sleep", type=float, default=ccfg.workflows.sim_worker.iter_sleep_s,
-                   help="sleep seconds per iteration")
-    p.add_argument("--analysis-steps", type=int,
-                   default=ccfg.workflows.analysis_worker.steps,
-                   help="steps per analysis_worker block")
+    p.add_argument(
+        "--n-iters",
+        type=int,
+        default=ccfg.workflows.sim_worker.n_iters,
+        help="iterations per sim_worker block",
+    )
+    p.add_argument(
+        "--iter-sleep",
+        type=float,
+        default=ccfg.workflows.sim_worker.iter_sleep_s,
+        help="sleep seconds per iteration",
+    )
+    p.add_argument(
+        "--analysis-steps",
+        type=int,
+        default=ccfg.workflows.analysis_worker.steps,
+        help="steps per analysis_worker block",
+    )
 
     return p
 
@@ -567,27 +646,35 @@ def _build_parser(gcfg: GlobalConfig, ccfg: CampaignConfig) -> argparse.Argument
 def main() -> None:
     # ── Step 1: pre-parse for config file paths (no help, ignore unknowns) ────
     pre = argparse.ArgumentParser(add_help=False)
-    pre.add_argument("--global-config",   default="campaign_configs/global.yaml")
+    pre.add_argument("--global-config", default="campaign_configs/global.yaml")
     pre.add_argument("--campaign-config", default="campaign_configs/campaign.yaml")
     pre_args, _ = pre.parse_known_args()
 
     # ── Step 2: load configs (CLI flags will override individual fields) ───────
-    gcfg = load_global(pre_args.global_config)    if Path(pre_args.global_config).exists()   else GlobalConfig()
-    ccfg = load_campaign(pre_args.campaign_config) if Path(pre_args.campaign_config).exists() else CampaignConfig()
+    gcfg = (
+        load_global(pre_args.global_config)
+        if Path(pre_args.global_config).exists()
+        else GlobalConfig()
+    )
+    ccfg = (
+        load_campaign(pre_args.campaign_config)
+        if Path(pre_args.campaign_config).exists()
+        else CampaignConfig()
+    )
 
     # ── Step 3: full parse with config-derived defaults ────────────────────────
     parser = _build_parser(gcfg, ccfg)
-    args   = parser.parse_args()
+    args = parser.parse_args()
 
     # Apply CLI overrides back into the config objects so run() sees one source.
-    gcfg.engine              = args.engine if args.engine != "default" else gcfg.engine
-    gcfg.verbose             = args.verbose
-    gcfg.asyncflow_blocks    = args.asyncflow_blocks
-    gcfg.num_campaigns       = args.num_campaigns
-    gcfg.scheduling.policy   = args.policy
-    gcfg.driver.enabled      = args.driver
-    gcfg.driver.delay_s      = args.driver_delay
-    gcfg.telemetry.dir       = args.telemetry_dir
+    gcfg.engine = args.engine if args.engine != "default" else gcfg.engine
+    gcfg.verbose = args.verbose
+    gcfg.asyncflow_blocks = args.asyncflow_blocks
+    gcfg.num_campaigns = args.num_campaigns
+    gcfg.scheduling.policy = args.policy
+    gcfg.driver.enabled = args.driver
+    gcfg.driver.delay_s = args.driver_delay
+    gcfg.telemetry.dir = args.telemetry_dir
     if args.telemetry_dir:
         gcfg.asyncflow_blocks = True
     if gcfg.engine == "concurrent":
@@ -595,12 +682,12 @@ def main() -> None:
     if args.max_concurrent_campaigns is not None:
         gcfg.global_budget.max_concurrent_campaigns = args.max_concurrent_campaigns
 
-    ccfg.controller.goal_analyses            = args.goal_analyses
-    ccfg.budget.max_concurrent               = args.max_concurrent
-    ccfg.checkpoint_dir                      = args.checkpoint_dir
-    ccfg.workflows.sim_worker.n_iters        = args.n_iters
-    ccfg.workflows.sim_worker.iter_sleep_s   = args.iter_sleep
-    ccfg.workflows.analysis_worker.steps     = args.analysis_steps
+    ccfg.controller.goal_analyses = args.goal_analyses
+    ccfg.budget.max_concurrent = args.max_concurrent
+    ccfg.checkpoint_dir = args.checkpoint_dir
+    ccfg.workflows.sim_worker.n_iters = args.n_iters
+    ccfg.workflows.sim_worker.iter_sleep_s = args.iter_sleep
+    ccfg.workflows.analysis_worker.steps = args.analysis_steps
 
     # Apply workflow timing so workers see the configured values.
     _workflows_mod.configure(
@@ -615,7 +702,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)-8s %(name)-30s %(message)s",
         datefmt="%H:%M:%S",
         stream=sys.stdout,  # route to stdout so Dragon captures it alongside [TRACE] prints
-        force=True,         # Dragon's api_setup pre-configures the root logger; force overrides it
+        force=True,  # Dragon's api_setup pre-configures the root logger; force overrides it
     )
 
     raise SystemExit(asyncio.run(run(gcfg, ccfg, args)))

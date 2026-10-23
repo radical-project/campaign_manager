@@ -35,15 +35,26 @@ def _metric(text: str) -> tuple[str, object]:
 
 
 def _parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="aucam-report",
-                                description="Report to AuCaM from a command-line workflow.")
+    p = argparse.ArgumentParser(
+        prog="aucam-report", description="Report to AuCaM from a command-line workflow."
+    )
     sub = p.add_subparsers(dest="cmd", required=True)
     e = sub.add_parser("emit", help="send a report (score and metrics)")
     e.add_argument("--score", type=_value, default=None, help="score (JSON or text)")
-    e.add_argument("--metric", type=_metric, action="append", default=[],
-                   metavar="KEY=VALUE", help="one metric; repeatable")
-    e.add_argument("--metrics", type=json.loads, default=None,
-                   help="metrics as a JSON object (merged with --metric)")
+    e.add_argument(
+        "--metric",
+        type=_metric,
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="one metric; repeatable",
+    )
+    e.add_argument(
+        "--metrics",
+        type=json.loads,
+        default=None,
+        help="metrics as a JSON object (merged with --metric)",
+    )
     e.add_argument("--iteration", type=int, default=0)
     sub.add_parser("signal", help="print a pending PAUSE/RESUME signal, if any")
     w = sub.add_parser("wait-resume", help="block until RESUME arrives")

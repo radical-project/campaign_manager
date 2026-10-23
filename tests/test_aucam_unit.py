@@ -8,6 +8,7 @@ from src.aucam import BudgetAllocator, LaunchPriority, LaunchRequest, WorkflowQu
 
 # ── BudgetAllocator (spending ledger) ───────────────────────────────────────
 
+
 def test_ledger_admission_against_global_cap() -> None:
     alloc = BudgetAllocator()
     cap = {"gpu_hours": 100.0}
@@ -54,7 +55,9 @@ def test_ledger_snapshot_and_late_charge() -> None:
     alloc.set_in_flight("c1", "wf1", {"cpu_hours": 2.0})
     snap = alloc.snapshot()
     assert snap["campaigns"]["c1"] == {
-        "limits": {"cpu_hours": 5.0}, "spent": {}, "in_flight": {"cpu_hours": 2.0},
+        "limits": {"cpu_hours": 5.0},
+        "spent": {},
+        "in_flight": {"cpu_hours": 2.0},
     }
     alloc.close("c1")
     # A workflow that finishes after its campaign was closed is charged globally.
@@ -64,6 +67,7 @@ def test_ledger_snapshot_and_late_charge() -> None:
 
 
 # ── WorkflowQueue ────────────────────────────────────────────────────────────
+
 
 def _req(wf_type: str, priority: LaunchPriority = LaunchPriority.NORMAL) -> LaunchRequest:
     return LaunchRequest(

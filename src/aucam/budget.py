@@ -28,7 +28,6 @@ from __future__ import annotations
 import threading
 
 
-
 def _add(into: dict[str, float], usage: dict[str, float]) -> None:
     for k, v in usage.items():
         into[k] = into.get(k, 0.0) + float(v)
@@ -262,6 +261,4 @@ class BudgetAllocator:
             self._open_locked(campaign, {})
 
     def _committed_locked(self, key: str, exclude: str | None = None) -> float:
-        return sum(
-            lim.get(key, 0.0) for name, lim in self._limits.items() if name != exclude
-        )
+        return sum(lim.get(key, 0.0) for name, lim in self._limits.items() if name != exclude)

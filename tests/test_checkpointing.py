@@ -9,24 +9,19 @@ Checkpointing and recovery tests.
               re-enqueued active workflows complete on the recovered campaign.
 6. Corruption resilience — read_checkpoint returns None for corrupt files.
 """
+
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from pathlib import Path
-
-import pytest
 
 from src.aucam import (
     CampaignBudget,
     CampaignCheckpoint,
     CampaignController,
-    CampaignDecision,
     CampaignManager,
     CampaignSpec,
-    LaunchPriority,
-    LaunchRequest,
     PolicyResult,
     WorkflowConfig,
     WorkflowReporter,
@@ -42,8 +37,8 @@ from src.aucam.checkpoint import (
     _to_json,
 )
 
-
 # ── Workers ───────────────────────────────────────────────────────────────────
+
 
 async def fast_worker(reporter: WorkflowReporter) -> None:
     await asyncio.sleep(0.05)
@@ -58,6 +53,7 @@ async def slow_worker(reporter: WorkflowReporter) -> None:
 
 # ── Controller helpers ────────────────────────────────────────────────────────
 
+
 class _SimpleCtrl(CampaignController):
     def __init__(self, target: int = 1) -> None:
         self.completions = 0
@@ -67,11 +63,7 @@ class _SimpleCtrl(CampaignController):
         running = obs.get("running", {})
         q = obs["queue_snapshot"]
         return PolicyResult(
-            terminate=(
-                self.completions >= self.target
-                and not running
-                and q.total_queued == 0
-            )
+            terminate=(self.completions >= self.target and not running and q.total_queued == 0)
         )
 
 
@@ -82,6 +74,7 @@ async def _run(spec: CampaignSpec) -> None:
 
 
 # ── 1. Unit: CampaignCheckpoint JSON round-trip ───────────────────────────────
+
 
 def test_checkpoint_json_roundtrip() -> None:
     original = CampaignCheckpoint(
@@ -132,6 +125,7 @@ def test_checkpoint_json_roundtrip() -> None:
 
 # ── 2. Unit: atomic file write/read ───────────────────────────────────────────
 
+
 def test_write_read_checkpoint(tmp_path: Path) -> None:
     ckpt = CampaignCheckpoint(
         campaign_name="my_camp",
@@ -168,6 +162,7 @@ def test_checkpoint_path_helper(tmp_path: Path) -> None:
 
 # ── 3. Integration: file created during campaign run ─────────────────────────
 
+
 def test_checkpoint_file_created(tmp_path: Path) -> None:
     ctrl = _SimpleCtrl(target=1)
 
@@ -199,6 +194,7 @@ def test_checkpoint_file_created(tmp_path: Path) -> None:
 
 
 # ── 4. Integration: checkpoint content matches campaign state ─────────────────
+
 
 def test_checkpoint_content_counters(tmp_path: Path) -> None:
     ctrl = _SimpleCtrl(target=1)
@@ -237,6 +233,7 @@ def test_checkpoint_content_counters(tmp_path: Path) -> None:
 
 # ── 5. Recovery: restore queue + counters → campaign completes ────────────────
 
+
 def test_recovery_restores_queue_and_completes(tmp_path: Path) -> None:
     """
     Write a checkpoint with one queued request, then start a fresh campaign
@@ -255,7 +252,7 @@ def test_recovery_restores_queue_and_completes(tmp_path: Path) -> None:
                 requester="cm:recovery",
             )
         ],
-        active=[],       # previous active workflows already re-enqueued in queue
+        active=[],  # previous active workflows already re-enqueued in queue
         spent={"gpu_hours": 0.001},
         instances_run=1,
         completed=0,
@@ -282,7 +279,7 @@ def test_recovery_restores_queue_and_completes(tmp_path: Path) -> None:
             WorkflowConfig(
                 name="fast_worker",
                 block=fast_worker,
-                launch_on_start=False,   # don't auto-enqueue — queue comes from checkpoint
+                launch_on_start=False,  # don't auto-enqueue — queue comes from checkpoint
                 on_completion=_on,
             ),
         ],

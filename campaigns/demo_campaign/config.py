@@ -24,12 +24,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
 # ── Global config ─────────────────────────────────────────────────────────────
+
 
 @dataclass
 class SchedulingConfig:
-    policy: str = "bandit"          # bandit | fifo | adr | llm
+    policy: str = "bandit"  # bandit | fifo | adr | llm
 
 
 @dataclass
@@ -49,14 +49,14 @@ class TelemetryConfig:
 
 @dataclass
 class DriverConfig:
-    enabled: bool = False           # use cm.submit()/cm.close() driver API
-    delay_s: float = 2.0            # pause between consecutive submissions
+    enabled: bool = False  # use cm.submit()/cm.close() driver API
+    delay_s: float = 2.0  # pause between consecutive submissions
 
 
 @dataclass
 class GlobalConfig:
-    engine: str = "concurrent"      # concurrent | dragon
-    data_backend: str = "auto"      # auto | dragon | redis | local
+    engine: str = "concurrent"  # concurrent | dragon
+    data_backend: str = "auto"  # auto | dragon | redis | local
     redis_server_path: str | None = None  # path to redis-server binary (redis backend only)
     asyncflow_blocks: bool = False
     verbose: bool = False
@@ -69,10 +69,11 @@ class GlobalConfig:
 
 # ── Campaign config ───────────────────────────────────────────────────────────
 
+
 @dataclass
 class ControllerConfig:
-    goal_analyses: int = 3          # terminate after this many analysis_worker completions
-    score_floor: float = 0.4        # simulations below this score are cancelled
+    goal_analyses: int = 3  # terminate after this many analysis_worker completions
+    score_floor: float = 0.4  # simulations below this score are cancelled
 
 
 @dataclass
@@ -123,13 +124,14 @@ class CampaignConfig:
 
 # ── Loaders ───────────────────────────────────────────────────────────────────
 
+
 def load_global(path: str | Path) -> GlobalConfig:
     """Load a :class:`GlobalConfig` from a YAML file."""
     d = _load_yaml(path)
     sched = d.get("scheduling") or {}
-    gb    = d.get("global_budget") or {}
-    tel   = d.get("telemetry") or {}
-    drv   = d.get("driver") or {}
+    gb = d.get("global_budget") or {}
+    tel = d.get("telemetry") or {}
+    drv = d.get("driver") or {}
     return GlobalConfig(
         engine=d.get("engine", "concurrent"),
         data_backend=d.get("data_backend", "auto"),
@@ -160,14 +162,14 @@ def load_global(path: str | Path) -> GlobalConfig:
 
 def load_campaign(path: str | Path) -> CampaignConfig:
     """Load a :class:`CampaignConfig` from a YAML file."""
-    d    = _load_yaml(path)
+    d = _load_yaml(path)
     ctrl = d.get("controller") or {}
-    bud  = d.get("budget") or {}
-    sp   = bud.get("spending") or {}
-    wf   = d.get("workflows") or {}
-    sim  = wf.get("sim_worker") or {}
+    bud = d.get("budget") or {}
+    sp = bud.get("spending") or {}
+    wf = d.get("workflows") or {}
+    sim = wf.get("sim_worker") or {}
     simb = wf.get("sim_worker_b") or {}
-    ana  = wf.get("analysis_worker") or {}
+    ana = wf.get("analysis_worker") or {}
     return CampaignConfig(
         controller=ControllerConfig(
             goal_analyses=int(ctrl.get("goal_analyses", 3)),
@@ -184,15 +186,21 @@ def load_campaign(path: str | Path) -> CampaignConfig:
                 n_iters=int(sim.get("n_iters", 10)),
                 iter_sleep_s=float(sim.get("iter_sleep_s", 0.08)),
                 stale_timeout_s=float(sim.get("stale_timeout_s", 120.0)),
-                declared_spending={k: float(v) for k, v in (sim.get("declared_spending") or {}).items()},
+                declared_spending={
+                    k: float(v) for k, v in (sim.get("declared_spending") or {}).items()
+                },
             ),
             sim_worker_b=SimWorkerBConfig(
                 stale_timeout_s=float(simb.get("stale_timeout_s", 60.0)),
-                declared_spending={k: float(v) for k, v in (simb.get("declared_spending") or {}).items()},
+                declared_spending={
+                    k: float(v) for k, v in (simb.get("declared_spending") or {}).items()
+                },
             ),
             analysis_worker=AnalysisWorkerConfig(
                 steps=int(ana.get("steps", 2)),
-                declared_spending={k: float(v) for k, v in (ana.get("declared_spending") or {}).items()},
+                declared_spending={
+                    k: float(v) for k, v in (ana.get("declared_spending") or {}).items()
+                },
             ),
         ),
         policy_interval_s=float(d.get("policy_interval_s", 0.5)),
@@ -203,13 +211,12 @@ def load_campaign(path: str | Path) -> CampaignConfig:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _load_yaml(path: str | Path) -> dict:
     try:
         import yaml
     except ImportError as e:
-        raise ImportError(
-            "pyyaml is required to load config files: pip install pyyaml"
-        ) from e
+        raise ImportError("pyyaml is required to load config files: pip install pyyaml") from e
     with open(path) as f:
         return yaml.safe_load(f) or {}
 

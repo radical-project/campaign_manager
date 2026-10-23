@@ -19,6 +19,7 @@ Both
 ----
   One campaign with both workflow types, both auto-cancel paths fire.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -26,10 +27,8 @@ import asyncio
 from src.aucam import (
     CampaignBudget,
     CampaignController,
-    CampaignDecision,
     CampaignManager,
     CampaignSpec,
-    LaunchRequest,
     PolicyResult,
     WorkflowConfig,
     WorkflowReporter,
@@ -37,6 +36,7 @@ from src.aucam import (
 )
 
 # ── Workers ───────────────────────────────────────────────────────────────────
+
 
 async def good_worker(reporter: WorkflowReporter) -> None:
     for i in range(4):
@@ -47,7 +47,7 @@ async def good_worker(reporter: WorkflowReporter) -> None:
 async def stale_worker(reporter: WorkflowReporter) -> None:
     """Emits once then stops reporting — should be auto-cancelled."""
     await reporter.emit(score=0.7, metrics={"iter": 0})
-    await asyncio.sleep(999)   # hangs; reporter goes silent
+    await asyncio.sleep(999)  # hangs; reporter goes silent
 
 
 async def walltime_worker() -> None:
@@ -62,6 +62,7 @@ async def fast_worker() -> None:
 
 # ── Minimal controller ────────────────────────────────────────────────────────
 
+
 class PassthroughController(CampaignController):
     """Issues no decisions; relies entirely on CM auto-cancels."""
 
@@ -72,15 +73,12 @@ class PassthroughController(CampaignController):
     def decide(self, obs: dict) -> PolicyResult:
         running = obs.get("running", {})
         q = obs["queue_snapshot"]
-        terminate = (
-            self.completions >= self.target
-            and not running
-            and q.total_queued == 0
-        )
+        terminate = self.completions >= self.target and not running and q.total_queued == 0
         return PolicyResult(terminate=terminate)
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
+
 
 def test_stale_reporter_auto_cancel() -> None:
     """
@@ -106,6 +104,7 @@ def test_both_auto_cancels() -> None:
 
 
 # ── Async runners ─────────────────────────────────────────────────────────────
+
 
 async def _run_stale() -> None:
     ctrl = PassthroughController(target_completions=2)
@@ -145,7 +144,7 @@ async def _run_stale() -> None:
                 name="stale_worker",
                 block=stale_worker,
                 launch_on_start=True,
-                stale_timeout_s=0.3,   # auto-cancel if silent > 0.3 s
+                stale_timeout_s=0.3,  # auto-cancel if silent > 0.3 s
             ),
         ],
         policy_interval_s=0.1,
@@ -184,7 +183,7 @@ async def _run_walltime() -> None:
                 name="walltime_worker",
                 block=walltime_worker,
                 launch_on_start=True,
-                max_wall_time_s=0.25,   # auto-cancel after 0.25 s
+                max_wall_time_s=0.25,  # auto-cancel after 0.25 s
             ),
         ],
         policy_interval_s=0.1,

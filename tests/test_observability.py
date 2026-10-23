@@ -7,16 +7,18 @@ Observability chunk tests.
 4. event-driven wakeup — policy cycle fires immediately on workflow completion,
                           not only after policy_interval_s.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
 
+import pytest
+
 from src.aucam import (
     CampaignBudget,
     CampaignController,
-    CampaignDecision,
     CampaignManager,
     CampaignSpec,
     LaunchPriority,
@@ -27,8 +29,8 @@ from src.aucam import (
     WorkflowResult,
 )
 
-
 # ── Workers ───────────────────────────────────────────────────────────────────
+
 
 async def reporting_worker(reporter: WorkflowReporter) -> None:
     for i in range(3):
@@ -46,6 +48,7 @@ async def quick_worker() -> None:
 
 # ── Helper: run a minimal campaign and capture log output ─────────────────────
 
+
 def _run_and_capture(
     spec: CampaignSpec,
 ) -> tuple[list[WorkflowResult], list[str]]:
@@ -62,10 +65,8 @@ def _run_and_capture(
     log.addHandler(handler)
 
     try:
-        ctrl = _SimpleCtrl()
-        orig_on_completion = spec.workflows[0].on_completion
-
         for wfc in spec.workflows:
+
             def _cap(r: WorkflowResult, _wfc=wfc) -> None:
                 results.append(r)
                 if _wfc.on_completion is not None:
@@ -88,6 +89,7 @@ async def _run(spec: CampaignSpec) -> None:
 
 # ── Simple controller ─────────────────────────────────────────────────────────
 
+
 class _SimpleCtrl(CampaignController):
     def __init__(self, target: int = 1) -> None:
         self.completions = 0
@@ -97,15 +99,12 @@ class _SimpleCtrl(CampaignController):
         running = obs.get("running", {})
         q = obs["queue_snapshot"]
         return PolicyResult(
-            terminate=(
-                self.completions >= self.target
-                and not running
-                and q.total_queued == 0
-            )
+            terminate=(self.completions >= self.target and not running and q.total_queued == 0)
         )
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
+
 
 def test_final_metrics_populated() -> None:
     """WorkflowResult.final_metrics contains the last emitted metrics dict."""
@@ -142,9 +141,7 @@ def test_final_metrics_populated() -> None:
     assert "iteration" in r.final_metrics, (
         f"expected 'iteration' in final_metrics; got {r.final_metrics}"
     )
-    assert r.final_metrics["iteration"] == 2, (
-        f"expected last iteration=2; got {r.final_metrics}"
-    )
+    assert r.final_metrics["iteration"] == 2, f"expected last iteration=2; got {r.final_metrics}"
 
 
 def test_final_metrics_empty_for_no_reporter() -> None:
@@ -182,7 +179,6 @@ def test_final_metrics_empty_for_no_reporter() -> None:
 
 def test_summary_log_emitted(caplog: pytest.LogCaptureFixture) -> None:
     """SUMMARY log line appears at shutdown with non-zero run/cycle counts."""
-    import pytest  # noqa: PLC0415
 
     ctrl = _SimpleCtrl(target=1)
 
@@ -219,7 +215,6 @@ def test_summary_log_emitted(caplog: pytest.LogCaptureFixture) -> None:
 
 def test_max_queue_depth_warning_not_drop(caplog: pytest.LogCaptureFixture) -> None:
     """Queue overflow at max_queue_depth logs WARNING but all requests are enqueued."""
-    import pytest  # noqa: PLC0415
 
     enqueued_count = [0]
     ctrl = _SimpleCtrl(target=3)
@@ -240,9 +235,7 @@ def test_max_queue_depth_warning_not_drop(caplog: pytest.LogCaptureFixture) -> N
             if not self._launched:
                 self._launched = True
                 for _ in range(3):
-                    reqs.append(
-                        LaunchRequest.make("quick_worker", LaunchPriority.NORMAL)
-                    )
+                    reqs.append(LaunchRequest.make("quick_worker", LaunchPriority.NORMAL))
             return PolicyResult(
                 launch_requests=reqs,
                 terminate=(
@@ -272,7 +265,7 @@ def test_max_queue_depth_warning_not_drop(caplog: pytest.LogCaptureFixture) -> N
             ),
         ],
         policy_interval_s=0.1,
-        max_queue_depth=2,        # limit set to 2; controller enqueues 3
+        max_queue_depth=2,  # limit set to 2; controller enqueues 3
         shutdown_timeout_s=5.0,
     )
 
@@ -281,7 +274,8 @@ def test_max_queue_depth_warning_not_drop(caplog: pytest.LogCaptureFixture) -> N
 
     # Warning was logged
     overflow_warns = [
-        r.message for r in caplog.records
+        r.message
+        for r in caplog.records
         if "max_queue_depth" in r.message and r.levelno == logging.WARNING
     ]
     assert overflow_warns, "Expected max_queue_depth WARNING; none found"
@@ -320,7 +314,7 @@ def test_event_driven_policy_wakeup() -> None:
                 on_completion=_on,
             ),
         ],
-        policy_interval_s=10.0,    # very long — only event-driven wake makes this fast
+        policy_interval_s=10.0,  # very long — only event-driven wake makes this fast
         shutdown_timeout_s=5.0,
     )
 

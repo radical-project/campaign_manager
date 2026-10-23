@@ -10,8 +10,8 @@ from typing import Any
 
 
 class ScoreDirection(str, Enum):
-    HIGHER = "higher"   # higher value = better (e.g. pLDDT, reward, diversity)
-    LOWER  = "lower"    # lower  value = better (e.g. binding energy, RMSD)
+    HIGHER = "higher"  # higher value = better (e.g. pLDDT, reward, diversity)
+    LOWER = "lower"  # lower  value = better (e.g. binding energy, RMSD)
 
 
 class WorkflowStatus(str, Enum):
@@ -73,7 +73,7 @@ class LaunchRequest:
     workflow_type: str
     priority: LaunchPriority
     enqueued_at: float
-    campaign_name: str = ""           # stamped by _CampaignInstance.enqueue()
+    campaign_name: str = ""  # stamped by _CampaignInstance.enqueue()
     context: dict = field(default_factory=dict)
     requester: str = "unknown"
 
@@ -85,7 +85,7 @@ class LaunchRequest:
         *,
         context: dict | None = None,
         requester: str = "policy_agent",
-    ) -> "LaunchRequest":
+    ) -> LaunchRequest:
         return cls(
             workflow_type=workflow_type,
             priority=priority,
@@ -199,13 +199,13 @@ class CampaignOutcome:
     """
 
     campaign_name: str
-    completed: dict[str, int]   # workflow_type → successful completions
-    cancelled: dict[str, int]   # workflow_type → cancellations (returncode == -1)
-    failed: dict[str, int]      # workflow_type → hard failures (other returncode)
+    completed: dict[str, int]  # workflow_type → successful completions
+    cancelled: dict[str, int]  # workflow_type → cancellations (returncode == -1)
+    failed: dict[str, int]  # workflow_type → hard failures (other returncode)
     elapsed_s: float
     goal_reached: bool
-    spent: dict[str, float] = field(default_factory=dict)   # actual resource consumption
-    summary: dict = field(default_factory=dict)             # controller-provided scientific aggregates
+    spent: dict[str, float] = field(default_factory=dict)  # actual resource consumption
+    summary: dict = field(default_factory=dict)  # controller-provided scientific aggregates
 
 
 @dataclass
@@ -232,9 +232,7 @@ class SubmitResult:
         submitted via the legacy ``submit_campaign()`` API.
         """
         if not self.accepted:
-            raise RuntimeError(
-                f"Campaign '{self.campaign_name}' was not accepted: {self.reason}"
-            )
+            raise RuntimeError(f"Campaign '{self.campaign_name}' was not accepted: {self.reason}")
         if self.outcome_future is None:
             raise RuntimeError(
                 f"Campaign '{self.campaign_name}' has no outcome future; "

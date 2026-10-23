@@ -13,14 +13,11 @@ graceful shutdown, BudgetAllocator.
 import asyncio
 import time
 
-import pytest
-
 from src.aucam import (
     CampaignBudget,
     CampaignController,
     CampaignManager,
     CampaignSpec,
-    LaunchPriority,
     LaunchRequest,
     PolicyResult,
     WorkflowConfig,
@@ -28,8 +25,8 @@ from src.aucam import (
     WorkflowResult,
 )
 
-
 # ── Dummy workflows ──────────────────────────────────────────────────────────
+
 
 async def fast_job() -> str:
     await asyncio.sleep(0.1)
@@ -47,6 +44,7 @@ async def follow_up() -> str:
 
 
 # ── Controller ───────────────────────────────────────────────────────────────
+
 
 class DummyController(CampaignController):
     """Terminates when all three workflow types have each run at least once."""
@@ -71,6 +69,7 @@ class DummyController(CampaignController):
 
 
 # ── Test 1: full campaign with DAG dependency ─────────────────────────────────
+
 
 def test_dummy_campaign_runs_and_terminates() -> None:
     asyncio.run(_run_dummy_campaign())
@@ -148,6 +147,7 @@ async def _run_dummy_campaign() -> None:
 
 
 # ── Test 2: concurrency cap enforced ─────────────────────────────────────────
+
 
 def test_budget_limits_concurrent_workflows() -> None:
     asyncio.run(_run_sequential_campaign())

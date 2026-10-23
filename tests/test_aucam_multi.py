@@ -42,6 +42,7 @@ T0: float = 0.0
 
 # ── Shared timing recorder ────────────────────────────────────────────────────
 
+
 @dataclass
 class WFEvent:
     campaign: str
@@ -75,27 +76,36 @@ RESULTS = Results()
 def record_wf(campaign: str, r: WorkflowResult) -> None:
     end_t = time.monotonic() - T0
     launch_t = end_t - r.wall_time_s
-    RESULTS.workflows.append(asdict(WFEvent(
-        campaign=campaign,
-        workflow_type=r.workflow_type,
-        workflow_id=r.workflow_id,
-        launch_t=launch_t,
-        end_t=end_t,
-        returncode=r.returncode,
-    )))
+    RESULTS.workflows.append(
+        asdict(
+            WFEvent(
+                campaign=campaign,
+                workflow_type=r.workflow_type,
+                workflow_id=r.workflow_id,
+                launch_t=launch_t,
+                end_t=end_t,
+                returncode=r.returncode,
+            )
+        )
+    )
 
 
 def record_policy(campaign: str, running: dict, queue_depth: int, terminate: bool) -> None:
-    RESULTS.policy_events.append(asdict(PolicyEvent(
-        campaign=campaign,
-        t=time.monotonic() - T0,
-        running=running,
-        queue_depth=queue_depth,
-        terminate=terminate,
-    )))
+    RESULTS.policy_events.append(
+        asdict(
+            PolicyEvent(
+                campaign=campaign,
+                t=time.monotonic() - T0,
+                running=running,
+                queue_depth=queue_depth,
+                terminate=terminate,
+            )
+        )
+    )
 
 
 # ── Workflow coroutines ───────────────────────────────────────────────────────
+
 
 async def alpha_worker():
     await asyncio.sleep(0.25)
@@ -123,6 +133,7 @@ async def gamma_task():
 
 # ── Alpha ─────────────────────────────────────────────────────────────────────
 
+
 class AlphaController(CampaignController):
     """Launch 3 parallel workers; terminate after all 3 complete."""
 
@@ -135,11 +146,7 @@ class AlphaController(CampaignController):
         running = obs.get("running", {})
         q = obs["queue_snapshot"]
 
-        in_flight = (
-            self.done
-            + running.get("alpha_worker", 0)
-            + q.by_type.get("alpha_worker", 0)
-        )
+        in_flight = self.done + running.get("alpha_worker", 0) + q.by_type.get("alpha_worker", 0)
         requests = [
             LaunchRequest.make("alpha_worker", requester="alpha-ctrl")
             for _ in range(self.TARGET - in_flight)
@@ -161,7 +168,9 @@ def alpha_spec(ctrl: AlphaController) -> CampaignSpec:
         budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=3),
         controller=ctrl,
         workflows=[
-            WorkflowConfig(name="alpha_worker", block=alpha_worker, launch_on_start=False, on_completion=hook),
+            WorkflowConfig(
+                name="alpha_worker", block=alpha_worker, launch_on_start=False, on_completion=hook
+            ),
         ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
@@ -169,6 +178,7 @@ def alpha_spec(ctrl: AlphaController) -> CampaignSpec:
 
 
 # ── Beta ──────────────────────────────────────────────────────────────────────
+
 
 class BetaController(CampaignController):
     """
@@ -194,14 +204,16 @@ class BetaController(CampaignController):
         report_running = running.get("beta_report", 0)
 
         # Launch report once both computes are done and report hasn't been requested yet.
-        if ca_done >= 1 and cb_done >= 1 and report_done == 0 and report_queued == 0 and report_running == 0:
+        if (
+            ca_done >= 1
+            and cb_done >= 1
+            and report_done == 0
+            and report_queued == 0
+            and report_running == 0
+        ):
             requests.append(LaunchRequest.make("beta_report", requester="beta-ctrl"))
 
-        terminate = (
-            report_done >= 1
-            and not running
-            and q.total_queued == 0
-        )
+        terminate = report_done >= 1 and not running and q.total_queued == 0
         record_policy("beta", running, q.total_queued, terminate)
         return PolicyResult(terminate=terminate, launch_requests=requests)
 
@@ -211,6 +223,7 @@ def beta_spec(ctrl: BetaController) -> CampaignSpec:
         def h(r: WorkflowResult):
             ctrl.done[name] = ctrl.done.get(name, 0) + 1
             record_wf("beta", r)
+
         return h
 
     return CampaignSpec(
@@ -218,11 +231,31 @@ def beta_spec(ctrl: BetaController) -> CampaignSpec:
         budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=1),
         controller=ctrl,
         workflows=[
-            WorkflowConfig(name="beta_prep",      block=beta_prep,      launch_on_start=True,  on_completion=mk_hook("beta_prep")),
-            WorkflowConfig(name="beta_compute_a", block=beta_compute_a, launch_on_start=False, on_completion=mk_hook("beta_compute_a")),
-            WorkflowConfig(name="beta_compute_b", block=beta_compute_b, launch_on_start=False, on_completion=mk_hook("beta_compute_b")),
+            WorkflowConfig(
+                name="beta_prep",
+                block=beta_prep,
+                launch_on_start=True,
+                on_completion=mk_hook("beta_prep"),
+            ),
+            WorkflowConfig(
+                name="beta_compute_a",
+                block=beta_compute_a,
+                launch_on_start=False,
+                on_completion=mk_hook("beta_compute_a"),
+            ),
+            WorkflowConfig(
+                name="beta_compute_b",
+                block=beta_compute_b,
+                launch_on_start=False,
+                on_completion=mk_hook("beta_compute_b"),
+            ),
             # report is launched by controller, not by DAG
-            WorkflowConfig(name="beta_report",    block=beta_report,    launch_on_start=False, on_completion=mk_hook("beta_report")),
+            WorkflowConfig(
+                name="beta_report",
+                block=beta_report,
+                launch_on_start=False,
+                on_completion=mk_hook("beta_report"),
+            ),
         ],
         dependencies=[
             WorkflowDependency(source="beta_prep", target="beta_compute_a"),
@@ -234,6 +267,7 @@ def beta_spec(ctrl: BetaController) -> CampaignSpec:
 
 
 # ── Gamma ─────────────────────────────────────────────────────────────────────
+
 
 class GammaController(CampaignController):
     """Serial adaptive: re-enqueue gamma_task until 4 total completions."""
@@ -247,11 +281,7 @@ class GammaController(CampaignController):
         running = obs.get("running", {})
         q = obs["queue_snapshot"]
 
-        in_flight = (
-            self.total_done
-            + running.get("gamma_task", 0)
-            + q.by_type.get("gamma_task", 0)
-        )
+        in_flight = self.total_done + running.get("gamma_task", 0) + q.by_type.get("gamma_task", 0)
         requests = []
         if in_flight < self.TARGET:
             requests.append(LaunchRequest.make("gamma_task", requester="gamma-ctrl"))
@@ -271,7 +301,9 @@ def gamma_spec(ctrl: GammaController) -> CampaignSpec:
         budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
         controller=ctrl,
         workflows=[
-            WorkflowConfig(name="gamma_task", block=gamma_task, launch_on_start=False, on_completion=hook),
+            WorkflowConfig(
+                name="gamma_task", block=gamma_task, launch_on_start=False, on_completion=hook
+            ),
         ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
@@ -279,6 +311,7 @@ def gamma_spec(ctrl: GammaController) -> CampaignSpec:
 
 
 # ── Test ──────────────────────────────────────────────────────────────────────
+
 
 def test_multi_campaign() -> None:
     asyncio.run(_run())
@@ -302,15 +335,18 @@ async def _run() -> None:
     end_t = time.monotonic() - T0
 
     # Assertions
-    assert alpha_ctrl.done >= AlphaController.TARGET, \
+    assert alpha_ctrl.done >= AlphaController.TARGET, (
         f"alpha: expected {AlphaController.TARGET} completions, got {alpha_ctrl.done}"
+    )
     assert beta_ctrl.done.get("beta_prep", 0) >= 1, "beta: prep missing"
     assert beta_ctrl.done.get("beta_compute_a", 0) >= 1, "beta: compute_a missing"
     assert beta_ctrl.done.get("beta_compute_b", 0) >= 1, "beta: compute_b missing"
-    assert beta_ctrl.done.get("beta_report", 0) >= 1, \
+    assert beta_ctrl.done.get("beta_report", 0) >= 1, (
         f"beta: report did not complete: {beta_ctrl.done}"
-    assert gamma_ctrl.total_done >= GammaController.TARGET, \
+    )
+    assert gamma_ctrl.total_done >= GammaController.TARGET, (
         f"gamma: expected {GammaController.TARGET} completions, got {gamma_ctrl.total_done}"
+    )
 
     # Derive per-campaign timings from workflow events
     for campaign in ("alpha", "beta", "gamma"):
@@ -319,13 +355,18 @@ async def _run() -> None:
             RESULTS.campaign_starts[campaign] = min(w["launch_t"] for w in wfs)
             RESULTS.campaign_ends[campaign] = max(w["end_t"] for w in wfs)
 
-    RESULTS_FILE.write_text(json.dumps({
-        "campaign_starts": RESULTS.campaign_starts,
-        "campaign_ends": RESULTS.campaign_ends,
-        "workflows": RESULTS.workflows,
-        "policy_events": RESULTS.policy_events,
-        "total_elapsed_s": end_t,
-    }, indent=2))
+    RESULTS_FILE.write_text(
+        json.dumps(
+            {
+                "campaign_starts": RESULTS.campaign_starts,
+                "campaign_ends": RESULTS.campaign_ends,
+                "workflows": RESULTS.workflows,
+                "policy_events": RESULTS.policy_events,
+                "total_elapsed_s": end_t,
+            },
+            indent=2,
+        )
+    )
 
     print(f"\nResults written to {RESULTS_FILE}")
     print(f"Total elapsed: {end_t:.2f}s")

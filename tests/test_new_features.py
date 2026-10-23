@@ -1,17 +1,17 @@
 """Tests for features added in the easy-to-do batch:
 
-  B0     — any budget dimension in set_in_flight / _compute_workflow_spent
-  B1     — burn entry in campaign_view
-  B3     — learned cost estimates replace declared_spending after min_samples
-  idle   — campaign exits with reason="campaign_idle" when queue drains
-  Gap1   — dep_satisfied persisted in checkpoint and restored before re-push
-  R1     — inner-block uid propagation in _on_task_event
-  live   — live in-flight update for non-R1 paths (proration and reported)
+B0     — any budget dimension in set_in_flight / _compute_workflow_spent
+B1     — burn entry in campaign_view
+B3     — learned cost estimates replace declared_spending after min_samples
+idle   — campaign exits with reason="campaign_idle" when queue drains
+Gap1   — dep_satisfied persisted in checkpoint and restored before re-push
+R1     — inner-block uid propagation in _on_task_event
+live   — live in-flight update for non-R1 paths (proration and reported)
 """
+
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from pathlib import Path
 
@@ -34,14 +34,13 @@ from src.aucam import (
 from src.aucam.budget import BudgetAllocator
 from src.aucam.campaign import _CampaignInstance
 from src.aucam.checkpoint import (
-    ActiveWorkflowRecord,
     QueuedRequestRecord,
     _from_json,
     _to_json,
 )
 
-
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 async def quick(reporter: WorkflowReporter) -> None:
     await asyncio.sleep(0.05)
@@ -55,6 +54,7 @@ async def _run_campaign(spec: CampaignSpec, timeout: float = 20.0) -> None:
 
 
 # ── B0: any budget dimension ──────────────────────────────────────────────────
+
 
 def test_b0_custom_dim_tracked_in_flight() -> None:
     """set_in_flight stores and in_flight() sums arbitrary non-wall_hours dims."""
@@ -78,6 +78,7 @@ def test_b0_custom_dim_burn_view() -> None:
 
 
 # ── B1: burn entry ─────────────────────────────────────────────────────────────
+
 
 def test_b1_burn_zero_limit_dimension_excluded() -> None:
     """Dimensions with limit=0 are not included in burn (avoids ZeroDivisionError)."""
@@ -121,11 +122,13 @@ def test_b1_burn_in_observation() -> None:
 
 # ── B3: learned cost estimates ────────────────────────────────────────────────
 
+
 def test_b3_learned_cost_unit() -> None:
     """_learned_cost() returns declared until min_samples reached, then mean."""
     from unittest.mock import MagicMock
+
+    from src.aucam import CampaignBudget, CampaignController, CampaignSpec, WorkflowConfig
     from src.aucam.campaign import _CampaignInstance
-    from src.aucam import CampaignSpec, CampaignBudget, CampaignController, WorkflowConfig
 
     spec = CampaignSpec(
         name="lc",
@@ -163,12 +166,13 @@ def test_b3_learned_cost_unit() -> None:
 
 # ── campaign idle exit ────────────────────────────────────────────────────────
 
+
 def test_campaign_idle_exit() -> None:
     """Campaign exits with reason='campaign_idle' when queue empties naturally."""
-    outcomes: list = []
 
     class IdleCtrl(CampaignController):
         """Issues one launch on start, then does nothing (no terminate signal)."""
+
         _sent = False
 
         def decide(self, obs: dict) -> PolicyResult:
@@ -219,8 +223,12 @@ def test_idle_exit_s_values() -> None:
     """idle_exit_s: 'auto' = max(5 s, policy_interval_s); a number is used as
     is; None disables; negative values are rejected."""
     assert _idle_spec("a").idle_exit_after() == 5.0
-    assert _idle_spec("b", idle_exit_s="auto").model_copy(
-        update={"policy_interval_s": 30.0}).idle_exit_after() == 30.0
+    assert (
+        _idle_spec("b", idle_exit_s="auto")
+        .model_copy(update={"policy_interval_s": 30.0})
+        .idle_exit_after()
+        == 30.0
+    )
     assert _idle_spec("c", idle_exit_s=0.5).idle_exit_after() == 0.5
     assert _idle_spec("d", idle_exit_s=None).idle_exit_after() is None
     with pytest.raises(ValueError):
@@ -244,7 +252,7 @@ def test_idle_exit_s_none_keeps_campaign_waiting() -> None:
         cm = CampaignManager()
         cm.submit_campaign(_idle_spec("idle_never", idle_exit_s=None))
         task = asyncio.ensure_future(cm.run())
-        await asyncio.sleep(6.5)            # longer than the 5 s 'auto' window
+        await asyncio.sleep(6.5)  # longer than the 5 s 'auto' window
         inst = cm._active_instances["idle_never"]
         still_running = not task.done() and inst.exit_reason == "unknown"
         task.cancel()
@@ -258,6 +266,7 @@ def test_idle_exit_s_none_keeps_campaign_waiting() -> None:
 
 
 # ── Gap 1: dep_satisfied in checkpoint ───────────────────────────────────────
+
 
 def test_gap1_dep_satisfied_roundtrip() -> None:
     """dep_satisfied persists through CampaignCheckpoint JSON round-trip."""
@@ -286,8 +295,6 @@ def test_gap1_dep_satisfied_restored_before_queue(tmp_path: Path) -> None:
     """After recovery, dep_satisfied is restored so queued target-type requests
     launch immediately without waiting for a redundant source completion."""
     from src.aucam import WorkflowDependency
-
-    completed: list[str] = []
 
     class DoneCtrl(CampaignController):
         def decide(self, obs: dict) -> PolicyResult:
@@ -346,14 +353,16 @@ def test_gap1_dep_satisfied_restored_before_queue(tmp_path: Path) -> None:
 
 # ── R1: inner-block uid propagation ──────────────────────────────────────────
 
+
 def test_inner_block_uid_registered_in_wf_tags() -> None:
     """TaskCreated (no resources) for an inner block propagates the parent's
     wf_id mapping to the child block uid so tasks inside nested blocks are
     charged to the correct workflow."""
     from types import SimpleNamespace
     from unittest.mock import MagicMock
+
+    from src.aucam import CampaignBudget, CampaignController, CampaignSpec, WorkflowConfig
     from src.aucam.campaign import _CampaignInstance
-    from src.aucam import CampaignSpec, CampaignBudget, CampaignController, WorkflowConfig
 
     spec = CampaignSpec(
         name="inner",
@@ -407,8 +416,9 @@ def test_inner_block_cross_campaign_not_registered() -> None:
     belongs to a different campaign (parent not in this campaign's _wf_tags)."""
     from types import SimpleNamespace
     from unittest.mock import MagicMock
+
+    from src.aucam import CampaignBudget, CampaignController, CampaignSpec, WorkflowConfig
     from src.aucam.campaign import _CampaignInstance
-    from src.aucam import CampaignSpec, CampaignBudget, CampaignController, WorkflowConfig
 
     spec = CampaignSpec(
         name="other",
@@ -438,6 +448,7 @@ def test_inner_block_cross_campaign_not_registered() -> None:
 
 # ── live in-flight update for non-R1 paths ───────────────────────────────────
 
+
 def test_live_inflight_proration_holds_full_cost_and_grows_on_overrun() -> None:
     """A non-R1 workflow is charged only when it ends, so while it runs the
     ledger must hold its full expected cost: in_flight never drops below the
@@ -456,8 +467,9 @@ def test_live_inflight_proration_holds_full_cost_and_grows_on_overrun() -> None:
         def decide(self, obs):
             b = obs["budget"]
             if obs.get("running"):
-                samples.append((b["spent"].get("cpu_hours", 0.0),
-                                b["in_flight"].get("cpu_hours", 0.0)))
+                samples.append(
+                    (b["spent"].get("cpu_hours", 0.0), b["in_flight"].get("cpu_hours", 0.0))
+                )
             return PolicyResult(terminate=sum(self.completed.values()) >= 1)
 
     spec = CampaignSpec(
@@ -468,8 +480,7 @@ def test_live_inflight_proration_holds_full_cost_and_grows_on_overrun() -> None:
             spending={"cpu_hours": 100.0},
         ),
         controller=SamplingController(),
-        workflows=[WorkflowConfig(name="w", block=slow_wf,
-                                  declared_spending=declared)],
+        workflows=[WorkflowConfig(name="w", block=slow_wf, declared_spending=declared)],
         policy_interval_s=0.1,
         shutdown_timeout_s=5.0,
     )
@@ -513,8 +524,7 @@ def test_live_inflight_reported_path_raises_estimate() -> None:
             spending={"cpu_hours": 100.0},
         ),
         controller=SamplingController(),
-        workflows=[WorkflowConfig(name="w", block=reporting_wf,
-                                  declared_spending=declared)],
+        workflows=[WorkflowConfig(name="w", block=reporting_wf, declared_spending=declared)],
         policy_interval_s=0.1,
         shutdown_timeout_s=5.0,
     )
@@ -529,15 +539,23 @@ def test_live_inflight_reported_path_raises_estimate() -> None:
 
 # ── fixes: task-level edge cases and learned costs ────────────────────────────
 
+
 def _bare_instance(name: str = "fx", wf_type: str = "w") -> _CampaignInstance:
     from unittest.mock import MagicMock
+
     spec = CampaignSpec(
         name=name,
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=2,
-                              spending={"cpu_hours": 100.0}),
+        budget=CampaignBudget(
+            max_concurrent_workflows=2,
+            max_concurrency_per_workflow=2,
+            spending={"cpu_hours": 100.0},
+        ),
         controller=CampaignController(),
-        workflows=[WorkflowConfig(name=wf_type, block=quick,
-                                  declared_spending={"wall_hours": 1.0, "cpu_hours": 8.0})],
+        workflows=[
+            WorkflowConfig(
+                name=wf_type, block=quick, declared_spending={"wall_hours": 1.0, "cpu_hours": 8.0}
+            )
+        ],
         policy_interval_s=60.0,
         shutdown_timeout_s=5.0,
     )
@@ -578,7 +596,7 @@ def test_task_level_workflow_without_charges_finishes() -> None:
     def launch_and_mark(self, request):
         orig_launch(self, request)
         for wf_id in self._active:
-            self._task_level.add(wf_id)      # as a TaskCreated with resources would
+            self._task_level.add(wf_id)  # as a TaskCreated with resources would
 
     _CampaignInstance._launch = launch_and_mark
     try:
@@ -600,17 +618,19 @@ def test_task_level_inflight_uses_launch_estimate() -> None:
     wf_id = "fx.w.1"
     inst._wf_tags[wf_id] = wf_id
     inst._active[wf_id] = MagicMock(declared_spending={"wall_hours": 1.0, "cpu_hours": 8.0})
-    inst._estimates[wf_id] = {"wall_hours": 1.0, "cpu_hours": 2.0}   # learned
+    inst._estimates[wf_id] = {"wall_hours": 1.0, "cpu_hours": 2.0}  # learned
     inst._allocator.set_in_flight("fx", wf_id, inst._estimates[wf_id])
 
     ev = SimpleNamespace(
-        event_type="TaskCompleted", task_id="task.000001", duration_seconds=900.0,
+        event_type="TaskCompleted",
+        task_id="task.000001",
+        duration_seconds=900.0,
         event_time=None,
         attributes={"asyncflow.workflow_id": wf_id, "resources": {"cpus": 4.0, "gpus": 0.0}},
     )
-    inst._on_task_event(ev)          # charges 4 cpus x 0.25 h = 1.0 cpu_h
+    inst._on_task_event(ev)  # charges 4 cpus x 0.25 h = 1.0 cpu_h
     assert abs(inst._allocator.spent("fx")["cpu_hours"] - 1.0) < 1e-9
-    assert abs(inst._allocator.in_flight("fx")["cpu_hours"] - 1.0) < 1e-9   # 2.0 - 1.0
+    assert abs(inst._allocator.in_flight("fx")["cpu_hours"] - 1.0) < 1e-9  # 2.0 - 1.0
 
 
 def test_learned_cost_only_from_successful_runs() -> None:
@@ -638,8 +658,9 @@ def test_learned_cost_only_from_successful_runs() -> None:
         def decide(self, obs):
             if not self._sent:
                 self._sent = True
-                return PolicyResult(launch_requests=[LaunchRequest.make("ok"),
-                                                     LaunchRequest.make("boom")])
+                return PolicyResult(
+                    launch_requests=[LaunchRequest.make("ok"), LaunchRequest.make("boom")]
+                )
             return PolicyResult(terminate=len(results) >= 2)
 
     decl = {"wall_hours": 1.0, "cpu_hours": 3.0}
@@ -647,10 +668,10 @@ def test_learned_cost_only_from_successful_runs() -> None:
         name="lc_rc",
         budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=1),
         controller=Ctrl(),
-        workflows=[WorkflowConfig(name="ok", block=ok, declared_spending=decl,
-                                  launch_on_start=False),
-                   WorkflowConfig(name="boom", block=boom, declared_spending=decl,
-                                  launch_on_start=False)],
+        workflows=[
+            WorkflowConfig(name="ok", block=ok, declared_spending=decl, launch_on_start=False),
+            WorkflowConfig(name="boom", block=boom, declared_spending=decl, launch_on_start=False),
+        ],
         policy_interval_s=0.1,
         shutdown_timeout_s=5.0,
     )

@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import sys
 from pathlib import Path
 
@@ -35,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 # ── MiniApps import (lazy: DDSIM_DIR must be set before first call) ───────────
+
 
 def _ddsim_root() -> Path:
     d = os.environ.get("DDSIM_DIR")
@@ -56,6 +56,7 @@ def _get_miniapps_class():
         # Use importlib to load by file path — avoids sys.modules['workflows']
         # collision with this file (ddsim_aucam/workflows.py).
         import importlib.util  # noqa: PLC0415
+
         fpath = root / "workflows" / "miniapps_workflow" / "miniapps_workflow.py"
         spec = importlib.util.spec_from_file_location("_ddsim_miniapps_workflow", fpath)
         mod = importlib.util.module_from_spec(spec)
@@ -65,6 +66,7 @@ def _get_miniapps_class():
 
 
 # ── Scoring mixin ─────────────────────────────────────────────────────────────
+
 
 class _AuCaMAdapter:
     """Mixin that hooks evaluate_simulations() to fire an async score callback.
@@ -86,7 +88,10 @@ class _AuCaMAdapter:
         n_done = len(self.completed_sims)
         logger.info(
             "[miniapps:%s] prediction cycle done  score=%.4f  n_pred=%d  n_done=%d",
-            self.name, score, len(predictions), n_done,
+            self.name,
+            score,
+            len(predictions),
+            n_done,
         )
         await cb(score, n_done)
 
@@ -97,9 +102,9 @@ _AdaptedClass = None  # singleton subclass, created once
 def _get_adapted_class():
     global _AdaptedClass
     if _AdaptedClass is None:
-        MiniAppsWorkflow = _get_miniapps_class()
+        miniapps_cls = _get_miniapps_class()
 
-        class _Adapted(_AuCaMAdapter, MiniAppsWorkflow):
+        class _Adapted(_AuCaMAdapter, miniapps_cls):
             def __init__(self, *args, score_cb=None, **kwargs):
                 super().__init__(*args, **kwargs)
                 self._score_cb = score_cb
@@ -109,6 +114,7 @@ def _get_adapted_class():
 
 
 # ── Block factory ─────────────────────────────────────────────────────────────
+
 
 def make_miniapps_worker(cfg: dict, arm_label: str = "wf", engine: str = "concurrent"):
     """Return an AuCaM block function bound to the given MiniApps config dict.
@@ -123,7 +129,7 @@ def make_miniapps_worker(cfg: dict, arm_label: str = "wf", engine: str = "concur
 
     async def miniapps_worker(reporter: WorkflowReporter, flow=None) -> None:
         root = _ddsim_root()
-        Adapted = _get_adapted_class()
+        adapted_cls = _get_adapted_class()
 
         worker_cfg = dict(cfg)
         if not worker_cfg.get("src_dir"):
@@ -134,14 +140,14 @@ def make_miniapps_worker(cfg: dict, arm_label: str = "wf", engine: str = "concur
         # creates and cleans home_base/name/ on init, so clashes would delete live data.
         wf_tail = reporter.wf_id.split(".")[-1][:8] or reporter.wf_id[:8]
         safe_name = f"{arm_label}_{wf_tail}"
-        home_base = Path(
-            worker_cfg.get("home_dir") or Path.home() / "MiniApps"
-        ).expanduser()
+        home_base = Path(worker_cfg.get("home_dir") or Path.home() / "MiniApps").expanduser()
 
         async def _on_score(score: float, n_done: int) -> None:
             logger.info(
                 "[miniapps_worker] emit  id=%s  score=%.4f  n_done=%d",
-                reporter.wf_id, score, n_done,
+                reporter.wf_id,
+                score,
+                n_done,
             )
             await reporter.emit(
                 score=score,
@@ -155,7 +161,7 @@ def make_miniapps_worker(cfg: dict, arm_label: str = "wf", engine: str = "concur
             worker_cfg.get("total_num_sim", "?"),
         )
 
-        workflow = Adapted(
+        workflow = adapted_cls(
             config=worker_cfg,
             asyncflow=flow,
             name=safe_name,
@@ -177,14 +183,22 @@ def make_miniapps_worker(cfg: dict, arm_label: str = "wf", engine: str = "concur
 
         logger.info(
             "[miniapps_worker] complete  id=%s  score=%.4f  n_done=%d  n_preds=%d",
-            reporter.wf_id, score, n_done, len(predictions),
+            reporter.wf_id,
+            score,
+            n_done,
+            len(predictions),
         )
 
         import socket
+
         await reporter.emit(
             score=score,
-            metrics={"score": score, "n_completed": n_done, "status": "complete",
-                     "node": socket.gethostname()},
+            metrics={
+                "score": score,
+                "n_completed": n_done,
+                "status": "complete",
+                "node": socket.gethostname(),
+            },
         )
 
         await workflow.close()

@@ -3,6 +3,7 @@
 Uses a fakeredis TCP server, so both CM (RhapsodyRedisBackend) and a
 command-line workflow in its own process talk to the same "Redis".
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -56,7 +57,7 @@ def test_report_is_json_and_read_by_backend(cm_env) -> None:
     Reporter().emit(score={"energy": -8.5}, metrics={"cpu_hours": 0.2}, iteration=3)
     host, port = cm_env.rsplit(":", 1)
     raw = redis.Redis(host=host, port=int(port)).get("camp.wf.1")
-    assert json.loads(raw)["score"] == {"energy": -8.5}        # plain JSON on the wire
+    assert json.loads(raw)["score"] == {"energy": -8.5}  # plain JSON on the wire
     report = asyncio.run(RhapsodyRedisBackend(cm_env).get_report("camp.wf.1"))
     assert report.score == {"energy": -8.5}
     assert report.metrics == {"cpu_hours": 0.2} and report.iteration == 3
@@ -76,7 +77,7 @@ def test_signals(cm_env) -> None:
     assert rep.poll_signal() is None
     asyncio.run(backend.write_signal("camp.wf.1", CampaignDecision.PAUSE))
     assert rep.poll_signal() == "PAUSE"
-    assert rep.poll_signal() is None                            # consumed
+    assert rep.poll_signal() is None  # consumed
 
 
 def test_non_json_score_rejected() -> None:
@@ -93,8 +94,22 @@ def test_missing_environment(monkeypatch) -> None:
 
 
 def test_cli_emit_and_signal(cm_env, capsys) -> None:
-    assert cli_main(["emit", "--score", "0.75", "--metric", "cpu_hours=1.5",
-                     "--metric", "stage=fold", "--iteration", "2"]) == 0
+    assert (
+        cli_main(
+            [
+                "emit",
+                "--score",
+                "0.75",
+                "--metric",
+                "cpu_hours=1.5",
+                "--metric",
+                "stage=fold",
+                "--iteration",
+                "2",
+            ]
+        )
+        == 0
+    )
     report = asyncio.run(RhapsodyRedisBackend(cm_env).get_report("camp.wf.1"))
     assert report.score == 0.75
     assert report.metrics == {"cpu_hours": 1.5, "stage": "fold"}
@@ -104,6 +119,7 @@ def test_cli_emit_and_signal(cm_env, capsys) -> None:
 
 
 # ── end to end: a bash workflow reports through the command-line tool ──────────
+
 
 class Collect(CampaignController):
     def __init__(self) -> None:
@@ -133,8 +149,9 @@ def test_shell_workflow_reports_through_cli(redis_endpoint) -> None:
         name="shellcamp",
         budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
         controller=ctl,
-        workflows=[WorkflowConfig(name="sh", launch_on_start=False,
-                                  launch_cmd=["bash", "-c", script])],
+        workflows=[
+            WorkflowConfig(name="sh", launch_on_start=False, launch_cmd=["bash", "-c", script])
+        ],
         data_backend=RhapsodyRedisBackend(redis_endpoint),
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
@@ -149,6 +166,7 @@ def test_shell_workflow_reports_through_cli(redis_endpoint) -> None:
 
 
 def test_python_module_entry_point(cm_env) -> None:
-    out = subprocess.run([sys.executable, "-m", "src.aucam_client", "signal"],
-                         capture_output=True, text=True)
+    out = subprocess.run(
+        [sys.executable, "-m", "src.aucam_client", "signal"], capture_output=True, text=True
+    )
     assert out.returncode == 0 and out.stdout == ""

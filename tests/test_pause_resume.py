@@ -15,6 +15,7 @@ Also tests CM_DATA_ENDPOINT injection: LocalDictBackend.endpoint() returns None
 so the env var should NOT be set.  When a non-None backend is used (future HPC
 tests), it would be "host:port" or a descriptor string.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -34,11 +35,12 @@ from src.aucam import (
 
 # ── Shared state ──────────────────────────────────────────────────────────────
 
-events: list[str] = []          # lifecycle log — written by pausable_worker
+events: list[str] = []  # lifecycle log — written by pausable_worker
 endpoint_env: list[str | None] = []  # what CM_DATA_ENDPOINT was set to
 
 
 # ── Workers ───────────────────────────────────────────────────────────────────
+
 
 async def pausable_worker(reporter: WorkflowReporter) -> None:
     endpoint_env.append(os.environ.get("CM_DATA_ENDPOINT"))
@@ -59,6 +61,7 @@ async def short_worker() -> None:
 
 # ── Controller ────────────────────────────────────────────────────────────────
 
+
 class PauseResumeController(CampaignController):
     """Issues PAUSE once, then RESUME after 3 more cycles.  Terminates on completion."""
 
@@ -70,9 +73,9 @@ class PauseResumeController(CampaignController):
 
     def decide(self, obs: dict) -> PolicyResult:
         self._cycle += 1
-        live   = obs.get("live_reports", {})
+        live = obs.get("live_reports", {})
         running = obs.get("running", {})
-        q      = obs["queue_snapshot"]
+        q = obs["queue_snapshot"]
         decisions: dict[str, CampaignDecision] = {}
 
         # Issue PAUSE to the first live worker at cycle 3.
@@ -91,15 +94,12 @@ class PauseResumeController(CampaignController):
             self._paused_id = None
             self._pause_cycle = None
 
-        terminate = (
-            self.completions >= 1
-            and not running
-            and q.total_queued == 0
-        )
+        terminate = self.completions >= 1 and not running and q.total_queued == 0
         return PolicyResult(decisions=decisions, terminate=terminate)
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
+
 
 def test_pause_resume_lifecycle() -> None:
     """
@@ -165,6 +165,7 @@ def test_pause_resume_lifecycle() -> None:
 def test_local_dict_backend_endpoint_is_none() -> None:
     """LocalDictBackend.endpoint() returns None (in-process, no external connection)."""
     from src.aucam.data_backend import LocalDictBackend
+
     assert LocalDictBackend().endpoint() is None
 
 

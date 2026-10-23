@@ -85,11 +85,13 @@ the demo, the driver keeps only the workflow types that completed at least once:
 ```python
 outcome = await (await cm.submit(explore_spec)).wait()
 
+
 def plan_next(outcome):
-    by_type = outcome.summary["by_type"]          # from the controller's get_summary()
+    by_type = outcome.summary["by_type"]  # from the controller's get_summary()
     return [t for t, s in by_type.items() if s["completed"] > 0]
 
-next_types = plan_next(outcome)                   # ["fast_good"]
+
+next_types = plan_next(outcome)  # ["fast_good"]
 ```
 
 The follow-up campaign reached the same goal in **30 s instead of 42 s** and

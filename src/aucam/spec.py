@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, field_validator
 
 from .types import WorkflowResult
 
 if TYPE_CHECKING:
-    from .data_backend import DataBackend
+    pass
 
 
 @dataclass
@@ -161,4 +162,5 @@ class CampaignSpec(BaseModel):
     def model_post_init(self, __context: Any) -> None:
         if self.data_backend is None:
             from .data_backend import LocalDictBackend  # noqa: PLC0415
+
             object.__setattr__(self, "data_backend", LocalDictBackend())

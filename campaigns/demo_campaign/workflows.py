@@ -24,14 +24,16 @@ import logging
 import random
 import socket
 import threading
-import time
 
 import psutil
+
+from src.aucam import BlockProfiler, TaskProfiler, WorkflowReporter
 
 logger = logging.getLogger(__name__)
 
 try:
     import pynvml as _nvml
+
     _nvml.nvmlInit()
     _N_GPUS = _nvml.nvmlDeviceGetCount()
     _GPU_AVAILABLE = _N_GPUS > 0
@@ -39,13 +41,12 @@ except Exception:
     _GPU_AVAILABLE = False
     _N_GPUS = 0
 
-from src.aucam import BlockProfiler, TaskProfiler, WorkflowReporter
 
-SCORE_FLOOR    = 0.4    # simulations scoring below this are cancelled by the controller
-N_ITERS        = 10     # number of report iterations per simulation run
-ITER_SLEEP_S   = 0.08   # sleep per sim iteration (increase for longer blocks)
-ANALYSIS_STEPS = 2      # number of steps in analysis_worker
-N_ITERS_B      = max(3, N_ITERS // 3)   # sim_worker_b: faster, fewer iters (auto-derived)
+SCORE_FLOOR = 0.4  # simulations scoring below this are cancelled by the controller
+N_ITERS = 10  # number of report iterations per simulation run
+ITER_SLEEP_S = 0.08  # sleep per sim iteration (increase for longer blocks)
+ANALYSIS_STEPS = 2  # number of steps in analysis_worker
+N_ITERS_B = max(3, N_ITERS // 3)  # sim_worker_b: faster, fewer iters (auto-derived)
 
 
 def _sample_gpu_util() -> float | None:
@@ -75,7 +76,7 @@ def configure(
     """
     global N_ITERS, ITER_SLEEP_S, ANALYSIS_STEPS, N_ITERS_B
     if n_iters is not None:
-        N_ITERS   = n_iters
+        N_ITERS = n_iters
         N_ITERS_B = max(3, N_ITERS // 3)
     if iter_sleep_s is not None:
         ITER_SLEEP_S = iter_sleep_s
@@ -96,7 +97,7 @@ async def sim_worker(reporter: WorkflowReporter, flow=None) -> None:
     BlockProfiler wraps the entire block to measure head-node overhead.
     TaskProfiler wraps _simulate to capture worker-node CPU/memory (Path 1).
     """
-    converging = random.random() > 0.35   # ~65 % converging
+    converging = random.random() > 0.35  # ~65 % converging
 
     async with BlockProfiler() as block_prof:
         if flow is not None:
@@ -116,15 +117,15 @@ async def sim_worker(reporter: WorkflowReporter, flow=None) -> None:
                 # n_iters and iter_sleep_s are passed explicitly — Dragon workers
                 # are separate processes and don't see driver-process globals.
                 score = state["score"]
-                c     = state["converging"]
+                c = state["converging"]
                 for _ in range(batch_iters):
                     await asyncio.sleep(iter_sleep_s)
                     score += random.gauss(0.05 if c else -0.08, 0.05)
-                    score  = max(0.0, min(1.0, score))
+                    score = max(0.0, min(1.0, score))
                 return {"score": score, "converging": c}
 
             batch_size = max(1, N_ITERS // 10)
-            n_batches  = (N_ITERS + batch_size - 1) // batch_size
+            n_batches = (N_ITERS + batch_size - 1) // batch_size
 
             state = await _init()
             for batch_num in range(n_batches):
@@ -134,9 +135,9 @@ async def sim_worker(reporter: WorkflowReporter, flow=None) -> None:
                 await reporter.emit(
                     score=state["score"],
                     metrics={
-                        "batch":      batch_num,
+                        "batch": batch_num,
                         "converging": state["converging"],
-                        "hostname":   socket.gethostname(),
+                        "hostname": socket.gethostname(),
                     },
                     iteration=(batch_num + 1) * batch_size,
                 )
@@ -155,7 +156,7 @@ async def sim_worker(reporter: WorkflowReporter, flow=None) -> None:
             for i in range(N_ITERS):
                 await asyncio.sleep(ITER_SLEEP_S)
                 score += random.gauss(0.05 if converging else -0.08, 0.05)
-                score  = max(0.0, min(1.0, score))
+                score = max(0.0, min(1.0, score))
                 t_cpu = psutil.Process().cpu_times()
                 cpu_s = (t_cpu.user + t_cpu.system) - (_t0_cpu.user + _t0_cpu.system)
                 await reporter.emit(
@@ -184,10 +185,11 @@ async def sim_worker_b(reporter: WorkflowReporter, flow=None) -> None:
     (10% vs 35%) and iteration count (N_ITERS_B ≈ N_ITERS/3).
     The bandit should learn to prefer this arm's higher throughput.
     """
-    converging = random.random() > 0.10   # ~90 % converging
+    converging = random.random() > 0.10  # ~90 % converging
 
     async with BlockProfiler() as block_prof:
         if flow is not None:
+
             @flow.function_task
             async def _init_b():
                 await asyncio.sleep(0.02)
@@ -196,15 +198,15 @@ async def sim_worker_b(reporter: WorkflowReporter, flow=None) -> None:
             @flow.function_task
             async def _simulate_batch_b(state, batch_iters, iter_sleep_s):
                 score = state["score"]
-                c     = state["converging"]
+                c = state["converging"]
                 for _ in range(batch_iters):
                     await asyncio.sleep(iter_sleep_s)
                     score += random.gauss(0.05 if c else -0.08, 0.05)
-                    score  = max(0.0, min(1.0, score))
+                    score = max(0.0, min(1.0, score))
                 return {"score": score, "converging": c}
 
             batch_size = max(1, N_ITERS_B // 5)
-            n_batches  = (N_ITERS_B + batch_size - 1) // batch_size
+            n_batches = (N_ITERS_B + batch_size - 1) // batch_size
 
             state = await _init_b()
             for batch_num in range(n_batches):
@@ -212,9 +214,9 @@ async def sim_worker_b(reporter: WorkflowReporter, flow=None) -> None:
                 await reporter.emit(
                     score=state["score"],
                     metrics={
-                        "batch":      batch_num,
+                        "batch": batch_num,
                         "converging": state["converging"],
-                        "hostname":   socket.gethostname(),
+                        "hostname": socket.gethostname(),
                     },
                     iteration=(batch_num + 1) * batch_size,
                 )
@@ -231,7 +233,7 @@ async def sim_worker_b(reporter: WorkflowReporter, flow=None) -> None:
             for i in range(N_ITERS_B):
                 await asyncio.sleep(ITER_SLEEP_S)
                 score += random.gauss(0.05 if converging else -0.08, 0.05)
-                score  = max(0.0, min(1.0, score))
+                score = max(0.0, min(1.0, score))
                 t_cpu = psutil.Process().cpu_times()
                 cpu_s = (t_cpu.user + t_cpu.system) - (_t0_cpu.user + _t0_cpu.system)
                 await reporter.emit(
@@ -307,9 +309,9 @@ async def analysis_worker(reporter: WorkflowReporter, flow=None) -> None:
                     "steps": results,
                     "resource_usage": task_prof.metrics,
                     "profiler_cpu_avg": sum(_cpu_samples) / n_cpu if n_cpu else None,
-                    "profiler_n":       n_cpu,
+                    "profiler_n": n_cpu,
                     "profiler_gpu_avg": sum(_gpu_samples) / n_gpu if n_gpu else None,
-                    "profiler_gpu_n":   n_gpu,
+                    "profiler_gpu_n": n_gpu,
                     "cpu_seconds": cpu_s,
                     "gpu_seconds": sum(u / 100.0 for u in _gpu_samples) if n_gpu else None,
                 }
@@ -320,26 +322,26 @@ async def analysis_worker(reporter: WorkflowReporter, flow=None) -> None:
                 # No reporter.emit() from Dragon workers — see _simulate comment.
                 return {
                     "profiler_cpu_avg": proc_result.get("profiler_cpu_avg"),
-                    "profiler_n":       proc_result.get("profiler_n", 0),
+                    "profiler_n": proc_result.get("profiler_n", 0),
                     "profiler_gpu_avg": proc_result.get("profiler_gpu_avg"),
-                    "profiler_gpu_n":   proc_result.get("profiler_gpu_n", 0),
-                    "cpu_seconds":      proc_result.get("cpu_seconds"),
-                    "gpu_seconds":      proc_result.get("gpu_seconds"),
+                    "profiler_gpu_n": proc_result.get("profiler_gpu_n", 0),
+                    "cpu_seconds": proc_result.get("cpu_seconds"),
+                    "gpu_seconds": proc_result.get("gpu_seconds"),
                 }
 
             proc = _process(ANALYSIS_STEPS, ITER_SLEEP_S)  # pass configured values explicitly
-            summarise_result = await _summarise(proc, ITER_SLEEP_S)   # depends on proc Future
+            summarise_result = await _summarise(proc, ITER_SLEEP_S)  # depends on proc Future
 
             await reporter.emit(
                 score=1.0,
                 metrics={
-                    "score":            1.0,
+                    "score": 1.0,
                     "profiler_cpu_avg": summarise_result.get("profiler_cpu_avg"),
-                    "profiler_n":       summarise_result.get("profiler_n", 0),
+                    "profiler_n": summarise_result.get("profiler_n", 0),
                     "profiler_gpu_avg": summarise_result.get("profiler_gpu_avg"),
-                    "profiler_gpu_n":   summarise_result.get("profiler_gpu_n", 0),
-                    "cpu_seconds":      summarise_result.get("cpu_seconds"),
-                    "gpu_seconds":      summarise_result.get("gpu_seconds"),
+                    "profiler_gpu_n": summarise_result.get("profiler_gpu_n", 0),
+                    "cpu_seconds": summarise_result.get("cpu_seconds"),
+                    "gpu_seconds": summarise_result.get("gpu_seconds"),
                 },
                 iteration=ANALYSIS_STEPS + 1,
             )

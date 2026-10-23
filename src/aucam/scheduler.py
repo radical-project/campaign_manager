@@ -23,8 +23,8 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass, field
-from typing import Callable
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from .types import LaunchRequest, TelemetrySnapshot, WorkflowResult
 
@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # SchedulingContext — what the policy sees each scheduling tick
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class SchedulingContext:
@@ -49,19 +50,20 @@ class SchedulingContext:
     campaign_name         — name of the campaign making the selection.
     """
 
-    running_by_type:          dict[str, int]
-    max_concurrency:          int
+    running_by_type: dict[str, int]
+    max_concurrency: int
     max_concurrency_per_type: int
-    telemetry:                TelemetrySnapshot
-    history:                  list[WorkflowResult]
-    policy_cycles:            int
-    campaign_name:            str
+    telemetry: TelemetrySnapshot
+    history: list[WorkflowResult]
+    policy_cycles: int
+    campaign_name: str
     budget_remaining_fraction: float = 1.0
 
 
 # ---------------------------------------------------------------------------
 # Base policy — FIFO (concrete, not abstract)
 # ---------------------------------------------------------------------------
+
 
 class SchedulingPolicy:
     """
@@ -103,6 +105,7 @@ class SchedulingPolicy:
 # Explicit FIFO name + backward-compat alias
 class FIFOSchedulingPolicy(SchedulingPolicy):
     """FIFO policy — same as the SchedulingPolicy base; provided as an explicit name."""
+
     pass
 
 
@@ -112,6 +115,7 @@ DefaultSchedulingPolicy = FIFOSchedulingPolicy
 # ---------------------------------------------------------------------------
 # Bandit policy — UCB1
 # ---------------------------------------------------------------------------
+
 
 def _default_reward(result: WorkflowResult) -> float:
     """Throughput reward: 1.0 for success, 0.0 for cancellation or failure.
@@ -175,10 +179,7 @@ class BanditSchedulingPolicy(SchedulingPolicy):
 
     def arm_stats(self) -> dict[str, dict]:
         """Return a copy of the current arm belief table (for inspection / logging)."""
-        return {
-            k: {**v, "ucb": self._ucb(k)}
-            for k, v in self._arms.items()
-        }
+        return {k: {**v, "ucb": self._ucb(k)} for k, v in self._arms.items()}
 
     # ── SchedulingPolicy interface ────────────────────────────────────────────
 
@@ -211,8 +212,12 @@ class BanditSchedulingPolicy(SchedulingPolicy):
             ctx.campaign_name,
             ctx.budget_remaining_fraction * 100,
             c_eff,
-            {self._arm_key(r): f"μ={self._arms.get(self._arm_key(r), {}).get('mean', float('nan')):.3f}"
-             for _, _, r in eligible},
+            {
+                self._arm_key(
+                    r
+                ): f"μ={self._arms.get(self._arm_key(r), {}).get('mean', float('nan')):.3f}"
+                for _, _, r in eligible
+            },
         )
 
         selected: list[LaunchRequest] = []
@@ -226,7 +231,10 @@ class BanditSchedulingPolicy(SchedulingPolicy):
                 if ucb < float("inf"):
                     logger.info(
                         "[BANDIT] %s  → %s  ucb=%.3f  c_eff=%.3f",
-                        ctx.campaign_name, self._arm_key(req), ucb, c_eff,
+                        ctx.campaign_name,
+                        self._arm_key(req),
+                        ucb,
+                        c_eff,
                     )
 
         return selected
@@ -241,13 +249,17 @@ class BanditSchedulingPolicy(SchedulingPolicy):
         self._total_pulls += 1
         logger.debug(
             "[BANDIT] outcome arm=%s reward=%.3f mean=%.3f n=%d",
-            arm, reward, float(stats["mean"]), n + 1,
+            arm,
+            reward,
+            float(stats["mean"]),
+            n + 1,
         )
 
 
 # ---------------------------------------------------------------------------
 # ADR policy — Adaptive Decision and Reasoning (stub)
 # ---------------------------------------------------------------------------
+
 
 class ADRSchedulingPolicy(SchedulingPolicy):
     """
@@ -271,7 +283,8 @@ class ADRSchedulingPolicy(SchedulingPolicy):
     def __init__(
         self,
         *,
-        rule_fn: Callable[[list[LaunchRequest], SchedulingContext], list[LaunchRequest] | None] | None = None,
+        rule_fn: Callable[[list[LaunchRequest], SchedulingContext], list[LaunchRequest] | None]
+        | None = None,
     ) -> None:
         self._rule_fn = rule_fn
         self._warned = False
@@ -297,6 +310,7 @@ class ADRSchedulingPolicy(SchedulingPolicy):
 # ---------------------------------------------------------------------------
 # LLM policy — LLM-guided scheduling (stub)
 # ---------------------------------------------------------------------------
+
 
 class LLMSchedulingPolicy(SchedulingPolicy):
     """
@@ -343,8 +357,7 @@ class LLMSchedulingPolicy(SchedulingPolicy):
     ) -> list[LaunchRequest]:
         if not self._warned:
             logger.warning(
-                "[LLM] LLMSchedulingPolicy is a stub (model=%s) — "
-                "falling back to FIFO.",
+                "[LLM] LLMSchedulingPolicy is a stub (model=%s) — falling back to FIFO.",
                 self._model,
             )
             self._warned = True

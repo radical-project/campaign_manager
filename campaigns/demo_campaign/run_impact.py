@@ -53,15 +53,15 @@ from src.aucam.reporter import WorkflowReporter  # noqa: E402
 from src.aucam.types import CampaignOutcome, WorkflowResult  # noqa: E402
 
 # ── Parameters ─────────────────────────────────────────────────────────────────
-FAST_WALL_S       = 1.5
-SLOW_WALL_S       = 5.0
-FAST_CPU          = 1.0
-SLOW_CPU          = 4.0
-CANCEL_FLOOR      = 0.30
-GOAL_N            = 20      # fast_good completions per campaign
+FAST_WALL_S = 1.5
+SLOW_WALL_S = 5.0
+FAST_CPU = 1.0
+SLOW_CPU = 4.0
+CANCEL_FLOOR = 0.30
+GOAL_N = 20  # fast_good completions per campaign
 POLICY_INTERVAL_S = 0.5
-EXPLORATION       = 2.0     # UCB1 exploration weight
-SEED              = 7
+EXPLORATION = 2.0  # UCB1 exploration weight
+SEED = 7
 
 
 def _declared(cpu: float, wall_s: float) -> dict[str, float]:
@@ -70,6 +70,7 @@ def _declared(cpu: float, wall_s: float) -> dict[str, float]:
 
 
 # ── Workflows ──────────────────────────────────────────────────────────────────
+
 
 async def fast_good(reporter: WorkflowReporter) -> None:
     score = random.uniform(0.75, 0.95)
@@ -91,14 +92,17 @@ async def slow_poor(reporter: WorkflowReporter) -> None:
 
 
 WORKFLOWS = {
-    "fast_good": WorkflowConfig(name="fast_good", block=fast_good,
-                                declared_spending=_declared(FAST_CPU, FAST_WALL_S)),
-    "slow_poor": WorkflowConfig(name="slow_poor", block=slow_poor,
-                                declared_spending=_declared(SLOW_CPU, SLOW_WALL_S)),
+    "fast_good": WorkflowConfig(
+        name="fast_good", block=fast_good, declared_spending=_declared(FAST_CPU, FAST_WALL_S)
+    ),
+    "slow_poor": WorkflowConfig(
+        name="slow_poor", block=slow_poor, declared_spending=_declared(SLOW_CPU, SLOW_WALL_S)
+    ),
 }
 
 
 # ── Controller ─────────────────────────────────────────────────────────────────
+
 
 class DemoController(CampaignController):
     """Keeps one request of each type queued, cancels low-scoring slow_poor
@@ -110,11 +114,14 @@ class DemoController(CampaignController):
             launch=types,
             goal_type="fast_good",
             goal_n=GOAL_N,
-            rules=[CancelRule(
-                workflow_type="slow_poor",
-                when=lambda r: (r.iteration >= 2 and r.score is not None
-                                and r.score < CANCEL_FLOOR),
-            )],
+            rules=[
+                CancelRule(
+                    workflow_type="slow_poor",
+                    when=lambda r: (
+                        r.iteration >= 2 and r.score is not None and r.score < CANCEL_FLOOR
+                    ),
+                )
+            ],
         )
         self.t0 = time.monotonic()
         self.runs: list[dict] = []
@@ -124,21 +131,24 @@ class DemoController(CampaignController):
 
     def on_complete(self, result: WorkflowResult) -> None:
         super().on_complete(result)
-        self.runs.append({
-            "type":     result.workflow_type,
-            "rc":       result.returncode,
-            "wall_s":   round(result.wall_time_s, 2),
-            "end_s":    round(time.monotonic() - self.t0, 2),
-            "cpu_s":    round(result.spent.get("cpu_hours", 0.0) * 3600.0, 2),
-            "score":    result.final_score,
-        })
+        self.runs.append(
+            {
+                "type": result.workflow_type,
+                "rc": result.returncode,
+                "wall_s": round(result.wall_time_s, 2),
+                "end_s": round(time.monotonic() - self.t0, 2),
+                "cpu_s": round(result.spent.get("cpu_hours", 0.0) * 3600.0, 2),
+                "score": result.final_score,
+            }
+        )
 
     def get_summary(self) -> dict:
         """Returned to the driver in CampaignOutcome.summary."""
         by_type: dict[str, dict] = {}
         for r in self.runs:
-            s = by_type.setdefault(r["type"], {"runs": 0, "completed": 0,
-                                               "cancelled": 0, "cpu_s": 0.0})
+            s = by_type.setdefault(
+                r["type"], {"runs": 0, "completed": 0, "cancelled": 0, "cpu_s": 0.0}
+            )
             s["runs"] += 1
             s["completed"] += r["rc"] == 0
             s["cancelled"] += r["rc"] == -1
@@ -166,6 +176,7 @@ def _spec(name: str, types: list[str]) -> tuple[CampaignSpec, DemoController]:
 
 # ── Driver ─────────────────────────────────────────────────────────────────────
 
+
 def plan_next(outcome: CampaignOutcome) -> list[str]:
     """Driver logic: keep the workflow types that completed at least once."""
     by_type = outcome.summary.get("by_type", {})
@@ -175,24 +186,28 @@ def plan_next(outcome: CampaignOutcome) -> list[str]:
 def _record(outcome: CampaignOutcome, types: list[str]) -> dict:
     by_type = outcome.summary.get("by_type", {})
     return {
-        "name":       outcome.campaign_name,
-        "types":      types,
-        "elapsed_s":  round(outcome.elapsed_s, 2),
+        "name": outcome.campaign_name,
+        "types": types,
+        "elapsed_s": round(outcome.elapsed_s, 2),
         "goal_reached": outcome.goal_reached,
-        "completed":  dict(outcome.completed),
-        "cancelled":  dict(outcome.cancelled),
-        "cpu_s":      round(outcome.spent.get("cpu_hours", 0.0) * 3600.0, 2),
-        "by_type":    by_type,
-        "runs":       outcome.summary.get("runs", []),
+        "completed": dict(outcome.completed),
+        "cancelled": dict(outcome.cancelled),
+        "cpu_s": round(outcome.spent.get("cpu_hours", 0.0) * 3600.0, 2),
+        "by_type": by_type,
+        "runs": outcome.summary.get("runs", []),
     }
 
 
 def _print(rec: dict) -> None:
-    print(f"  elapsed={rec['elapsed_s']:.1f}s  goal_reached={rec['goal_reached']}  "
-          f"cpu_spent={rec['cpu_s']:.1f} CPU·s")
+    print(
+        f"  elapsed={rec['elapsed_s']:.1f}s  goal_reached={rec['goal_reached']}  "
+        f"cpu_spent={rec['cpu_s']:.1f} CPU·s"
+    )
     for t, s in sorted(rec["by_type"].items()):
-        print(f"    {t:10s} runs={s['runs']:2d}  completed={s['completed']:2d}  "
-              f"cancelled={s['cancelled']:2d}  cpu={s['cpu_s']:.1f} CPU·s")
+        print(
+            f"    {t:10s} runs={s['runs']:2d}  completed={s['completed']:2d}  "
+            f"cancelled={s['cancelled']:2d}  cpu={s['cpu_s']:.1f} CPU·s"
+        )
 
 
 async def driver(cm: CampaignManager, results: list) -> None:
@@ -232,9 +247,12 @@ async def run(json_out: str | None) -> None:
         payload = {
             "campaigns": results,
             "meta": {
-                "fast_wall_s": FAST_WALL_S, "slow_wall_s": SLOW_WALL_S,
-                "fast_cpu": FAST_CPU, "slow_cpu": SLOW_CPU,
-                "cancel_floor": CANCEL_FLOOR, "goal_n": GOAL_N,
+                "fast_wall_s": FAST_WALL_S,
+                "slow_wall_s": SLOW_WALL_S,
+                "fast_cpu": FAST_CPU,
+                "slow_cpu": SLOW_CPU,
+                "cancel_floor": CANCEL_FLOOR,
+                "goal_n": GOAL_N,
                 "exploration": EXPLORATION,
             },
         }
@@ -244,11 +262,16 @@ async def run(json_out: str | None) -> None:
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="AuCaM capability demo")
-    ap.add_argument("--json-out", default=None, metavar="FILE",
-                    help="write run data as JSON for gen_impact_fig.py")
-    ap.add_argument("-v", "--verbose", action="store_true",
-                    help="enable INFO-level AuCaM logging")
+    ap.add_argument(
+        "--json-out",
+        default=None,
+        metavar="FILE",
+        help="write run data as JSON for gen_impact_fig.py",
+    )
+    ap.add_argument("-v", "--verbose", action="store_true", help="enable INFO-level AuCaM logging")
     args = ap.parse_args()
-    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
-                        format="%(levelname)s  %(name)s  %(message)s")
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING,
+        format="%(levelname)s  %(name)s  %(message)s",
+    )
     asyncio.run(run(args.json_out))

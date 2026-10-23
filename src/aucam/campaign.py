@@ -105,16 +105,13 @@ def _correlate_events(
     # GPU hours: node gpu_percent split equally among co-located workflows.
     gpu_hours = 0.0
     for node in wf_nodes:
-        node_gpu_vals = [
-            ru.get("gpu_percent") or 0.0
-            for ru in window
-            if ru.get("node_id") == node
-        ]
+        node_gpu_vals = [ru.get("gpu_percent") or 0.0 for ru in window if ru.get("node_id") == node]
         if not node_gpu_vals:
             continue
         # Count workflows that overlapped [start_t, end_t] on this node.
         concurrent = sum(
-            1 for info in task_timings.values()
+            1
+            for info in task_timings.values()
             if info.get("start", float("inf")) <= end_t
             and info.get("end", start_t) >= start_t  # no end = still running
         )
@@ -167,8 +164,15 @@ def _wants_context(fn: Any) -> bool:
 
 
 class _WorkflowInstance:
-    __slots__ = ("wf_id", "workflow_type", "future", "started_at",
-                 "declared_spending", "last_report", "request")
+    __slots__ = (
+        "wf_id",
+        "workflow_type",
+        "future",
+        "started_at",
+        "declared_spending",
+        "last_report",
+        "request",
+    )
 
     def __init__(
         self,
@@ -183,7 +187,7 @@ class _WorkflowInstance:
         self.workflow_type = workflow_type
         self.future = future
         self.started_at = started_at
-        self.declared_spending = declared_spending    # in-flight spending estimate
+        self.declared_spending = declared_spending  # in-flight spending estimate
         self.request = request
         self.last_report: Any = None
 
@@ -241,7 +245,7 @@ class _CampaignInstance:
         self._failed = 0
         self._stale_cancels = 0
         self._walltime_cancels = 0
-        self._policy_cancels = 0    # CANCEL from controller (not auto-cancel)
+        self._policy_cancels = 0  # CANCEL from controller (not auto-cancel)
         self._policy_cycles = 0
         self._exit_reason = "unknown"
 
@@ -282,7 +286,8 @@ class _CampaignInstance:
                         "declared_spending — its budget contribution will be zero. "
                         "Set declared_spending={wall_hours, cpu_hours, gpu_hours} "
                         "in WorkflowConfig.",
-                        spec.name, wfc.name,
+                        spec.name,
+                        wfc.name,
                     )
 
         # Determine which types start without waiting for a DAG dependency.
@@ -369,9 +374,7 @@ class _CampaignInstance:
         # Path 1: workflow-reported values take top priority.
         # Always check cpu_hours/gpu_hours (supplied by AsyncFlow telemetry); also
         # pick up any custom dimensions declared in declared_spending (e.g. llm_tokens).
-        p1_keys = {"cpu_hours", "gpu_hours"} | {
-            k for k in declared_spending if k != "wall_hours"
-        }
+        p1_keys = {"cpu_hours", "gpu_hours"} | {k for k in declared_spending if k != "wall_hours"}
         for key in p1_keys:
             val = final_metrics.get(key)
             if val is not None:
@@ -381,7 +384,7 @@ class _CampaignInstance:
         # Only prorate dimensions that appear in declared_spending (need a base value).
         decl_wall_h = declared_spending.get("wall_hours", 0.0)
         if decl_wall_h > 0:
-            ratio = wall_h / decl_wall_h   # < 1 = underspend; > 1 = Option B overrun
+            ratio = wall_h / decl_wall_h  # < 1 = underspend; > 1 = Option B overrun
             for key in (k for k in declared_spending if k != "wall_hours"):
                 if key not in spending:
                     spending[key] = declared_spending[key] * ratio
@@ -393,7 +396,9 @@ class _CampaignInstance:
         node_id = final_metrics.get("node_id") or final_metrics.get("node") or None
         if telemetry is not None:
             try:
-                _prof, _jsonl_spending = self._correlate_from_jsonl(wf_id, wall_s, telemetry, node_id=node_id)
+                _prof, _jsonl_spending = self._correlate_from_jsonl(
+                    wf_id, wall_s, telemetry, node_id=node_id
+                )
                 if _prof:
                     prof = _prof
                     for key, val in _jsonl_spending.items():
@@ -428,17 +433,19 @@ class _CampaignInstance:
         # ── Live path: in-memory event log (always current, no flush race) ──────
         event_log = getattr(telemetry, "_event_log", None)
         if event_log is not None:
+
             def _iter_log():
                 for ev in event_log:
                     yield {
-                        "event_type":     getattr(ev, "event_type", None),
-                        "event_time":     getattr(ev, "event_time", None),
-                        "task_id":        getattr(ev, "task_id", None),
-                        "cpu_percent":    getattr(ev, "cpu_percent", None),
+                        "event_type": getattr(ev, "event_type", None),
+                        "event_time": getattr(ev, "event_time", None),
+                        "task_id": getattr(ev, "task_id", None),
+                        "cpu_percent": getattr(ev, "cpu_percent", None),
                         "memory_percent": getattr(ev, "memory_percent", None),
-                        "gpu_percent":    getattr(ev, "gpu_percent", None),
-                        "node_id":        getattr(ev, "node_id", None),
+                        "gpu_percent": getattr(ev, "gpu_percent", None),
+                        "node_id": getattr(ev, "node_id", None),
                     }
+
             prof, spending = _correlate_events(wf_id, wall_s, _iter_log(), node_id=node_id)
             if prof:
                 return prof, spending
@@ -455,6 +462,7 @@ class _CampaignInstance:
 
         jsonl_path = matches[0]
         try:
+
             def _iter_jsonl():
                 with open(jsonl_path) as fh:
                     for raw in fh:
@@ -465,6 +473,7 @@ class _CampaignInstance:
                             yield json.loads(raw)
                         except json.JSONDecodeError:
                             continue
+
             return _correlate_events(wf_id, wall_s, _iter_jsonl(), node_id=node_id)
         except OSError:
             return {}, {}
@@ -499,7 +508,9 @@ class _CampaignInstance:
                     self._wf_tags[task_uid] = parent_wf_id
                     logger.debug(
                         "[BLOCK-TAG] inner block wf=%s parent=%s child=%s",
-                        parent_wf_id, tag, task_uid,
+                        parent_wf_id,
+                        tag,
+                        task_uid,
                     )
             return
 
@@ -507,7 +518,9 @@ class _CampaignInstance:
             if etype in ("TaskStarted", "TaskCompleted", "TaskFailed"):
                 logger.debug(
                     "[SPEND-DBG] %s filtered: res=%s tag=%s",
-                    etype, bool(res), bool(tag),
+                    etype,
+                    bool(res),
+                    bool(tag),
                 )
             return
         wf_id = self._wf_tags.get(tag)
@@ -528,8 +541,10 @@ class _CampaignInstance:
                 }
             logger.info(
                 "[SPEND] task_started  wf=%s  task=%s  cpus=%.0f  gpus=%.0f",
-                wf_id, task_uid,
-                float(res.get("cpus", 0)), float(res.get("gpus", 0)),
+                wf_id,
+                task_uid,
+                float(res.get("cpus", 0)),
+                float(res.get("gpus", 0)),
             )
             return
 
@@ -558,20 +573,21 @@ class _CampaignInstance:
             # Charges are already in `spent`; in-flight is what is still expected.
             est = self._estimates.get(wf_id, inst.declared_spending)
             remaining = {
-                k: max(0.0, v - charged.get(k, 0.0))
-                for k, v in est.items() if k != "wall_hours"
+                k: max(0.0, v - charged.get(k, 0.0)) for k, v in est.items() if k != "wall_hours"
             }
             self._allocator.set_in_flight(self.name, wf_id, remaining)
         frac = self._allocator.spending_fraction(self.name)
         logger.info(
             "[SPEND] task_charged  wf=%s  task=%s  cpu_h=%.4f  gpu_h=%.4f"
             "  wf_cpu_h=%.4f  wf_gpu_h=%.4f  budget_used=%.1f%%",
-            wf_id, task_uid,
-            usage.get("cpu_hours", 0.0), usage.get("gpu_hours", 0.0),
-            charged.get("cpu_hours", 0.0), charged.get("gpu_hours", 0.0),
+            wf_id,
+            task_uid,
+            usage.get("cpu_hours", 0.0),
+            usage.get("gpu_hours", 0.0),
+            charged.get("cpu_hours", 0.0),
+            charged.get("gpu_hours", 0.0),
             frac * 100,
         )
-
 
     # ── Workflow launch ──────────────────────────────────────────────────────
 
@@ -590,9 +606,7 @@ class _CampaignInstance:
             # compute steps are AsyncFlow tasks submitted from inside it.
             block_fn = wfc.block
             reporter = (
-                self.spec.data_backend.make_reporter(wf_id)
-                if _wants_reporter(block_fn)
-                else None
+                self.spec.data_backend.make_reporter(wf_id) if _wants_reporter(block_fn) else None
             )
             # A Python workflow runs inside CM's process, so it gets what it needs
             # as arguments (never through the shared process environment):
@@ -779,10 +793,7 @@ class _CampaignInstance:
                 rc, status = 0, WorkflowStatus.COMPLETED
                 self._completed += 1
 
-            logger.info(
-                f"[WORKFLOW-{_inst.wf_id}] {status.value} "
-                f"wall={wall:.1f}s rc={rc}"
-            )
+            logger.info(f"[WORKFLOW-{_inst.wf_id}] {status.value} wall={wall:.1f}s rc={rc}")
 
             _status_to_event = {
                 WorkflowStatus.COMPLETED: "TaskCompleted",
@@ -813,9 +824,7 @@ class _CampaignInstance:
             last_report = _inst.last_report
             if hasattr(backend, "sync_get_report"):
                 last_report = backend.sync_get_report(_inst.wf_id) or last_report
-            final_metrics: dict = (
-                dict(last_report.metrics or {}) if last_report is not None else {}
-            )
+            final_metrics: dict = dict(last_report.metrics or {}) if last_report is not None else {}
             final_score = last_report.score if last_report is not None else None
 
             self._completion_event.set()
@@ -860,10 +869,13 @@ class _CampaignInstance:
                 self._update_type_cost(_inst.workflow_type, actual_spent)
             logger.info(
                 "[SPEND] wf_done  wf=%s  method=%s  source=%s  cpu_h=%.4f  gpu_h=%.4f  wall_s=%.1f  rc=%s",
-                _inst.wf_id, spend_method, spend_source,
+                _inst.wf_id,
+                spend_method,
+                spend_source,
                 actual_spent.get("cpu_hours", 0.0),
                 actual_spent.get("gpu_hours", 0.0),
-                wall, rc,
+                wall,
+                rc,
             )
             result = WorkflowResult(
                 workflow_id=_inst.wf_id,
@@ -877,9 +889,7 @@ class _CampaignInstance:
             )
 
             if self.spec.data_backend is not None:
-                asyncio.ensure_future(
-                    self.spec.data_backend.delete_report(_inst.wf_id)
-                )
+                asyncio.ensure_future(self.spec.data_backend.delete_report(_inst.wf_id))
 
             # Update scheduler policy, controller counters, and history.
             self._policy.on_outcome(_inst.request, result)
@@ -940,10 +950,7 @@ class _CampaignInstance:
                 )
                 self._queue.push(new_req)
                 self._slot_event.set()
-                logger.info(
-                    f"[CM] DAG {dep.source}→{dep.target} satisfied "
-                    f"— created 1 request(s)"
-                )
+                logger.info(f"[CM] DAG {dep.source}→{dep.target} satisfied — created 1 request(s)")
 
     # ── Checkpointing ────────────────────────────────────────────────────────
 
@@ -972,7 +979,7 @@ class _CampaignInstance:
             campaign_name=self.name,
             queue=queue_records,
             active=active_records,
-            paused_wf_ids=[],   # populated by caller when needed
+            paused_wf_ids=[],  # populated by caller when needed
             dep_satisfied=list(self._dep_satisfied),
             spent=self._allocator.spent(self.name),
             instances_run=self._instances_run,
@@ -1039,7 +1046,7 @@ class _CampaignInstance:
         for rec in ckpt.active:
             req = LaunchRequest(
                 workflow_type=rec.workflow_type,
-                priority=LaunchPriority.HIGH,   # bump priority for recovery
+                priority=LaunchPriority.HIGH,  # bump priority for recovery
                 enqueued_at=time.time(),
                 context={"recovered_from": rec.wf_id, "original_started_at": rec.started_at},
                 requester="cm:recovery",
@@ -1060,8 +1067,12 @@ class _CampaignInstance:
         while not self._done:
             self._slot_event.clear()
             await self._drain_queue()
-            if (not self._queue and not self._active
-                    and self._spending_limit_reached() and not self._done):
+            if (
+                not self._queue
+                and not self._active
+                and self._spending_limit_reached()
+                and not self._done
+            ):
                 await self._shutdown(reason="spending_limit")
                 return
             # Exit when the campaign is idle (CampaignSpec.idle_exit_s): queue
@@ -1070,8 +1081,13 @@ class _CampaignInstance:
             # requests before we give up).
             idle_after = self.spec.idle_exit_after()
             no_pending = not any(self._dep_pending.values())
-            if (idle_after is not None and not self._queue and not self._active
-                    and no_pending and self._policy_cycles > 0):
+            if (
+                idle_after is not None
+                and not self._queue
+                and not self._active
+                and no_pending
+                and self._policy_cycles > 0
+            ):
                 if _idle_since is None:
                     _idle_since = time.time()
                 elif not self._done and time.time() - _idle_since >= idle_after:
@@ -1130,7 +1146,7 @@ class _CampaignInstance:
 
         # Separate CRITICAL (bypass policy) from normal candidates.
         critical = [r for r in all_candidates if r.priority == LaunchPriority.CRITICAL]
-        normal   = [r for r in all_candidates if r.priority != LaunchPriority.CRITICAL]
+        normal = [r for r in all_candidates if r.priority != LaunchPriority.CRITICAL]
 
         to_launch: list[LaunchRequest] = []
 
@@ -1144,7 +1160,7 @@ class _CampaignInstance:
             if len(self._active) + len(to_launch) >= max_concurrent:
                 return False
             if counts.get(req.workflow_type, 0) >= per_type_cap:
-                return True   # this type is full; others may still fit
+                return True  # this type is full; others may still fit
             to_launch.append(req)
             counts[req.workflow_type] = counts.get(req.workflow_type, 0) + 1
             return True
@@ -1215,10 +1231,7 @@ class _CampaignInstance:
 
     def _collect_telemetry(self) -> TelemetrySnapshot:
         now = time.time()
-        running_wall_s = {
-            wf_id: now - inst.started_at
-            for wf_id, inst in self._active.items()
-        }
+        running_wall_s = {wf_id: now - inst.started_at for wf_id, inst in self._active.items()}
         node_resources: dict[str, NodeResources] = {}
         # wf_id → "{backend}/{node_id}" — built from Rhapsody TaskStarted events.
         wf_node: dict[str, str] = {}
@@ -1274,7 +1287,9 @@ class _CampaignInstance:
                 reported_node = report.metrics.get("node_id")
                 if reported_node and wf_id in self._active:
                     short = reported_node.split(".")[0]
-                    matched = next((k for k in node_resources if k.rsplit("/", 1)[-1] == short), None)
+                    matched = next(
+                        (k for k in node_resources if k.rsplit("/", 1)[-1] == short), None
+                    )
                     wf_node[wf_id] = matched if matched else reported_node
             else:
                 cpu_s = wall_s
@@ -1376,10 +1391,7 @@ class _CampaignInstance:
             telemetry=telemetry,
             # wf_types: wf_id → workflow_type; lets controllers identify
             # which workflow type each live report belongs to.
-            wf_types={
-                wf_id: inst.workflow_type
-                for wf_id, inst in self._active.items()
-            },
+            wf_types={wf_id: inst.workflow_type for wf_id, inst in self._active.items()},
         )
         result: PolicyResult = self.spec.controller.decide(obs)
         self._apply_auto_cancels(result, live_reports, now)
@@ -1431,9 +1443,7 @@ class _CampaignInstance:
             for wf_type, count in result.cancel_queued.items():
                 removed = self._queue.remove_by_type(wf_type, count)
                 if removed:
-                    logger.info(
-                        f"[POLICY-{self.name}] evicted {removed} queued {wf_type}"
-                    )
+                    logger.info(f"[POLICY-{self.name}] evicted {removed} queued {wf_type}")
 
         for req in result.launch_requests:
             if len(self._queue) >= self.spec.max_queue_depth:
@@ -1496,16 +1506,11 @@ class _CampaignInstance:
         # after termination, and LaunchRules may have pre-filled it.
         dropped = self._queue.clear()
         if dropped:
-            logger.info(
-                f"[CM] {self.name}: cleared {dropped} queued request(s) on shutdown"
-            )
+            logger.info(f"[CM] {self.name}: cleared {dropped} queued request(s) on shutdown")
 
         timeout = self.spec.shutdown_timeout_s
 
-        logger.info(
-            f"[CM] {self.name}: graceful shutdown "
-            f"({len(self._active)} active instances)"
-        )
+        logger.info(f"[CM] {self.name}: graceful shutdown ({len(self._active)} active instances)")
 
         for inst in list(self._active.values()):
             if not inst.future.done():
@@ -1519,9 +1524,7 @@ class _CampaignInstance:
                     timeout=timeout,
                 )
             except asyncio.TimeoutError:
-                logger.warning(
-                    f"[CM] {self.name}: instances did not exit within {timeout}s"
-                )
+                logger.warning(f"[CM] {self.name}: instances did not exit within {timeout}s")
             # asyncio schedules done-callbacks via call_soon; yield once so they
             # fire before _save_checkpoint() reads the counters they update.
             await asyncio.sleep(0)
@@ -1571,7 +1574,7 @@ class _CampaignInstance:
         # Initial requests — not after a restore: the restored queue and the
         # re-queued running workflows already stand for them.
         now = time.time()
-        for wfc in ([] if restored else self.spec.workflows):
+        for wfc in [] if restored else self.spec.workflows:
             if wfc.launch_on_start and wfc.name in self._dep_satisfied:
                 self.enqueue(
                     LaunchRequest(
@@ -1583,12 +1586,8 @@ class _CampaignInstance:
                     )
                 )
 
-        sched_task = asyncio.create_task(
-            self._scheduler_loop(), name=f"sched-{self.name}"
-        )
-        policy_task = asyncio.create_task(
-            self._policy_loop(), name=f"policy-{self.name}"
-        )
+        sched_task = asyncio.create_task(self._scheduler_loop(), name=f"sched-{self.name}")
+        policy_task = asyncio.create_task(self._policy_loop(), name=f"policy-{self.name}")
 
         reason = "external"
         try:

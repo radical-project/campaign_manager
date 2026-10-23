@@ -1,4 +1,5 @@
 """Python workflows get their inputs as arguments, never via CM's process environment."""
+
 from __future__ import annotations
 
 import asyncio
@@ -21,11 +22,13 @@ seen: list[dict] = []
 async def ctx_worker(reporter, context=None) -> None:
     # Overlap the two instances so a shared-environment bug would show up.
     await asyncio.sleep(0.2)
-    seen.append({
-        "wf_id": reporter.wf_id,
-        "context": dict(context or {}),
-        "env_wf_id": os.environ.get("CM_WORKFLOW_ID"),
-    })
+    seen.append(
+        {
+            "wf_id": reporter.wf_id,
+            "context": dict(context or {}),
+            "env_wf_id": os.environ.get("CM_WORKFLOW_ID"),
+        }
+    )
     await reporter.emit(score=1.0)
 
 
@@ -39,8 +42,7 @@ class TwoLaunches(CampaignController):
         if not self._sent:
             self._sent = True
             reqs = [
-                LaunchRequest.make("w", LaunchPriority.NORMAL, context={"seed": i})
-                for i in (1, 2)
+                LaunchRequest.make("w", LaunchPriority.NORMAL, context={"seed": i}) for i in (1, 2)
             ]
         return PolicyResult(launch_requests=reqs, terminate=self.is_goal_reached())
 

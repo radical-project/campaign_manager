@@ -1,4 +1,5 @@
 """Integration test: spending admission and accounting through the ledger."""
+
 from __future__ import annotations
 
 import asyncio
@@ -45,7 +46,7 @@ def test_global_spending_admission_and_outcome() -> None:
     async def driver(cm: CampaignManager) -> None:
         try:
             ok = await cm.submit(_spec("a", 6.0))
-            rejected = await cm.submit(_spec("b", 5.0))   # 6 + 5 > 10 → rejected
+            rejected = await cm.submit(_spec("b", 5.0))  # 6 + 5 > 10 → rejected
             results["rejected"] = rejected
             results["outcome"] = await ok.wait()
             # a closed: its tiny actual spending is global; its 6.0 no longer committed
@@ -71,5 +72,5 @@ def test_global_spending_admission_and_outcome() -> None:
     assert 0.0 < out.spent.get("cpu_hours", 0.0) < 1e-3
     assert results["after"].accepted
     gs = cm._allocator.global_spent()["cpu_hours"]
-    assert gs > out.spent["cpu_hours"]                 # a + c both charged
+    assert gs > out.spent["cpu_hours"]  # a + c both charged
     assert cm._allocator.snapshot()["campaigns"] == {}  # every campaign closed

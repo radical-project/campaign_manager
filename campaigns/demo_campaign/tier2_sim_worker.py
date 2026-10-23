@@ -11,12 +11,12 @@ Exit 0 = success, non-zero = failure.
 
 from __future__ import annotations
 
+# Locate the campaign_manager package root so src.aucam_client is importable.
+import os
 import random
 import sys
 import time
 
-# Locate the campaign_manager package root so src.aucam_client is importable.
-import os
 _here = os.path.dirname(os.path.abspath(__file__))
 _root = os.path.join(_here, "..", "..")  # campaigns/demo_campaign → campaign_manager
 sys.path.insert(0, os.path.abspath(_root))
@@ -27,9 +27,9 @@ from src.aucam_client import Reporter  # noqa: E402
 def main() -> int:
     reporter = Reporter()
 
-    n_iters   = int(os.environ.get("CM_T2_N_ITERS",   "10"))
-    sleep_s   = float(os.environ.get("CM_T2_SLEEP_S",  "0.08"))
-    converge  = random.random() < 0.65  # 65% convergence rate (same as sim_worker)
+    n_iters = int(os.environ.get("CM_T2_N_ITERS", "10"))
+    sleep_s = float(os.environ.get("CM_T2_SLEEP_S", "0.08"))
+    converge = random.random() < 0.65  # 65% convergence rate (same as sim_worker)
 
     score = 0.5
     for step in range(n_iters):

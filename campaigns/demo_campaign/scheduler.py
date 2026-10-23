@@ -20,8 +20,7 @@ from src.aucam import (
     SchedulingPolicy,
 )
 
-
-_SIM_THROTTLE_WINDOW      = 8    # how many recent sim results to inspect
+_SIM_THROTTLE_WINDOW = 8  # how many recent sim results to inspect
 _SIM_CANCEL_RATE_THRESHOLD = 0.6  # throttle when >60% of recent sims were cancelled
 
 
@@ -43,7 +42,8 @@ def _adr_rule(candidates, ctx):
     to the bandit.
     """
     recent_sims = [
-        r for r in ctx.history[-_SIM_THROTTLE_WINDOW:]
+        r
+        for r in ctx.history[-_SIM_THROTTLE_WINDOW:]
         if r.workflow_type in ("sim_worker", "sim_worker_b")
     ]
     if len(recent_sims) < 3:
@@ -54,9 +54,8 @@ def _adr_rule(candidates, ctx):
         return None  # healthy — defer to bandit
 
     # High cancellation: cap at 1 concurrent sim to reduce slot waste.
-    running_sims = (
-        ctx.running_by_type.get("sim_worker", 0)
-        + ctx.running_by_type.get("sim_worker_b", 0)
+    running_sims = ctx.running_by_type.get("sim_worker", 0) + ctx.running_by_type.get(
+        "sim_worker_b", 0
     )
     if running_sims >= 1:
         non_sims = [r for r in candidates if r.workflow_type not in ("sim_worker", "sim_worker_b")]

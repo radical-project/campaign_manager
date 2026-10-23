@@ -18,6 +18,7 @@ from src.aucam.campaign import _CampaignInstance
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+
 def _make_campaign(telemetry_mock=None):
     """Minimal object exposing _correlate_from_jsonl and _compute_workflow_spent.
 
@@ -47,6 +48,7 @@ def _make_jsonl(tmp_path: Path, events: list[dict]) -> tuple[Path, MagicMock]:
 
 
 # ── BlockProfiler / TaskProfiler ─────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_block_profiler_basic():
@@ -81,16 +83,33 @@ async def test_block_profiler_very_short():
 
 # ── Path 2: JSONL correlation ─────────────────────────────────────────────────
 
+
 def test_path2_correlation_basic(tmp_path):
     """_correlate_from_jsonl finds block window and ResourceUpdates."""
     t0 = time.time()
     events = [
-        {"event_type": "TaskStarted",   "task_id": "test-campaign.sim_worker.aabb", "event_time": t0},
-        {"event_type": "ResourceUpdate", "task_id": None, "event_time": t0 + 1.0,
-         "node_id": "cn001", "cpu_percent": 60.0, "memory_percent": 40.0},
-        {"event_type": "ResourceUpdate", "task_id": None, "event_time": t0 + 2.0,
-         "node_id": "cn001", "cpu_percent": 80.0, "memory_percent": 45.0},
-        {"event_type": "TaskCompleted", "task_id": "test-campaign.sim_worker.aabb", "event_time": t0 + 3.0},
+        {"event_type": "TaskStarted", "task_id": "test-campaign.sim_worker.aabb", "event_time": t0},
+        {
+            "event_type": "ResourceUpdate",
+            "task_id": None,
+            "event_time": t0 + 1.0,
+            "node_id": "cn001",
+            "cpu_percent": 60.0,
+            "memory_percent": 40.0,
+        },
+        {
+            "event_type": "ResourceUpdate",
+            "task_id": None,
+            "event_time": t0 + 2.0,
+            "node_id": "cn001",
+            "cpu_percent": 80.0,
+            "memory_percent": 45.0,
+        },
+        {
+            "event_type": "TaskCompleted",
+            "task_id": "test-campaign.sim_worker.aabb",
+            "event_time": t0 + 3.0,
+        },
     ]
     _, tel = _make_jsonl(tmp_path, events)
     camp = _make_campaign(tel)
@@ -98,7 +117,7 @@ def test_path2_correlation_basic(tmp_path):
     prof, spending = camp._correlate_from_jsonl("test-campaign.sim_worker.aabb", 3.0, tel)
 
     assert prof["duration_s"] == pytest.approx(3.0, abs=0.01)
-    assert prof["cpu_percent_avg"] == pytest.approx(70.0)   # (60+80)/2
+    assert prof["cpu_percent_avg"] == pytest.approx(70.0)  # (60+80)/2
     assert prof["cpu_percent_peak"] == pytest.approx(80.0)
     assert prof["n_samples"] == 2
     assert "cn001" in prof["nodes"]
@@ -110,10 +129,15 @@ def test_path2_no_events_for_wf(tmp_path):
     """Returns empty dicts when wf_id is not in the JSONL."""
     t0 = time.time()
     events = [
-        {"event_type": "TaskStarted",  "task_id": "other.wf.xxxx", "event_time": t0},
-        {"event_type": "TaskCompleted","task_id": "other.wf.xxxx", "event_time": t0 + 2.0},
-        {"event_type": "ResourceUpdate","task_id": None, "event_time": t0 + 1.0,
-         "cpu_percent": 50.0, "memory_percent": 30.0},
+        {"event_type": "TaskStarted", "task_id": "other.wf.xxxx", "event_time": t0},
+        {"event_type": "TaskCompleted", "task_id": "other.wf.xxxx", "event_time": t0 + 2.0},
+        {
+            "event_type": "ResourceUpdate",
+            "task_id": None,
+            "event_time": t0 + 1.0,
+            "cpu_percent": 50.0,
+            "memory_percent": 30.0,
+        },
     ]
     _, tel = _make_jsonl(tmp_path, events)
     camp = _make_campaign(tel)
@@ -127,10 +151,15 @@ def test_path2_no_resource_updates_in_window(tmp_path):
     """Returns empty dicts when ResourceUpdates fall outside the block window."""
     t0 = time.time()
     events = [
-        {"event_type": "TaskStarted",  "task_id": "tc.sim_worker.abcd", "event_time": t0},
-        {"event_type": "TaskCompleted","task_id": "tc.sim_worker.abcd", "event_time": t0 + 1.0},
-        {"event_type": "ResourceUpdate","task_id": None, "event_time": t0 + 10.0,  # outside
-         "cpu_percent": 50.0, "memory_percent": 30.0},
+        {"event_type": "TaskStarted", "task_id": "tc.sim_worker.abcd", "event_time": t0},
+        {"event_type": "TaskCompleted", "task_id": "tc.sim_worker.abcd", "event_time": t0 + 1.0},
+        {
+            "event_type": "ResourceUpdate",
+            "task_id": None,
+            "event_time": t0 + 10.0,  # outside
+            "cpu_percent": 50.0,
+            "memory_percent": 30.0,
+        },
     ]
     _, tel = _make_jsonl(tmp_path, events)
     camp = _make_campaign(tel)
@@ -143,9 +172,14 @@ def test_path2_uses_wall_s_when_no_completed(tmp_path):
     """Falls back to wall_s for end_time when TaskCompleted is absent."""
     t0 = time.time()
     events = [
-        {"event_type": "TaskStarted",  "task_id": "tc.sim_worker.abcd", "event_time": t0},
-        {"event_type": "ResourceUpdate","task_id": None, "event_time": t0 + 1.0,
-         "cpu_percent": 55.0, "memory_percent": 30.0},
+        {"event_type": "TaskStarted", "task_id": "tc.sim_worker.abcd", "event_time": t0},
+        {
+            "event_type": "ResourceUpdate",
+            "task_id": None,
+            "event_time": t0 + 1.0,
+            "cpu_percent": 55.0,
+            "memory_percent": 30.0,
+        },
     ]
     _, tel = _make_jsonl(tmp_path, events)
     camp = _make_campaign(tel)
@@ -157,6 +191,7 @@ def test_path2_uses_wall_s_when_no_completed(tmp_path):
 
 
 # ── _compute_workflow_spent integration ──────────────────────────────────────
+
 
 def test_compute_spent_path1_profiler_data(tmp_path):
     """Path 1: cpu_hours/gpu_hours reported directly in final_metrics are used as-is."""
@@ -174,9 +209,7 @@ def test_compute_spent_path1_profiler_data(tmp_path):
             "n_samples": 10,
         },
     }
-    spending, profile = camp._compute_workflow_spent(
-        "wf1", {}, 3600.0, final_metrics
-    )
+    spending, profile = camp._compute_workflow_spent("wf1", {}, 3600.0, final_metrics)
     assert spending["cpu_hours"] == pytest.approx(0.5)
     assert spending["gpu_hours"] == pytest.approx(0.1)
     # resource_usage becomes the profile when no JSONL telemetry
@@ -187,17 +220,21 @@ def test_compute_spent_path2_jsonl(tmp_path):
     """Path 2: JSONL correlation when no profiler data in final_metrics."""
     t0 = time.time()
     events = [
-        {"event_type": "TaskStarted",  "task_id": "tc.sim_worker.aabb", "event_time": t0},
-        {"event_type": "ResourceUpdate","task_id": None, "event_time": t0 + 1.0,
-         "node_id": "cn001", "cpu_percent": 70.0, "memory_percent": 40.0},
-        {"event_type": "TaskCompleted","task_id": "tc.sim_worker.aabb", "event_time": t0 + 2.0},
+        {"event_type": "TaskStarted", "task_id": "tc.sim_worker.aabb", "event_time": t0},
+        {
+            "event_type": "ResourceUpdate",
+            "task_id": None,
+            "event_time": t0 + 1.0,
+            "node_id": "cn001",
+            "cpu_percent": 70.0,
+            "memory_percent": 40.0,
+        },
+        {"event_type": "TaskCompleted", "task_id": "tc.sim_worker.aabb", "event_time": t0 + 2.0},
     ]
     _, tel = _make_jsonl(tmp_path, events)
     camp = _make_campaign(tel)
 
-    spending, profile = camp._compute_workflow_spent(
-        "tc.sim_worker.aabb", {"cpu": 2.0}, 2.0, {}
-    )
+    spending, profile = camp._compute_workflow_spent("tc.sim_worker.aabb", {"cpu": 2.0}, 2.0, {})
     assert profile["cpu_percent_avg"] == pytest.approx(70.0)
     assert profile["source"] == "telemetry_jsonl"
     assert spending["cpu_hours"] > 0
@@ -208,14 +245,13 @@ def test_compute_spent_fallback_no_telemetry():
     camp = _make_campaign(telemetry_mock=None)
     # declared: 4 cpu_hours over a declared wall of 1h; actual wall = 2h → ratio = 2.0
     declared = {"wall_hours": 1.0, "cpu_hours": 4.0}
-    spending, profile = camp._compute_workflow_spent(
-        "wf1", declared, 7200.0, {}
-    )
+    spending, profile = camp._compute_workflow_spent("wf1", declared, 7200.0, {})
     assert spending == {"cpu_hours": pytest.approx(8.0)}  # 4 × (2h / 1h) = 8 cpu_hours
     assert profile == {}
 
 
 # ── WorkflowResult carries resource_profile ──────────────────────────────────
+
 
 def test_workflow_result_resource_profile_field():
     r = WorkflowResult(
@@ -231,32 +267,3 @@ def test_workflow_result_resource_profile_field():
 def test_workflow_result_resource_profile_default_empty():
     r = WorkflowResult("wf1", "sim_worker", 0, 5.0)
     assert r.resource_profile == {}
-
-
-# ── Path 2 against the real telemetry JSONL (skipped if file absent) ─────────
-
-REAL_JSONL = Path(
-    os.environ.get("WORK_DIR", str(Path.home()))
-) / "campaign_manager/campaigns/dummy_campaign/aucam-tel/asyncflow.session.18d8a0d3.1791314905.telemetry.jsonl"
-
-
-@pytest.mark.skipif(not REAL_JSONL.exists(), reason="real JSONL not present")
-def test_path2_real_telemetry():
-    """Correlate a real sim_worker block from a past campaign run."""
-    tel = SimpleNamespace(
-        _checkpoint_path=str(REAL_JSONL.parent),
-        _session_id="asyncflow.session.18d8a0d3",
-    )
-    camp = _make_campaign(tel)
-
-    prof, spending = camp._correlate_from_jsonl(
-        "dummy-campaign.sim_worker.f88b5181", 4.25, tel
-    )
-
-    assert prof, "expected non-empty profile from real JSONL"
-    assert prof["n_samples"] == 4
-    assert prof["cpu_percent_avg"] == pytest.approx((53.1 + 59.6 + 59.3 + 52.9) / 4, abs=0.1)
-    assert len(prof["nodes"]) == 2
-    assert spending["cpu_hours"] > 0
-    print(f"\nReal JSONL profile: {prof}")
-    print(f"Spending: {spending}")

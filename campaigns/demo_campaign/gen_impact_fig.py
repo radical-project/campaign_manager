@@ -11,6 +11,7 @@ Panels:
   3. Driver feedback — time to goal and CPU spent, campaign "explore" vs. the
      "follow-up" campaign the driver planned from the first outcome.
 """
+
 import argparse
 import json
 from pathlib import Path
@@ -43,23 +44,45 @@ for r in runs:
     y = 1 if r["type"] == "slow_poor" else 0
     color = C_SLOW if r["type"] == "slow_poor" else C_FAST
     ax.barh(y, r["wall_s"], left=start, height=0.5, color=color, edgecolor="white")
-    if r["rc"] == -1:   # cancelled: show the part of a full run that was avoided
-        ax.barh(y, meta["slow_wall_s"] - r["wall_s"], left=r["end_s"], height=0.5,
-                color="none", edgecolor=C_SLOW, hatch="///", linewidth=0.8)
+    if r["rc"] == -1:  # cancelled: show the part of a full run that was avoided
+        ax.barh(
+            y,
+            meta["slow_wall_s"] - r["wall_s"],
+            left=r["end_s"],
+            height=0.5,
+            color="none",
+            edgecolor=C_SLOW,
+            hatch="///",
+            linewidth=0.8,
+        )
 slow_idx = [i + 1 for i, r in enumerate(runs) if r["type"] == "slow_poor"]
 gaps = [b - a - 1 for a, b in zip(slow_idx, slow_idx[1:], strict=False)]
 ax.set_yticks([0, 1], ["fast_good", "slow_poor"])
 ax.set_xlabel("time since campaign start (s)")
 ax.set_title("1. One campaign: the bandit learns, the controller cancels", loc="left")
-ax.text(0.01, 0.86,
-        f"slow_poor tried at launches {', '.join(map(str, slow_idx))} "
-        f"({', '.join(map(str, gaps))} fast_good runs in between)",
-        transform=ax.transAxes, va="top", fontsize=9, color=C_ANN)
-ax.legend(handles=[Patch(color=C_FAST, label="fast_good (completes)"),
-                   Patch(color=C_SLOW, label="slow_poor (cancelled)"),
-                   Patch(facecolor="none", edgecolor=C_SLOW, hatch="///",
-                         label="run time avoided by cancelling")],
-          loc="upper right", ncol=3, fontsize=8, frameon=False)
+ax.text(
+    0.01,
+    0.86,
+    f"slow_poor tried at launches {', '.join(map(str, slow_idx))} "
+    f"({', '.join(map(str, gaps))} fast_good runs in between)",
+    transform=ax.transAxes,
+    va="top",
+    fontsize=9,
+    color=C_ANN,
+)
+ax.legend(
+    handles=[
+        Patch(color=C_FAST, label="fast_good (completes)"),
+        Patch(color=C_SLOW, label="slow_poor (cancelled)"),
+        Patch(
+            facecolor="none", edgecolor=C_SLOW, hatch="///", label="run time avoided by cancelling"
+        ),
+    ],
+    loc="upper right",
+    ncol=3,
+    fontsize=8,
+    frameon=False,
+)
 ax.set_ylim(-0.6, 2.2)
 
 # ── Panel 2: CPU per cancelled slow_poor run ─────────────────────────────────
@@ -89,15 +112,25 @@ slow_cpu = [c["by_type"].get("slow_poor", {}).get("cpu_s", 0.0) for c in (explor
 ax.bar(names, fast_cpu, color=C_FAST, width=0.5, label="fast_good CPU·s")
 ax.bar(names, slow_cpu, bottom=fast_cpu, color=C_SLOW, width=0.5, label="slow_poor CPU·s")
 for i, c in enumerate((explore, follow)):
-    ax.text(i, fast_cpu[i] + slow_cpu[i] + 1.5,
-            f"{c['elapsed_s']:.0f} s to goal", ha="center", fontsize=9)
+    ax.text(
+        i,
+        fast_cpu[i] + slow_cpu[i] + 1.5,
+        f"{c['elapsed_s']:.0f} s to goal",
+        ha="center",
+        fontsize=9,
+    )
 ax.set_ylabel("CPU·s spent (CampaignOutcome.spent)")
 ax.set_ylim(0, max(f + s for f, s in zip(fast_cpu, slow_cpu, strict=True)) * 1.25)
 ax.set_title("3. Driver plans the next campaign", loc="left")
 ax.legend(loc="upper right", fontsize=8, frameon=False)
 
-fig.suptitle(f"AuCaM capability demo — goal: {meta['goal_n']} fast_good completions per campaign, "
-             "one workflow slot", fontsize=11, x=0.01, ha="left")
+fig.suptitle(
+    f"AuCaM capability demo — goal: {meta['goal_n']} fast_good completions per campaign, "
+    "one workflow slot",
+    fontsize=11,
+    x=0.01,
+    ha="left",
+)
 fig.tight_layout()
 out = Path(args.out)
 out.parent.mkdir(parents=True, exist_ok=True)

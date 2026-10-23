@@ -21,7 +21,7 @@ from src.aucam import (
 
 logger = logging.getLogger(__name__)
 
-GOAL_N        = 4
+GOAL_N = 4
 SCORE_CEILING = 0.95
 
 
@@ -37,7 +37,7 @@ class MiniAppsController(CampaignController):
     ) -> None:
         super().__init__(
             launch=list(self.WORKFLOW_TYPES),
-            goal_type=None,          # is_goal_reached() sums both types
+            goal_type=None,  # is_goal_reached() sums both types
             goal_n=goal_n,
             rules=[
                 CancelRule(
@@ -47,7 +47,7 @@ class MiniAppsController(CampaignController):
                 for wt in self.WORKFLOW_TYPES
             ],
         )
-        self._goal_n       = goal_n
+        self._goal_n = goal_n
         self._score_ceiling = score_ceiling
         self._scores: dict[str, list[float]] = {wt: [] for wt in self.WORKFLOW_TYPES}
 
@@ -72,7 +72,10 @@ class MiniAppsController(CampaignController):
         n_total = sum(self.completed.get(wt, 0) for wt in self.WORKFLOW_TYPES)
         logger.info(
             "[CTRL] %s done  score=%.4f  total=%d/%d",
-            wt, score, n_total, self._goal_n,
+            wt,
+            score,
+            n_total,
+            self._goal_n,
         )
 
     # ── Summary ───────────────────────────────────────────────────────────────
@@ -83,15 +86,15 @@ class MiniAppsController(CampaignController):
         for wt in self.WORKFLOW_TYPES:
             scores = self._scores[wt]
             summary[wt] = {
-                "n":    len(scores),
+                "n": len(scores),
                 "best": min(scores) if scores else None,
-                "avg":  sum(scores) / len(scores) if scores else None,
+                "avg": sum(scores) / len(scores) if scores else None,
             }
             all_scores.extend(scores)
         if all_scores:
             summary["overall"] = {
-                "n":    len(all_scores),
+                "n": len(all_scores),
                 "best": min(all_scores),
-                "avg":  sum(all_scores) / len(all_scores),
+                "avg": sum(all_scores) / len(all_scores),
             }
         return summary

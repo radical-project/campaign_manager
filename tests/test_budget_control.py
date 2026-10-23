@@ -23,6 +23,7 @@ Assertions
   - ≥1 cancellation via per-wf resource budget
   - campaign terminated by hard budget, not by natural completion
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -45,11 +46,12 @@ from src.aucam import (
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-SCORE_THRESHOLD  = 0.5
-PER_WF_GPU_LIMIT = 3e-4   # GPU-hours; ~0.135 s at 8 GPU
-CAMPAIGN_BUDGET  = 1e-3   # GPU-hours total
+SCORE_THRESHOLD = 0.5
+PER_WF_GPU_LIMIT = 3e-4  # GPU-hours; ~0.135 s at 8 GPU
+CAMPAIGN_BUDGET = 1e-3  # GPU-hours total
 
 # ── Workers ───────────────────────────────────────────────────────────────────
+
 
 async def good_worker(reporter: WorkflowReporter) -> None:
     for i in range(5):
@@ -75,20 +77,22 @@ async def hog_worker(reporter: WorkflowReporter) -> None:
 
 # ── Log entry ─────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class CycleLog:
     cycle: int
-    t: float                                  # seconds since campaign start
+    t: float  # seconds since campaign start
     spent_gpu_h: float
     running: dict[str, int]
-    consumption: dict[str, float]             # wf_id → gpu_hours
-    decisions: list[dict]                     # [{"wf_id", "tier", "reason"}]
+    consumption: dict[str, float]  # wf_id → gpu_hours
+    decisions: list[dict]  # [{"wf_id", "tier", "reason"}]
     launches: list[str]
     terminate: bool
     terminate_reason: str = ""
 
 
 # ── Controller ────────────────────────────────────────────────────────────────
+
 
 class BudgetController(CampaignController):
     """
@@ -101,24 +105,24 @@ class BudgetController(CampaignController):
 
     def __init__(self) -> None:
         self.good_completions = 0
-        self.cancel_score:    list[tuple[str, float]] = []   # (wf_id, score)
-        self.cancel_resource: list[tuple[str, float]] = []   # (wf_id, gpu_h)
+        self.cancel_score: list[tuple[str, float]] = []  # (wf_id, score)
+        self.cancel_resource: list[tuple[str, float]] = []  # (wf_id, gpu_h)
         self.terminated_by_budget = False
         self.log: list[CycleLog] = []
         self._start_t: float = time.time()
         self._launched_types: set[str] = set()
 
     def decide(self, obs: dict) -> PolicyResult:
-        running: dict[str, int]         = obs.get("running", {})
-        live:    dict[str, WorkflowReport] = obs.get("live_reports", {})
-        telemetry                        = obs.get("telemetry")
-        q                                = obs["queue_snapshot"]
+        running: dict[str, int] = obs.get("running", {})
+        live: dict[str, WorkflowReport] = obs.get("live_reports", {})
+        telemetry = obs.get("telemetry")
+        q = obs["queue_snapshot"]
 
-        spent       = getattr(telemetry, "spent",               {}) if telemetry else {}
+        spent = getattr(telemetry, "spent", {}) if telemetry else {}
         consumption = getattr(telemetry, "running_consumption", {}) if telemetry else {}
 
-        decisions:  dict[str, CampaignDecision] = {}
-        log_decs:   list[dict] = []
+        decisions: dict[str, CampaignDecision] = {}
+        log_decs: list[dict] = []
 
         # ── Tier 1: score ─────────────────────────────────────────────────────
         for wf_id, report in live.items():
@@ -127,7 +131,9 @@ class BudgetController(CampaignController):
                 decisions[wf_id] = CampaignDecision.CANCEL
                 if not any(x[0] == wf_id for x in self.cancel_score):
                     self.cancel_score.append((wf_id, float(score)))
-                log_decs.append({"wf_id": wf_id, "tier": 1, "reason": f"score={score:.2f} < {SCORE_THRESHOLD}"})
+                log_decs.append(
+                    {"wf_id": wf_id, "tier": 1, "reason": f"score={score:.2f} < {SCORE_THRESHOLD}"}
+                )
 
         # ── Tier 2: per-workflow GPU budget ───────────────────────────────────
         for wf_id, cons in consumption.items():
@@ -138,7 +144,13 @@ class BudgetController(CampaignController):
                 decisions[wf_id] = CampaignDecision.CANCEL
                 if not any(x[0] == wf_id for x in self.cancel_resource):
                     self.cancel_resource.append((wf_id, gpu_h))
-                log_decs.append({"wf_id": wf_id, "tier": 2, "reason": f"gpu_hours={gpu_h:.5f} > {PER_WF_GPU_LIMIT:.2e}"})
+                log_decs.append(
+                    {
+                        "wf_id": wf_id,
+                        "tier": 2,
+                        "reason": f"gpu_hours={gpu_h:.5f} > {PER_WF_GPU_LIMIT:.2e}",
+                    }
+                )
 
         # ── Tier 3: hard campaign budget ─────────────────────────────────────
         total_gpu_h = spent.get("gpu_hours", 0.0)
@@ -170,17 +182,21 @@ class BudgetController(CampaignController):
             terminate_reason = "natural completion"
 
         # ── Log ──────────────────────────────────────────────────────────────
-        self.log.append(CycleLog(
-            cycle=len(self.log) + 1,
-            t=round(time.time() - self._start_t, 3),
-            spent_gpu_h=total_gpu_h,
-            running=dict(running),
-            consumption={wf_id: round(c.get("gpu_hours", 0), 6) for wf_id, c in consumption.items()},
-            decisions=log_decs,
-            launches=launches,
-            terminate=terminate,
-            terminate_reason=terminate_reason,
-        ))
+        self.log.append(
+            CycleLog(
+                cycle=len(self.log) + 1,
+                t=round(time.time() - self._start_t, 3),
+                spent_gpu_h=total_gpu_h,
+                running=dict(running),
+                consumption={
+                    wf_id: round(c.get("gpu_hours", 0), 6) for wf_id, c in consumption.items()
+                },
+                decisions=log_decs,
+                launches=launches,
+                terminate=terminate,
+                terminate_reason=terminate_reason,
+            )
+        )
 
         return PolicyResult(
             decisions=decisions,
@@ -190,6 +206,7 @@ class BudgetController(CampaignController):
 
 
 # ── Test ──────────────────────────────────────────────────────────────────────
+
 
 def test_three_tier_budget_control() -> None:
     ctrl = BudgetController()
@@ -207,15 +224,25 @@ def test_three_tier_budget_control() -> None:
         ),
         controller=ctrl,
         workflows=[
-            WorkflowConfig(name="good_worker", block=good_worker,
-                           declared_spending={"wall_hours": 1.0/3600, "gpu_hours": 4.0/3600},
-                           launch_on_start=False, on_completion=_on_good_complete),
-            WorkflowConfig(name="bad_worker",  block=bad_worker,
-                           declared_spending={"wall_hours": 1.0/3600, "gpu_hours": 2.0/3600},
-                           launch_on_start=False),
-            WorkflowConfig(name="hog_worker",  block=hog_worker,
-                           declared_spending={"wall_hours": 1.0/3600, "gpu_hours": 8.0/3600},
-                           launch_on_start=False),
+            WorkflowConfig(
+                name="good_worker",
+                block=good_worker,
+                declared_spending={"wall_hours": 1.0 / 3600, "gpu_hours": 4.0 / 3600},
+                launch_on_start=False,
+                on_completion=_on_good_complete,
+            ),
+            WorkflowConfig(
+                name="bad_worker",
+                block=bad_worker,
+                declared_spending={"wall_hours": 1.0 / 3600, "gpu_hours": 2.0 / 3600},
+                launch_on_start=False,
+            ),
+            WorkflowConfig(
+                name="hog_worker",
+                block=hog_worker,
+                declared_spending={"wall_hours": 1.0 / 3600, "gpu_hours": 8.0 / 3600},
+                launch_on_start=False,
+            ),
         ],
         policy_interval_s=0.05,
         shutdown_timeout_s=10.0,
@@ -240,6 +267,7 @@ def test_three_tier_budget_control() -> None:
 
 
 # ── Summary printer ───────────────────────────────────────────────────────────
+
 
 def _print_summary(ctrl: BudgetController) -> None:
     w = 62
@@ -274,11 +302,12 @@ def _print_summary(ctrl: BudgetController) -> None:
     print("  " + "─" * 56)
     for e in ctrl.log:
         decs = ", ".join(
-            f"[T{d['tier']}] {d['wf_id'].split('.')[-1][:12]} {d['reason']}"
-            for d in e.decisions
+            f"[T{d['tier']}] {d['wf_id'].split('.')[-1][:12]} {d['reason']}" for d in e.decisions
         )
         launches = "+".join(e.launches) if e.launches else ""
         term_mark = " ← TERMINATE" if e.terminate else ""
-        print(f"  {e.cycle:>3}  {e.t:>6.3f}  {e.spent_gpu_h:>12.6f}  {decs or launches or '—'}{term_mark}")
+        print(
+            f"  {e.cycle:>3}  {e.t:>6.3f}  {e.spent_gpu_h:>12.6f}  {decs or launches or '—'}{term_mark}"
+        )
 
     print("═" * w + "\n")

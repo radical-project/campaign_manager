@@ -3,6 +3,7 @@
 Needs a radical.asyncflow that puts attributes["resources"] on task events
 (workflow_manager.requested_resources); skipped otherwise.
 """
+
 from __future__ import annotations
 
 import asyncio

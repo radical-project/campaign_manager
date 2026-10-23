@@ -16,10 +16,12 @@ def _decode_report(raw: bytes | None) -> dict | None:
     """
     if not raw:
         return None
-    if raw[:1] == b"\x80":                 # pickle protocol header
+    if raw[:1] == b"\x80":  # pickle protocol header
         import pickle  # noqa: PLC0415
+
         return pickle.loads(raw)
     import json  # noqa: PLC0415
+
     return json.loads(raw.decode("utf-8"))
 
 
@@ -108,6 +110,7 @@ class LocalDictBackend:
 # HPC data backends — CM ↔ workflow communication on HPC nodes.
 # ---------------------------------------------------------------------------
 
+
 class RadexDragonBackend:
     """
     CM ↔ workflow communication channel backed by radex DragonClient.
@@ -124,6 +127,7 @@ class RadexDragonBackend:
 
     def __init__(self, descriptor: str) -> None:
         import threading  # noqa: PLC0415
+
         self._descriptor = descriptor
         self._lock = threading.Lock()
         self._client: Any = None
@@ -131,6 +135,7 @@ class RadexDragonBackend:
     def _get_client(self) -> Any:
         if self._client is None:
             from radex.clients.core import DragonClient  # noqa: PLC0415
+
             self._client = DragonClient(self._descriptor, 5)
         return self._client
 
@@ -190,7 +195,7 @@ class RadexDragonBackend:
 
     # ── Report channel (workflow → CM) ────────────────────────────────────────
 
-    def make_reporter(self, wf_id: str) -> "RadexDragonReporter":
+    def make_reporter(self, wf_id: str) -> RadexDragonReporter:
         return RadexDragonReporter(wf_id=wf_id, descriptor=self._descriptor)
 
     async def get_report(self, wf_id: str) -> WorkflowReport | None:
@@ -248,6 +253,7 @@ class RadexDragonReporter(WorkflowReporter):
         iteration: int = 0,
     ) -> None:
         import time as _time  # noqa: PLC0415
+
         from radex.clients.core import DragonClient  # noqa: PLC0415
 
         payload = {
@@ -298,20 +304,24 @@ class RhapsodyRedisBackend:
 
     async def write_signal(self, wf_id: str, decision: CampaignDecision) -> None:
         import asyncio  # noqa: PLC0415
+
         host, port = self._host, self._port
 
         def _write():
             import redis  # noqa: PLC0415
+
             redis.Redis(host=host, port=port, protocol=2).set(f"{wf_id}:signal", decision.value)
 
         await asyncio.to_thread(_write)
 
     async def poll_signal(self, wf_id: str) -> CampaignDecision | None:
         import asyncio  # noqa: PLC0415
+
         host, port = self._host, self._port
 
         def _peek():
             import redis  # noqa: PLC0415
+
             raw = redis.Redis(host=host, port=port, protocol=2).get(f"{wf_id}:signal")
             return raw.decode() if raw else None
 
@@ -320,20 +330,20 @@ class RhapsodyRedisBackend:
 
     async def clear_signal(self, wf_id: str) -> None:
         import asyncio  # noqa: PLC0415
+
         host, port = self._host, self._port
 
         def _del():
             import redis  # noqa: PLC0415
+
             redis.Redis(host=host, port=port, protocol=2).delete(f"{wf_id}:signal")
 
         await asyncio.to_thread(_del)
 
     # ── Report channel ────────────────────────────────────────────────────────
 
-    def make_reporter(self, wf_id: str) -> "RhapsodyRedisReporter":
-        return RhapsodyRedisReporter(
-            wf_id=wf_id, host=self._host, port=self._port
-        )
+    def make_reporter(self, wf_id: str) -> RhapsodyRedisReporter:
+        return RhapsodyRedisReporter(wf_id=wf_id, host=self._host, port=self._port)
 
     async def get_report(self, wf_id: str) -> WorkflowReport | None:
         import asyncio  # noqa: PLC0415
@@ -342,6 +352,7 @@ class RhapsodyRedisBackend:
 
         def _read():
             import redis  # noqa: PLC0415
+
             client = redis.Redis(host=host, port=port, protocol=2)
             return _decode_report(client.get(wf_id))
 
@@ -357,6 +368,7 @@ class RhapsodyRedisBackend:
 
         def _del():
             import redis  # noqa: PLC0415
+
             r = redis.Redis(host=host, port=port, protocol=2)
             r.delete(wf_id)
             r.delete(f"{wf_id}:signal")
@@ -394,16 +406,19 @@ class RhapsodyRedisReporter(WorkflowReporter):
 
         def _write():
             import redis  # noqa: PLC0415
+
             redis.Redis(host=host, port=port, protocol=2).set(wf_id, pickle.dumps(payload))
 
         await asyncio.to_thread(_write)
 
     async def poll(self) -> CampaignDecision | None:
         import asyncio  # noqa: PLC0415
+
         host, port, wf_id = self._host, self._port, self._wf_id
 
         def _pop():
             import redis  # noqa: PLC0415
+
             r = redis.Redis(host=host, port=port, protocol=2)
             key = f"{wf_id}:signal"
             raw = r.get(key)

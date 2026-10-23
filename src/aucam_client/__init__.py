@@ -109,6 +109,7 @@ class Reporter:
     def _redis(self) -> Any:
         if self._client is None:
             import redis  # noqa: PLC0415
+
             host, port = self.endpoint.rsplit(":", 1)
             self._client = redis.Redis(host=host, port=int(port), protocol=2)
         return self._client
@@ -116,16 +117,15 @@ class Reporter:
     def _dragon(self) -> Any:
         if self._client is None:
             from radex.clients.core import DragonClient  # noqa: PLC0415
+
             self._client = DragonClient(self.endpoint, 5)
         return self._client
 
     # ── public API ───────────────────────────────────────────────────────────
 
-    def emit(self, *, score: Any = None, metrics: dict | None = None,
-             iteration: int = 0) -> dict:
+    def emit(self, *, score: Any = None, metrics: dict | None = None, iteration: int = 0) -> dict:
         """Send a report (replaces the previous one).  Returns the report sent."""
-        report = encode_report(self.wf_id, score=score, metrics=metrics,
-                               iteration=iteration)
+        report = encode_report(self.wf_id, score=score, metrics=metrics, iteration=iteration)
         if self.backend == "redis":
             self._redis().set(self.wf_id, json.dumps(report).encode("utf-8"))
         else:

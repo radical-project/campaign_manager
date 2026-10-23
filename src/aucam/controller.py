@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 # Rule primitives — live in src/aucam so any campaign can reuse them
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class CancelRule:
     """Cancel a running workflow when `when(report)` returns True."""
@@ -34,6 +35,7 @@ class LaunchRule:
 # ---------------------------------------------------------------------------
 # Goal (kept for backward compatibility and future use)
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class Goal:
@@ -54,6 +56,7 @@ class Goal:
 # PolicyResult
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class PolicyResult:
     """The controller's decision for one policy cycle."""
@@ -69,6 +72,7 @@ class PolicyResult:
 # ---------------------------------------------------------------------------
 # CampaignController — concrete base class
 # ---------------------------------------------------------------------------
+
 
 class CampaignController:
     """
@@ -104,17 +108,17 @@ class CampaignController:
         rules: list[CancelRule | LaunchRule] | None = None,
     ) -> None:
         self._goal_type = goal_type
-        self._goal_n    = goal_n
+        self._goal_n = goal_n
 
         # Merge explicit rules + launch shorthand into one list
         self._rules: list[CancelRule | LaunchRule] = list(rules or [])
-        for wt in (launch or []):
+        for wt in launch or []:
             self._rules.append(LaunchRule(wt))
 
         # Public lifecycle counters — readable from run_campaign.py summaries
         self.completed: dict[str, int] = {}
         self.cancelled: dict[str, int] = {}
-        self.failed:    dict[str, int] = {}
+        self.failed: dict[str, int] = {}
 
     # ── Overridable hooks ─────────────────────────────────────────────────────
 
@@ -128,15 +132,15 @@ class CampaignController:
         """
         iv = vars(self)
         if result.returncode == 0:
-            c = iv.get('completed')
+            c = iv.get("completed")
             if isinstance(c, dict):
                 c[result.workflow_type] = c.get(result.workflow_type, 0) + 1
         elif result.returncode == -1:
-            c = iv.get('cancelled')
+            c = iv.get("cancelled")
             if isinstance(c, dict):
                 c[result.workflow_type] = c.get(result.workflow_type, 0) + 1
         else:
-            c = iv.get('failed')
+            c = iv.get("failed")
             if isinstance(c, dict):
                 c[result.workflow_type] = c.get(result.workflow_type, 0) + 1
 
@@ -174,11 +178,11 @@ class CampaignController:
         """Apply a rule list against the current observation and return a PolicyResult.
         Subclass decide() can call this with self._rules or a custom list."""
         live_reports: dict = obs.get("live_reports", {})
-        wf_types: dict     = obs.get("wf_types", {})
-        q: QueueSnapshot   = obs["queue_snapshot"]
+        wf_types: dict = obs.get("wf_types", {})
+        q: QueueSnapshot = obs["queue_snapshot"]
 
         decisions: dict[str, CampaignDecision] = {}
-        requests:  list[LaunchRequest]         = []
+        requests: list[LaunchRequest] = []
 
         for rule in rules:
             if isinstance(rule, CancelRule):
@@ -186,7 +190,8 @@ class CampaignController:
                     if wf_types.get(wf_id) == rule.workflow_type and rule.when(report):
                         logger.info(
                             "[CTRL] CancelRule(%s): cancelling %s score=%s",
-                            rule.workflow_type, wf_id,
+                            rule.workflow_type,
+                            wf_id,
                             f"{report.score:.3f}" if report.score is not None else "None",
                         )
                         decisions[wf_id] = CampaignDecision.CANCEL

@@ -59,7 +59,7 @@ CampaignManager(
     global_budget=GlobalBudget(
         spending={"gpu_hours": 50.0},
         max_concurrent_campaigns=4,
-        max_rejections=10,   # stop accepting campaigns after more than 10 budget rejections
+        max_rejections=10,  # stop accepting campaigns after more than 10 budget rejections
     )
 )
 ```
@@ -108,7 +108,10 @@ what it actually used) and `hours` is how long it ran.
   example:
 
   ```python
-  task_description={"process_templates": [(4, {})], "gpus_per_rank": 1}   # 4 CPUs and 4 GPUs × run time
+  task_description = {
+      "process_templates": [(4, {})],
+      "gpus_per_rank": 1,
+  }  # 4 CPUs and 4 GPUs × run time
   ```
 
   A Dragon function task without a template is not charged per task; AuCaM
@@ -249,10 +252,10 @@ controller's observation includes `obs["budget"]` for its own campaign:
 
 ```python
 {
-    "limits":       {"cpu_hours": 1.0, "gpu_hours": 0.25},
-    "spent":        {"cpu_hours": 0.34, "gpu_hours": 0.028},
-    "in_flight":    {"cpu_hours": 0.10},
-    "global_spent": {"gpu_hours": 0.12},          # finished campaigns, all of AuCaM
+    "limits": {"cpu_hours": 1.0, "gpu_hours": 0.25},
+    "spent": {"cpu_hours": 0.34, "gpu_hours": 0.028},
+    "in_flight": {"cpu_hours": 0.10},
+    "global_spent": {"gpu_hours": 0.12},  # finished campaigns, all of AuCaM
     "burn": {
         "cpu_hours": {"remaining": 0.56, "fraction_left": 0.56},
         "gpu_hours": {"remaining": 0.222, "fraction_left": 0.888},

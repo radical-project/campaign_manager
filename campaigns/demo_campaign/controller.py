@@ -17,13 +17,13 @@ from __future__ import annotations
 
 import logging
 
-from src.aucam import CancelRule, CampaignController
+from src.aucam import CampaignController, CancelRule
 from src.aucam.types import WorkflowResult
 
 logger = logging.getLogger(__name__)
 
-SCORE_FLOOR   = 0.4   # simulations scoring below this are cancelled
-GOAL_ANALYSES = 3     # default analyses before campaign stops
+SCORE_FLOOR = 0.4  # simulations scoring below this are cancelled
+GOAL_ANALYSES = 3  # default analyses before campaign stops
 
 
 class ScoreController(CampaignController):
@@ -54,10 +54,12 @@ class ScoreController(CampaignController):
             ),
         ]
         if use_tier2:
-            rules.append(CancelRule(
-                workflow_type="tier2_sim_worker",
-                when=lambda r: r.score is not None and r.score < score_floor,
-            ))
+            rules.append(
+                CancelRule(
+                    workflow_type="tier2_sim_worker",
+                    when=lambda r: r.score is not None and r.score < score_floor,
+                )
+            )
         super().__init__(
             launch=launch,
             goal_type="analysis_worker",
@@ -67,7 +69,7 @@ class ScoreController(CampaignController):
         self._analysis_scores: list[float] = []
 
     def on_complete(self, result: WorkflowResult) -> None:
-        super().on_complete(result)   # base updates completed/cancelled/failed counters
+        super().on_complete(result)  # base updates completed/cancelled/failed counters
         if result.returncode == 0 and result.workflow_type == "analysis_worker":
             n = self.completed.get("analysis_worker", 0)
             logger.info("[CTRL] analysis complete (%d/%d)", n, self._goal_n)

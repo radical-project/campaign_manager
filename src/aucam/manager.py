@@ -71,13 +71,17 @@ class CampaignManager:
 
         # Dynamic-submission state
         self._submission_queue: asyncio.Queue[CampaignSpec | None] = asyncio.Queue()
-        self._pending_drivers: int = 0   # incremented by expect_driver(); decremented by driver_done()
+        self._pending_drivers: int = (
+            0  # incremented by expect_driver(); decremented by driver_done()
+        )
         # _reserved_specs: admitted by submit() but not yet dequeued by _start_campaign().
         # Declared spending is reserved immediately so rapid back-to-back submit() calls
         # can't both pass the admission check before either is actually started.
         self._reserved_specs: dict[str, CampaignSpec] = {}
-        self._active_specs: dict[str, CampaignSpec] = {}        # name → spec, while running
-        self._active_instances: dict[str, _CampaignInstance] = {}  # name → instance, for reading _spent
+        self._active_specs: dict[str, CampaignSpec] = {}  # name → spec, while running
+        self._active_instances: dict[
+            str, _CampaignInstance
+        ] = {}  # name → instance, for reading _spent
         self._campaign_futures: dict[str, asyncio.Future[CampaignOutcome]] = {}
         self._campaign_start_times: dict[str, float] = {}
         # Auto-close counters (GlobalBudget.n_campaigns / max_rejections).
@@ -156,7 +160,7 @@ class CampaignManager:
         ``run()`` knows when to exit.
         """
         if self._pending_drivers == 0:
-            self._pending_drivers = 1   # implicit expect_driver() for drivers that skip it
+            self._pending_drivers = 1  # implicit expect_driver() for drivers that skip it
         reason = self._admit(spec)
         if reason:
             return SubmitResult(accepted=False, campaign_name=spec.name, reason=reason)
@@ -263,24 +267,22 @@ class CampaignManager:
 
                 if not done_submitting:
                     if q_t is None or q_t.done():
-                        q_t = asyncio.create_task(
-                            self._submission_queue.get(), name="cm-queue"
-                        )
+                        q_t = asyncio.create_task(self._submission_queue.get(), name="cm-queue")
                     watch.add(q_t)
 
                 done_set, _ = await asyncio.wait(watch, return_when=asyncio.FIRST_COMPLETED)
 
                 # ── Shutdown signal ────────────────────────────────────────────
                 if shutdown_t in done_set:
-                    logger.info(
-                        "[CM] shutdown signal — cancelling %d campaign(s)", len(active)
-                    )
+                    logger.info("[CM] shutdown signal — cancelling %d campaign(s)", len(active))
                     for t in active.values():
                         t.cancel()
                     await asyncio.gather(*active.values(), return_exceptions=True)
                     # Resolve any pending driver futures so waiters don't hang.
                     for name in list(self._campaign_futures):
-                        elapsed_s = time.monotonic() - self._campaign_start_times.pop(name, time.monotonic())
+                        elapsed_s = time.monotonic() - self._campaign_start_times.pop(
+                            name, time.monotonic()
+                        )
                         self._resolve_future(name, elapsed_s=elapsed_s, task_cancelled=True)
                     if q_t and not q_t.done():
                         q_t.cancel()
@@ -305,12 +307,14 @@ class CampaignManager:
                 finished = done_set - ({q_t} if q_t else set()) - {shutdown_t}
                 for t in finished:
                     name = t.get_name().removeprefix("campaign-")
-                    elapsed_s = time.monotonic() - self._campaign_start_times.pop(name, time.monotonic())
+                    elapsed_s = time.monotonic() - self._campaign_start_times.pop(
+                        name, time.monotonic()
+                    )
                     # Resolve driver future before removing the spec (outcome needs controller).
                     self._resolve_future(name, elapsed_s=elapsed_s, task_cancelled=t.cancelled())
                     self._active_specs.pop(name, None)
                     active.pop(name, None)
-                    self._allocator.close(name)   # no-op if already closed
+                    self._allocator.close(name)  # no-op if already closed
                     exc = t.exception() if not t.cancelled() else None
                     if exc:
                         logger.error("[CM] campaign %s raised: %s", name, exc)
@@ -387,7 +391,11 @@ class CampaignManager:
                 remaining = limit - used - committed
                 logger.info(
                     "[CM] global_budget[%s]: used=%.5f committed=%.5f remaining=%.5f / %.5f",
-                    key, used, committed, remaining, limit,
+                    key,
+                    used,
+                    committed,
+                    remaining,
+                    limit,
                 )
 
         outcome = CampaignOutcome(
@@ -420,9 +428,7 @@ class CampaignManager:
             )
 
         if gb.max_total_concurrent_workflows is not None:
-            current_wf = sum(
-                s.budget.max_concurrent_workflows for s in all_committed.values()
-            )
+            current_wf = sum(s.budget.max_concurrent_workflows for s in all_committed.values())
             incoming = spec.budget.max_concurrent_workflows
             if current_wf + incoming > gb.max_total_concurrent_workflows:
                 return (

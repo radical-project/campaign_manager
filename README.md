@@ -50,14 +50,20 @@ import asyncio
 import random
 
 from src.aucam import (
-    CampaignBudget, CampaignController, CampaignManager, CampaignSpec,
-    WorkflowConfig, WorkflowReporter,
+    CampaignBudget,
+    CampaignController,
+    CampaignManager,
+    CampaignSpec,
+    WorkflowConfig,
+    WorkflowReporter,
 )
+
 
 async def my_sim(reporter: WorkflowReporter) -> None:
     for step in range(5):
         await asyncio.sleep(0.05)
         await reporter.emit(score=random.random(), iteration=step)
+
 
 spec = CampaignSpec(
     name="hello",
@@ -67,21 +73,23 @@ spec = CampaignSpec(
     policy_interval_s=0.5,
 )
 
+
 async def main() -> None:
     cm = CampaignManager()
-    cm.expect_driver()                       # one driver will submit campaigns
+    cm.expect_driver()  # one driver will submit campaigns
 
     async def driver() -> None:
         try:
-            result = await cm.submit(spec)   # accepted, or rejected with a reason
-            outcome = await result.wait()    # CampaignOutcome, when the campaign ends
+            result = await cm.submit(spec)  # accepted, or rejected with a reason
+            outcome = await result.wait()  # CampaignOutcome, when the campaign ends
             print(outcome.completed, outcome.elapsed_s)
         finally:
             cm.driver_done()
 
     task = asyncio.create_task(driver())
-    await cm.run()                           # returns when all drivers are done
+    await cm.run()  # returns when all drivers are done
     await task
+
 
 asyncio.run(main())
 ```

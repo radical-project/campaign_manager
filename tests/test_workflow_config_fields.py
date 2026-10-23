@@ -9,6 +9,7 @@ Scenarios
   5. supports_pause=True — controller issues PAUSE; CM logs info (no delivery yet);
      workflow continues running; no crash.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -22,15 +23,14 @@ from src.aucam import (
     CampaignDecision,
     CampaignManager,
     CampaignSpec,
-    LaunchRequest,
     PolicyResult,
     WorkflowConfig,
     WorkflowReporter,
     WorkflowResult,
 )
 
-
 # ── Workers ───────────────────────────────────────────────────────────────────
+
 
 async def simple_worker(reporter: WorkflowReporter) -> None:
     for i in range(3):
@@ -44,6 +44,7 @@ async def background_worker() -> None:
 
 # ── Unit tests (no CM needed) ─────────────────────────────────────────────────
 
+
 def test_new_field_defaults() -> None:
     wfc = WorkflowConfig(name="w", block=simple_worker)
     assert wfc.supports_pause is False
@@ -51,13 +52,14 @@ def test_new_field_defaults() -> None:
 
 
 def test_supports_pause_flag() -> None:
-    wfc_no  = WorkflowConfig(name="w", block=simple_worker, supports_pause=False)
+    wfc_no = WorkflowConfig(name="w", block=simple_worker, supports_pause=False)
     wfc_yes = WorkflowConfig(name="w", block=simple_worker, supports_pause=True)
     assert wfc_no.supports_pause is False
     assert wfc_yes.supports_pause is True
 
 
 # ── Integration: PAUSE guard ──────────────────────────────────────────────────
+
 
 class PauseIssuingController(CampaignController):
     """Issues PAUSE on first active workflow each cycle, then terminates."""
@@ -68,8 +70,8 @@ class PauseIssuingController(CampaignController):
 
     def decide(self, obs: dict) -> PolicyResult:
         running = obs.get("running", {})
-        live    = obs.get("live_reports", {})
-        q       = obs["queue_snapshot"]
+        live = obs.get("live_reports", {})
+        q = obs["queue_snapshot"]
 
         decisions: dict[str, CampaignDecision] = {}
 
@@ -79,11 +81,7 @@ class PauseIssuingController(CampaignController):
             decisions[wf_id] = CampaignDecision.PAUSE
             self._pause_issued = True
 
-        terminate = (
-            self.completions >= 1
-            and not running
-            and q.total_queued == 0
-        )
+        terminate = self.completions >= 1 and not running and q.total_queued == 0
         return PolicyResult(decisions=decisions, terminate=terminate)
 
 
