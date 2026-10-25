@@ -9,6 +9,7 @@ import logging
 import shlex
 import time
 import uuid
+from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -206,11 +207,14 @@ class _CampaignInstance:
         spec: CampaignSpec,
         allocator: BudgetAllocator,
         flow: Any,
+        all_task_counts: Callable[[], dict[str, int]] | None = None,
     ) -> None:
         self.spec = spec
         self.name = spec.name
         self._allocator = allocator
         self._flow = flow
+        # Task counts summed over all campaigns (set by CampaignManager).
+        self._all_task_counts = all_task_counts
         self._policy: SchedulingPolicy = (
             spec.scheduling_policy
             if spec.scheduling_policy is not None
@@ -270,6 +274,11 @@ class _CampaignInstance:
         self._task_level: set[str] = set()
         self._task_usage: dict[str, dict[str, float]] = {}
         self._active_tasks: dict[str, dict] = {}
+        # Task states from AsyncFlow events, for backlog visibility:
+        # task_uid → (wf_id, state), state in _TASK_STATES.  Filled only while
+        # telemetry is on (_tracking_tasks).
+        self._task_states: dict[str, tuple[str, str]] = {}
+        self._tracking_tasks = False
         # Cost estimate set at launch (learned or declared, B3), per running
         # workflow.  The in-flight estimate is always derived from it.
         self._estimates: dict[str, dict[str, float]] = {}
@@ -482,6 +491,54 @@ class _CampaignInstance:
     # ── Task-level accounting ───────────────────────────────────────────────
 
     _TASK_END_EVENTS = ("TaskCompleted", "TaskFailed", "TaskCanceled", "TaskCancelled")
+    # Task state after each AsyncFlow event:
+    #   waiting   — created, not yet handed to the backend (dependencies or engine)
+    #   submitted — handed to the backend, not yet running (backend backlog)
+    #   running   — the backend reports it running
+    _TASK_STATES = ("waiting", "submitted", "running")
+    _TASK_STATE_OF = {
+        "TaskCreated": "waiting",
+        "TaskQueued": "waiting",
+        "asyncflow.TaskResolved": "waiting",
+        "TaskSubmitted": "submitted",
+        "TaskStarted": "running",
+    }
+
+    def _track_task_state(self, etype: str, tag: Any, task_uid: Any) -> None:
+        """Record a task's state for task_counts(); blocks are not tasks."""
+        if not task_uid or not tag or str(task_uid).startswith("block."):
+            return
+        if etype in self._TASK_END_EVENTS:
+            self._task_states.pop(task_uid, None)
+            return
+        state = self._TASK_STATE_OF.get(etype)
+        if state is None:
+            return
+        wf_id = self._wf_tags.get(tag)
+        if wf_id is None:
+            return
+        prev = self._task_states.get(task_uid)
+        order = self._TASK_STATES
+        if prev is None or order.index(state) > order.index(prev[1]):
+            self._task_states[task_uid] = (wf_id, state)
+
+    def task_counts(self) -> dict[str, int]:
+        """Number of this campaign's AsyncFlow tasks in each state."""
+        counts = dict.fromkeys(self._TASK_STATES, 0)
+        for _wf_id, state in self._task_states.values():
+            counts[state] += 1
+        return counts
+
+    def _task_observation(self) -> dict | None:
+        """obs["tasks"]: this campaign's counts plus all campaigns' ("all").
+
+        None when AsyncFlow telemetry is off (no task events to count).
+        """
+        if not self._tracking_tasks:
+            return None
+        own = self.task_counts()
+        every = self._all_task_counts() if self._all_task_counts is not None else own
+        return {**own, "all": every}
 
     def _on_task_event(self, event: Any) -> None:
         """Charge a workflow from AsyncFlow task events (telemetry subscriber).
@@ -497,6 +554,7 @@ class _CampaignInstance:
         res = attrs.get("resources")
         tag = attrs.get("asyncflow.workflow_id")
         task_uid = getattr(event, "task_id", None)
+        self._track_task_state(etype, tag, task_uid)
 
         # Inner-block registration: asyncflow emits TaskCreated (no resources)
         # for every block, tagged with its parent block/workflow.  If the parent
@@ -817,8 +875,6 @@ class _CampaignInstance:
 
             # Grab the last emitted report synchronously before async delete fires.
             # For in-process (LocalDictBackend) this is always available.
-            # For remote backends (Dragon, Redis) fall back to what the policy
-            # cycle cached in _inst.last_report from _collect_live_reports.
             # For remote backends (Dragon, Redis) use _inst.last_report, which
             # _read_final_report refreshed when the workflow's block ended.
             backend = self.spec.data_backend
@@ -832,6 +888,9 @@ class _CampaignInstance:
 
             self._active.pop(_inst.wf_id, None)
             self._exit_codes.pop(_inst.wf_id, None)
+            # Forget this workflow's tasks; end events may never arrive after a cancel.
+            for uid in [u for u, (w, _s) in self._task_states.items() if w == _inst.wf_id]:
+                del self._task_states[uid]
             self._slot_event.set()
 
             # Replace the in-flight estimate with the workflow's actual spending.
@@ -1393,6 +1452,9 @@ class _CampaignInstance:
             # wf_types: wf_id → workflow_type; lets controllers identify
             # which workflow type each live report belongs to.
             wf_types={wf_id: inst.workflow_type for wf_id, inst in self._active.items()},
+            # tasks: AsyncFlow task counts (waiting / submitted / running, and
+            # "all" for every campaign); None without telemetry.
+            tasks=self._task_observation(),
         )
         result: PolicyResult = self.spec.controller.decide(obs)
         self._apply_auto_cancels(result, live_reports, now)
@@ -1404,6 +1466,12 @@ class _CampaignInstance:
             f"decisions={len(result.decisions)} "
             f"launches={len(result.launch_requests)} "
             f"terminate={result.terminate}"
+            + (
+                f" tasks: waiting={obs['tasks']['waiting']} "
+                f"submitted={obs['tasks']['submitted']} running={obs['tasks']['running']}"
+                if obs.get("tasks")
+                else ""
+            )
         )
         bv = self._allocator.campaign_view(self.name)
         spent = bv.get("spent", {})
@@ -1562,6 +1630,7 @@ class _CampaignInstance:
         telemetry = getattr(self._flow, "_telemetry", None)
         if telemetry is not None and hasattr(telemetry, "subscribe"):
             telemetry.subscribe(self._on_task_event)
+            self._tracking_tasks = True
 
         # Attempt checkpoint recovery before any workflows are launched.
         restored = False

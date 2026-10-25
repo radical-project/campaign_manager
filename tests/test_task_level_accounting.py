@@ -79,3 +79,43 @@ def test_task_level_accounting_charges_requested_resources() -> None:
     # gpu: 2 GPUs × ~0.3 s;  cmd: 4 cores × ~0.3 s  (generous bounds for CI jitter)
     assert 2 * SLEEP_S / 3600 * 0.8 <= spent.get("gpu_hours", 0.0) <= 2 * 3.0 / 3600
     assert 4 * SLEEP_S / 3600 * 0.8 <= spent.get("cpu_hours", 0.0) <= 4 * 3.0 / 3600
+
+
+def test_task_counts_reach_the_controller() -> None:
+    """With telemetry on, each policy cycle's observation carries AsyncFlow task
+    counts; the running GPU task shows up as running."""
+    seen: list[dict] = []
+
+    class Recorder(CampaignController):
+        def decide(self, obs):
+            if obs.get("tasks") is not None:
+                seen.append(obs["tasks"])
+            return super().decide(obs)
+
+    spec = CampaignSpec(
+        name="counts",
+        budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
+        controller=Recorder(launch=["gpu"], goal_type="gpu", goal_n=1),
+        workflows=[WorkflowConfig(name="gpu", block=gpu_workflow)],
+        policy_interval_s=0.05,
+        shutdown_timeout_s=5.0,
+    )
+
+    async def main() -> None:
+        cm = CampaignManager(enable_telemetry=True)
+        cm.expect_driver()
+
+        async def driver() -> None:
+            try:
+                await (await cm.submit(spec)).wait()
+            finally:
+                cm.driver_done()
+
+        asyncio.ensure_future(driver())
+        await asyncio.wait_for(cm.run(), timeout=60.0)
+
+    asyncio.run(main())
+    assert seen, "no observation carried task counts"
+    assert set(seen[0]) == {"waiting", "submitted", "running", "all"}
+    assert max(s["running"] for s in seen) >= 1
+    assert max(s["all"]["running"] for s in seen) >= 1

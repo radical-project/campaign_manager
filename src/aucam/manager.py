@@ -345,6 +345,14 @@ class CampaignManager:
 
     # ── Internals ──────────────────────────────────────────────────────────────
 
+    def _all_task_counts(self) -> dict[str, int]:
+        """AsyncFlow task counts per state, summed over all running campaigns."""
+        total: dict[str, int] = {}
+        for inst in list(self._active_instances.values()):
+            for state, n in inst.task_counts().items():
+                total[state] = total.get(state, 0) + n
+        return total
+
     def _start_campaign(self, spec: CampaignSpec) -> asyncio.Task | None:
         """Reserve budget and create an asyncio Task for the campaign. Returns None on failure."""
         # Move from reserved → active (clears the admit-to-start gap).
@@ -355,7 +363,12 @@ class CampaignManager:
         self._allocator.open(spec.name, spec.budget.spending)
         self._active_specs[spec.name] = spec
         self._campaign_start_times[spec.name] = time.monotonic()
-        inst = _CampaignInstance(spec=spec, allocator=self._allocator, flow=self._flow)
+        inst = _CampaignInstance(
+            spec=spec,
+            allocator=self._allocator,
+            flow=self._flow,
+            all_task_counts=self._all_task_counts,
+        )
         self._active_instances[spec.name] = inst
         logger.info("[CM] %s: started", spec.name)
         return asyncio.create_task(inst.run(), name=f"campaign-{spec.name}")

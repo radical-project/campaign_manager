@@ -287,6 +287,7 @@ The observation has these keys (plus any your `observe()` adds):
 | `live_reports` | `{wf_id: WorkflowReport}` — latest report of each running workflow |
 | `wf_types` | `{wf_id: workflow_type}` |
 | `telemetry` | `TelemetrySnapshot`: run times, node readings, spending, live use estimates |
+| `tasks` | AsyncFlow task counts for this campaign: `waiting` (not yet handed to the backend), `submitted` (waiting in the backend), `running`; `all` has the same counts for all campaigns. `None` without telemetry (`enable_telemetry=True`). |
 
 `decide()` returns:
 

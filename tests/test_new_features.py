@@ -691,3 +691,79 @@ def test_learned_cost_only_from_successful_runs() -> None:
     assert {r.workflow_type for r in results} == {"ok", "boom"}
     assert "ok" in captured and captured["ok"]["cpu_hours"]["n"] == 1
     assert "boom" not in captured
+
+
+# ── Task counts (backlog visibility) ─────────────────────────────────────────
+
+
+def _task_event(etype: str, task_id: str, tag: str):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        event_type=etype, task_id=task_id, attributes={"asyncflow.workflow_id": tag}
+    )
+
+
+def _counting_instance():
+    from unittest.mock import MagicMock
+
+    from src.aucam import CampaignBudget, CampaignController, CampaignSpec, WorkflowConfig
+    from src.aucam.campaign import _CampaignInstance
+
+    spec = CampaignSpec(
+        name="counts",
+        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=2),
+        controller=CampaignController(),
+        workflows=[WorkflowConfig(name="w", block=quick)],
+        policy_interval_s=60.0,
+        shutdown_timeout_s=5.0,
+    )
+    inst = _CampaignInstance(spec, BudgetAllocator(), MagicMock())
+    inst._wf_tags["block.000001"] = "counts.w.a"
+    return inst
+
+
+def test_task_counts_follow_task_events() -> None:
+    """Tasks move waiting → submitted → running and leave the counts when they end;
+    blocks, unknown tags and out-of-order events do not distort the counts."""
+    inst = _counting_instance()
+    tag = "block.000001"
+    for uid in ("task.1", "task.2", "task.3"):
+        inst._on_task_event(_task_event("TaskCreated", uid, tag))
+    inst._on_task_event(_task_event("TaskSubmitted", "task.2", tag))
+    inst._on_task_event(_task_event("TaskSubmitted", "task.3", tag))
+    inst._on_task_event(_task_event("TaskStarted", "task.3", tag))
+    assert inst.task_counts() == {"waiting": 1, "submitted": 1, "running": 1}
+
+    # A late event never moves a task back to an earlier state.
+    inst._on_task_event(_task_event("TaskQueued", "task.3", tag))
+    assert inst.task_counts()["running"] == 1
+
+    # Blocks are not tasks; tasks of other campaigns (unknown tag) are ignored.
+    inst._on_task_event(_task_event("TaskCreated", "block.000002", tag))
+    inst._on_task_event(_task_event("TaskCreated", "task.9", "block.999999"))
+    assert sum(inst.task_counts().values()) == 3
+
+    for uid, end in (
+        ("task.1", "TaskCanceled"),
+        ("task.2", "TaskFailed"),
+        ("task.3", "TaskCompleted"),
+    ):
+        inst._on_task_event(_task_event(end, uid, tag))
+    assert inst.task_counts() == {"waiting": 0, "submitted": 0, "running": 0}
+
+
+def test_task_observation_needs_telemetry() -> None:
+    """obs["tasks"] is None without telemetry; with it, it carries this
+    campaign's counts and the manager-wide counts under "all"."""
+    inst = _counting_instance()
+    assert inst._task_observation() is None
+
+    inst._tracking_tasks = True
+    inst._on_task_event(_task_event("TaskCreated", "task.1", "block.000001"))
+    obs = inst._task_observation()
+    assert obs == {"waiting": 1, "submitted": 0, "running": 0, "all": obs["all"]}
+    assert obs["all"] == {"waiting": 1, "submitted": 0, "running": 0}  # no manager: own counts
+
+    inst._all_task_counts = lambda: {"waiting": 5, "submitted": 2, "running": 7}
+    assert inst._task_observation()["all"] == {"waiting": 5, "submitted": 2, "running": 7}
