@@ -1,19 +1,26 @@
 # AuCaM capabilities in one demo
 
-Without AuCaM, each workflow runs to the end whatever its results, and someone has
-to decide by hand what to launch next. AuCaM watches results while workflows run
-and acts on them. `campaigns/demo_campaign/run_impact.py` shows four of its
-capabilities in a run of about 75 seconds:
+Running a campaign by hand means watching every workflow, stopping the ones
+that perform poorly and deciding what to launch next. AuCaM does this on its
+own: it follows the results while workflows run, acts on them, and returns each
+campaign's outcome to a driver that plans the next campaign. The demo in
+`campaigns/demo_campaign/run_impact.py` shows four of these capabilities on a
+small example that stands in for the long-running campaigns AuCaM is built for:
 
-1. **Steering by the controller** — the campaign's controller watches the
-   results of every run and acts on them. In the demo its built-in rules cancel
-   runs whose results are poor; a custom controller can also launch work with
-   its own parameters, change the campaign's goals as results arrive, or end
-   the campaign early.
-2. **Learning scheduler** — the campaign's bandit learns which workflow types pay
-   off and launches the others less and less.
-3. **Spending accounting** — AuCaM records what each run costs, so each
-   campaign's cost is known.
+1. **Science-driven steering** — the controller makes the scientific decisions
+   from each workflow's results. In the demo, its built-in rules cancel
+   workflows whose score falls too low; a custom controller can adapt the
+   campaign as results arrive: launch workflows with new parameters, change
+   goals, or end it early.
+2. **Learning scheduler** — the campaign's bandit balances *exploring* (trying
+   workflow types it knows little about) with *exploiting* (launching the types
+   that complete most often). As evidence accumulates, it shifts launches
+   toward the types with the highest observed completion rate, while still
+   sampling the others occasionally.
+3. **Spending accounting** — AuCaM charges what each workflow spends to its
+   campaign, reports it per workflow (`WorkflowResult.spent`) and per campaign
+   (`CampaignOutcome.spent`), and counts each campaign's spending against the
+   global budget.
 4. **Driver feedback** — when a campaign ends, AuCaM returns its outcome to the
    driver, which uses it to plan the next campaign.
 
@@ -48,7 +55,7 @@ Spending is measured in CPU-seconds: each workflow declares its expected cost
 
 Numbers below are from one run; timings vary slightly from run to run.
 
-### 1. Steering by the controller: cancellation (panel 2)
+### 1. Science-driven steering: cancellation (panel 2)
 
 Each `slow_poor` run's score falls below 0.30 by its third report (about 3 s), and the
 `CancelRule` cancels it. A full run would cost 5 s × 4 CPUs = 20 CPU·s; each
@@ -72,7 +79,7 @@ AuCaM charges every finished run in its spending ledger and reports the totals:
 per run in `WorkflowResult.spent`, per campaign in `CampaignOutcome.spent`.
 Campaign "explore" spent 78 CPU·s: 30 on `fast_good`, 48 on cancelled `slow_poor`
 runs. With a spending limit (`CampaignBudget.spending`), AuCaM would also stop
-launching once a campaign reached it; see `docs/budget.md`.
+launching once a campaign reached it; see [budgets and spending](budget.md).
 
 ### 4. Driver feedback (panel 3)
 
@@ -116,7 +123,8 @@ the loop stays the same: submit, wait for the outcome, plan the next campaign.
 - **Checkpoint and restart** — a campaign's queue, counters and spending survive
   a restart.
 
-See `docs/campaign-developer-guide.md` for how to use each of these.
+See the [campaign developer guide](campaign-developer-guide.md) for how to use
+each of these.
 
 ---
 

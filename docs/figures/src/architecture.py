@@ -15,7 +15,8 @@ from matplotlib.patches import FancyArrowPatch, FancyBboxPatch  # noqa: E402
 OUT = Path(__file__).resolve().parents[1] / "aucam-architecture.png"
 
 BOX, EDGE, TEXT, FRAME, LABEL = "#dbe9f6", "#4a6fa5", "#1f2d3d", "#8a99b0", "#3d4b5c"
-STORE = "#e4f1e4"
+# Outside AuCaM: drivers and the execution engine.
+EXT_BOX, EXT_EDGE = "#eceff1", "#7b8794"
 
 fig, ax = plt.subplots(figsize=(16, 11))
 ax.set_xlim(0, 16)
@@ -41,7 +42,7 @@ def frame(x0, y0, x1, y1, title, fc):
     )
 
 
-def box(cx, cy, w, h, title, sub="", fc=BOX):
+def box(cx, cy, w, h, title, sub="", fc=BOX, ec=EDGE):
     ax.add_patch(
         FancyBboxPatch(
             (cx - w / 2, cy - h / 2),
@@ -49,7 +50,7 @@ def box(cx, cy, w, h, title, sub="", fc=BOX):
             h,
             boxstyle="round,pad=0.02,rounding_size=0.12",
             fc=fc,
-            ec=EDGE,
+            ec=ec,
             lw=1.5,
         )
     )
@@ -114,10 +115,10 @@ def path(points, text="", tx=None, ty=None, ha="center"):
         )
 
 
-drv = box(8, 10.45, 5.4, 0.9, "Drivers", "decide which campaigns to run")
+drv = box(8, 10.45, 5.4, 0.9, "Drivers", "decide which campaigns to run", fc=EXT_BOX, ec=EXT_EDGE)
 
 frame(0.4, 2.55, 15.6, 9.55, "CampaignManager (AuCaM)", "#f7f9fc")
-db = box(3.0, 8.45, 4.0, 1.0, "DataBackend", "Local · Redis · Dragon", fc=STORE)
+db = box(3.0, 8.45, 4.0, 1.0, "DataBackend", "Local · Redis · Dragon")
 di = box(8, 8.45, 3.9, 1.0, "Driver interface", "admit or reject · return outcomes")
 ba = box(
     13.15,
@@ -126,7 +127,6 @@ ba = box(
     1.0,
     "BudgetAllocator",
     "spending ledger: limits · spent · in-flight",
-    fc=STORE,
 )
 
 frame(1.0, 2.9, 15.0, 7.45, "", "#ffffff")
@@ -143,6 +143,8 @@ ex = box(
     1.1,
     "AsyncFlow engine on RHAPSODY",
     "each workflow = one block; its tasks run on the HPC allocation",
+    fc=EXT_BOX,
+    ec=EXT_EDGE,
 )
 
 arrow(

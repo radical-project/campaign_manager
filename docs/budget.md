@@ -225,8 +225,10 @@ spent by finished campaigns + limits of running campaigns + new campaign's limit
 
 If it does not fit, the campaign is rejected with a reason. A running
 campaign's whole limit counts until it ends; then its actual spending replaces
-it. A campaign that sets no limit for a dimension adds nothing for that
-dimension, so the global limit cannot hold back its spending there.
+it. A campaign that sets no limit for a dimension reserves nothing for it at
+admission, so while it runs, the global limit cannot stop it from spending in
+that dimension. When it ends, its actual spending counts toward the global
+total like any other campaign's.
 
 `GlobalBudget` has four more optional settings, all off unless set:
 

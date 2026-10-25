@@ -2,8 +2,9 @@
 
 What is not implemented yet, for anyone working on the code: the parts of the
 target design that the code does not do yet (with how they should work), and
-other known problems. `docs/architecture-overview.md` describes the current
-design and the reasons for it. Remove an entry when it is done.
+other known problems. The [architecture overview](architecture-overview.md)
+describes the current design and the reasons for it. Remove an entry when it is
+done.
 
 ## Status
 
@@ -24,6 +25,7 @@ design and the reasons for it. Remove an entry when it is done.
 | A2 | Campaigns without a spending limit are not bounded by the global limit | Open |
 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) |
 | D1 | Remote driver submission | Not started |
+| L1 | Launch fewer workflows when the backend is backlogged | Not started |
 | X1 | More accurate task data in AsyncFlow telemetry | Open (external) |
 | X2 | RHAPSODY concurrent backend does not kill cancelled programs | Open (external) |
 
@@ -34,8 +36,8 @@ design and the reasons for it. Remove an entry when it is done.
 Goal: the budget becomes a decision input — AuCaM forecasts each campaign's
 spending, launches only what fits, cancels workflows that spend without
 improving, and favours cost-effective workflow types as the budget runs down.
-Current behaviour: `docs/budget.md`. When an item lands, update `budget.md`
-and the developer guide.
+Current behaviour: [budgets and spending](budget.md). When an item lands,
+update `budget.md` and the developer guide.
 
 - **B0 — any budget dimension.** AsyncFlow telemetry measures only CPU and
   GPU time, so other dimensions (e.g. `llm_tokens`) come from the workflow's
@@ -106,17 +108,28 @@ and the developer guide.
   stubs that fall back to FIFO.
 - **D1 — drivers.** A remote submission interface, so drivers can run outside
   CM's process.
+- **L1 — load-aware launching.** Today the controller sees AsyncFlow task
+  counts (`obs["tasks"]`: waiting, submitted, running) and each policy-cycle log
+  line shows them, but nothing acts on them. Plan: an opt-in setting for the
+  built-in controller, e.g. `CampaignController(max_pending_tasks=20)`, that
+  keeps a target number of workflows in flight (running + queued): above the
+  threshold of submitted tasks it halves the target and drops surplus queued
+  requests (`PolicyResult.cancel_queued`); below it, it raises the target by
+  one. `max_concurrent_workflows` stays the cap. Decide after looking at real
+  task counts from Delta runs. Limits: only AsyncFlow tasks are counted, so a
+  command-line workflow is one task; a running workflow's own burst of tasks
+  is not slowed, only new launches.
 
 ## Known problems
 
 - **A2 — campaigns without a limit.** A campaign that sets no spending limit
   for a dimension commits 0 for it at admission, so the global limit cannot
-  hold back its spending in that dimension (`docs/budget.md` §4). Options:
-  (1) reject a campaign without a spending limit when a global limit is set;
-  or (2) also check the global limit before every launch, counting actual
-  spending plus running workflows across all campaigns. (2) lets campaigns run
-  without a limit, but they could then use budget that other campaigns have
-  reserved.
+  hold back its spending in that dimension ([budgets and spending](budget.md)
+  §4). Options: (1) reject a campaign without a spending limit when a global
+  limit is set; or (2) also check the global limit before every launch,
+  counting actual spending plus running workflows across all campaigns. (2)
+  lets campaigns run without a limit, but they could then use budget that other
+  campaigns have reserved.
 - **X1 — radical.asyncflow telemetry.** AuCaM needs AsyncFlow's task events
   to carry more accurate data: each task's requested resources or actual
   spending (for per-task charging), and the program's exit code (for
