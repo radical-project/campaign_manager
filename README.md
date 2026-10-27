@@ -35,11 +35,7 @@ outcome to plan a cheaper follow-up campaign (see
 
 ```bash
 pip install -e .              # core (Python ≥ 3.10)
-pip install -e ".[redis]"     # + Redis DataBackend and the aucam-report command
 pip install -e ".[dragon]"    # + Dragon/RADICAL HPC backend (Python ≥ 3.11)
-pip install -e ".[adr]"       # + ADR scheduling bridge
-pip install -e ".[llm]"       # + LLM scheduling policy
-pip install -e ".[plotting]"  # + matplotlib, for the demo figures
 pip install -e ".[dev]"       # + pytest, ruff, coverage
 ```
 

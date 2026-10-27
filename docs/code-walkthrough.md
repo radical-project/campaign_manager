@@ -132,7 +132,7 @@ PAUSE / RESUME go out with `write_signal()`.
 ## Figures
 
 The figures in `docs/figures/` are generated, so they can be redrawn when the
-code changes:
+code changes (the scripts need matplotlib: `pip install matplotlib`):
 
 | Figure | Script |
 |---|---|

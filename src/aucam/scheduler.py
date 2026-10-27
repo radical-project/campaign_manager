@@ -9,7 +9,7 @@ Built-in policies
 FIFOSchedulingPolicy    — FIFO respecting concurrency caps
 BanditSchedulingPolicy  — UCB1 bandit; learns per-workflow-type arm scores
                           from WorkflowResult rewards (default)
-ADRSchedulingPolicy     — Adaptive Decision and Reasoning; rule-override hook +
+ADRSchedulingPolicy     — RADICAL Autonomous Decision Runtime; rule-override hook +
                           ADR engine integration (STUB — falls back to FIFO)
 LLMSchedulingPolicy     — LLM-guided ranking (model-agnostic)
                           (STUB — falls back to FIFO)
@@ -253,13 +253,13 @@ class BanditSchedulingPolicy(SchedulingPolicy):
 
 
 # ---------------------------------------------------------------------------
-# ADR policy — Adaptive Decision and Reasoning (stub)
+# ADR policy — RADICAL Autonomous Decision Runtime (stub)
 # ---------------------------------------------------------------------------
 
 
 class ADRSchedulingPolicy(SchedulingPolicy):
     """
-    Adaptive Decision and Reasoning scheduling policy.
+    RADICAL Autonomous Decision Runtime (ADR) scheduling policy.
 
     Designed to integrate with the RADICAL-ADR policy engine: it maintains
     a running observation window and supports an optional rule-override hook
