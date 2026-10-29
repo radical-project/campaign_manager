@@ -1,0 +1,30 @@
+# Campaign template for the global-budget exhaustion demo.
+# Key difference from campaign.yaml: budget.spending.cpu_hours is set so the
+# admission check has a declared per-campaign cost to compare against the global cap.
+
+controller:
+  goal_analyses: 3
+  score_floor: 0.4
+
+budget:
+  max_concurrent: 4
+  max_concurrency_per_workflow: 2
+  spending:
+    # Declared per-campaign limit used by the global-budget admission check.
+    # Actual usage at local speed with 10 iters × 0.08 s is typically ~0.0003–0.0009.
+    cpu_hours: 0.001
+    gpu_hours: ~
+
+workflows:
+  sim_worker:
+    n_iters: 10
+    iter_sleep_s: 0.08
+    stale_timeout_s: 120.0
+  sim_worker_b:
+    stale_timeout_s: 60.0
+  analysis_worker:
+    steps: 2
+
+policy_interval_s: 0.5
+shutdown_timeout_s: 10.0
+checkpoint_dir: ~

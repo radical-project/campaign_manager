@@ -33,7 +33,7 @@ miniapps:
   debug: false
   free_resources_for_train: true
   clean_unregistered_sims: true
-  executable: "${MINIAPPS_VE}/bin/python"
+  executable: "${MINIAPPS_PYTHON}"
 
 slow_step_multiplier: 3   # miniapps_slow uses num_step × this
 

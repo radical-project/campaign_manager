@@ -9,7 +9,7 @@
 #   sbatch campaigns/ddsim_aucam/delta_sbatch.sh
 #
 # ENGINE=dragon (default) uses CPU partition; ENGINE=concurrent uses GPU.
-# Run parameters live in campaign_configs/global_hpc.yaml + campaign_hpc.yaml.
+# Run parameters live in campaign_configs/global.yaml + campaign_hpc.yaml.
 #
 #SBATCH --partition=gpuA100x4
 #SBATCH --nodes=1
@@ -58,12 +58,10 @@ if [ ! -d "${VE}" ]; then
 fi
 TELEMETRY_DIR="${TELEMETRY_DIR:-${CAMPAIGN_DIR}/aucam-tel-${SLURM_JOB_ID:-local}}"
 
-# HPC YAMLs on SLURM, dev YAMLs for local runs.
+GLOBAL_CONFIG="${GLOBAL_CONFIG:-campaign_configs/global.yaml}"
 if [ -n "${SLURM_JOB_ID:-}" ]; then
-    GLOBAL_CONFIG="${GLOBAL_CONFIG:-campaign_configs/global_hpc.yaml}"
     CAMPAIGN_CONFIG="${CAMPAIGN_CONFIG:-campaign_configs/campaign_hpc.yaml}"
 else
-    GLOBAL_CONFIG="${GLOBAL_CONFIG:-campaign_configs/global.yaml}"
     CAMPAIGN_CONFIG="${CAMPAIGN_CONFIG:-campaign_configs/campaign.yaml}"
 fi
 
@@ -74,6 +72,11 @@ export CUDA_HOME=/opt/nvidia/hpc_sdk/Linux_x86_64/25.3/cuda/12.8
 export MPI_LIB=/opt/cray/pe/mpich/8.1.32/ofi/gnu/11.2/lib-abi-mpich
 export FAB_LIB=/opt/cray/libfabric/1.22.0/lib64
 export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${MPI_LIB}:${FAB_LIB}:${LD_LIBRARY_PATH:-}"
+
+# ── Thread limits — prevent OpenBLAS from spawning 64 threads per sim task ────
+export OPENBLAS_NUM_THREADS=1
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
 
 # ── Activate venv ─────────────────────────────────────────────────────────────
 unset SLURM_EXPORT_ENV
@@ -93,7 +96,7 @@ if [ "${ENGINE}" = "dragon" ]; then
 fi
 echo ""
 echo "DDSIM_DIR       : ${DDSIM_DIR}"
-echo "MINIAPPS_VE     : ${MINIAPPS_VE}"
+echo "MINIAPPS_PYTHON : ${MINIAPPS_PYTHON}"
 echo "TELEMETRY_DIR   : ${TELEMETRY_DIR}"
 echo "GLOBAL_CONFIG   : ${GLOBAL_CONFIG}"
 echo "CAMPAIGN_CONFIG : ${CAMPAIGN_CONFIG}"
@@ -107,6 +110,7 @@ COMMON_ARGS=(
     --global-config   "${GLOBAL_CONFIG}"
     --campaign-config "${CAMPAIGN_CONFIG}"
     --telemetry-dir   "${TELEMETRY_DIR}"
+    --verbose
 )
 
 if [ "${ENGINE}" = "dragon" ]; then

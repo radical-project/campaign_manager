@@ -20,7 +20,7 @@ budget:
 
 miniapps:
   total_num_sim:           5    # total simulations per replica
-  max_sim_batch:           4    # max concurrent sims at once
+  max_sim_batch:           1    # max concurrent sims at once
   training_cores:          1
   miniapps_data_ready:     2    # signal ready after this many sims (MiniApps internal)
   num_step:               50    # simulation timesteps (slow variant uses 3×)
@@ -30,7 +30,7 @@ miniapps:
   debug: false
   free_resources_for_train: true
   clean_unregistered_sims: false
-  executable: "${MINIAPPS_VE}/bin/python"
+  executable: "${MINIAPPS_PYTHON}"
 
 slow_step_multiplier: 3   # miniapps_slow uses num_step × this
 

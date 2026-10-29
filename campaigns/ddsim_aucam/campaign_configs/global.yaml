@@ -1,6 +1,6 @@
-# Global CampaignManager configuration — local / dev defaults.
+# Global CampaignManager configuration.
 # ddsim_aucam always runs in driver mode with all campaigns submitted in parallel.
-# Use global_hpc.yaml for Dragon multi-node runs.
+# verbose and telemetry.enabled can be overridden via --verbose and --telemetry-dir CLI flags.
 
 engine: concurrent
 verbose: false

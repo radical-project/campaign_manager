@@ -45,12 +45,12 @@ fi
 echo ""
 echo "Creating VE at ${VE} ..."
 module load python/3.13.5-gcc13.3.1
-python3 -m venv "${VE}"
+python3 -m venv --copies "${VE}"
 source "${VE}/bin/activate"
 
 pip install --upgrade pip --quiet
 pip install --quiet -e "${CM_DIR}[dragon,telemetry]"
-pip install --quiet "rhapsody-py[dragon]"
+
 DRAGON_INCLUDE_DIR="$(python -c 'import dragon, os; print(os.path.join(os.path.dirname(dragon.__file__), "include"))')"
 DRAGON_LIB_DIR="$(python -c 'import dragon, os; print(os.path.join(os.path.dirname(dragon.__file__), "lib"))')"
 export DRAGON_INCLUDE_DIR DRAGON_LIB_DIR

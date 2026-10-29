@@ -19,11 +19,10 @@ Usage:
         --global-config  campaign_configs/global.yaml \\
         --campaign-config campaign_configs/campaign.yaml
 
-    # HPC (Dragon):
+    # HPC (Dragon or concurrent) — verbose + telemetry auto-enabled by --telemetry-dir:
     python run_campaign.py \\
-        --global-config campaign_configs/global_hpc.yaml \\
         --campaign-config campaign_configs/campaign_hpc.yaml \\
-        --telemetry-dir /path/to/tel
+        --engine dragon --verbose --telemetry-dir /path/to/tel
 
     # Quick start (all defaults):
     python run_campaign.py --num-campaigns 2
@@ -577,6 +576,8 @@ def main() -> None:
     gcfg.verbose = args.verbose
     gcfg.scheduling.policy = args.policy
     gcfg.telemetry.dir = args.telemetry_dir
+    if args.telemetry_dir:
+        gcfg.telemetry.enabled = True
     gcfg.driver.num_campaigns = args.num_campaigns
     gcfg.driver.max_concurrent = args.max_concurrent_campaigns
 
