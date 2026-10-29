@@ -115,7 +115,7 @@ Set `SBATCH_ACCOUNT`, and adjust the node count and time limit for your site.
 | `workflows.py` | The three workflow types |
 | `config.py` | Config dataclasses and YAML loading |
 | `scheduler.py` | Builds the scheduling policy named in `global.yaml` |
-| `campaign_configs/` | `global.yaml`, `campaign.yaml` (local); `global_hpc.yaml`, `campaign_hpc.yaml` (HPC) |
+| `campaign_configs/` | `global.yaml`, `campaign.yaml` (local); `global_hpc.yaml`, `campaign_hpc.yaml` (HPC); `global_redis.yaml` (Redis backend test) |
 | `delta_sbatch.sh` | SLURM batch script |
 | `run_impact.py`, `gen_impact_fig.py` | Capability demo and its figure |
 | `cmd_sim_worker.py` | A command-line workflow, added automatically with the Redis or Dragon backend |

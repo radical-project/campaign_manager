@@ -50,7 +50,7 @@ Guidance for Claude Code in this repository.
 ## Commands
 
 ```bash
-pip install -e ".[dev]"      # Python ≥ 3.10; [dragon] needs ≥ 3.11; [redis] for Redis + aucam-report
+pip install -e ".[dev]"      # Python ≥ 3.11 (3.10 works without [dragon]); [redis] for Redis + aucam-report
 pytest                       # tests needing unreleased radical.asyncflow features skip (known-gaps X1)
 pytest -m "not slow"
 ruff check --no-fix . && ruff format --check .   # lint (plain `ruff check .` edits files)
@@ -59,6 +59,48 @@ python campaigns/demo_campaign/doc_figures.py        # redraw the budget/bandit 
 ```
 
 `docs/code-walkthrough.md` has the module map and main code paths.
+
+## Campaigns on Delta (NCSA)
+
+`campaigns/ddsim_aucam/README.md` is the quickstart for running the DDSim
+campaign. The key steps:
+
+```bash
+# 1 — set WORK_DIR; three sibling repos must exist under it:
+#     campaign_manager/  DeepDriveSim/  workflow-mini-apps/
+export WORK_DIR=/work/nvme/bdyk/<project>/<username>
+
+# 2 — create the VE once (≈ 5 min; builds mpi4py from source)
+bash campaigns/ddsim_aucam/delta_env_setup.sh
+
+# 3 — activate (sets DDSIM_DIR, MINIAPPS_PYTHON, LD_LIBRARY_PATH, thread limits)
+source campaigns/ddsim_aucam/delta_env_setup.sh
+
+# 4a — run locally (concurrent engine, login node)
+cd campaigns/ddsim_aucam
+python run_campaign.py --engine concurrent \
+    --global-config campaign_configs/global.yaml \
+    --campaign-config campaign_configs/campaign.yaml \
+    --telemetry-dir aucam-tel-local
+
+# 4b — run on HPC via SLURM
+export SBATCH_ACCOUNT=<project>-delta-gpu
+mkdir -p campaigns/ddsim_aucam/logs
+ENGINE=concurrent sbatch campaigns/ddsim_aucam/delta_sbatch.sh
+```
+
+**Delta-specific VE requirements** (already handled by `delta_env_setup.sh`):
+
+- `python3 -m venv --copies` — Dragon cannot execute symlinked binaries on
+  Lustre; `--copies` makes `${VE}/bin/python` a real binary.
+- mpi4py must be built from source against Cray MPICH (PyPI wheel links
+  against `libmpi.so.12`; Cray provides `libmpi_gnu.so.12`):
+  `MPICC=${MPICH_DIR}/bin/mpicc pip install --no-binary mpi4py mpi4py`
+- `LD_LIBRARY_PATH="${MPICH_DIR}/lib:..."` — Cray MPICH sets `MPICH_DIR` but
+  does not add its lib to `LD_LIBRARY_PATH`; sourcing `delta_env_setup.sh`
+  does this.
+- `OPENBLAS_NUM_THREADS=1`, `OMP_NUM_THREADS=1`, `MKL_NUM_THREADS=1` —
+  prevent thread exhaustion when many sim tasks run concurrently.
 
 ## Dragon on Delta (NCSA)
 
@@ -71,3 +113,9 @@ python campaigns/demo_campaign/doc_figures.py        # redraw the budget/bandit 
   ```
 - Python `logging` goes to stderr (`.err`), `print()` to stdout (`.out`); CM
   budget and spending logs are INFO → `.err`.
+- Dragon re-hooks the root logger during `asyncio.run()`, removing any
+  handlers added before `_make_backend()`. Fix: call `_reconfigure_logging()`
+  after `_make_backend()` to re-add `StreamHandler(sys.stdout)` and
+  `FileHandler`. See `campaigns/ddsim_aucam/run_campaign.py` for the pattern.
+- Stop `TelemetryManager` before `WorkflowEngine.shutdown()`, or its
+  background thread hangs the process. See `run_campaign.py` `try/finally`.
