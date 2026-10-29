@@ -37,7 +37,7 @@ outcome to plan a cheaper follow-up campaign (see
 pip install -e .                          # core (Python ≥ 3.10)
 pip install -e ".[telemetry]"             # + OpenTelemetry + GPU metrics
 pip install -e ".[dragon]"                # + Dragon/RADICAL HPC backend (Python ≥ 3.11)
-pip install -e ".[dragon,telemetry]"      # HPC + telemetry (typical Delta setup)
+pip install -e ".[dragon,telemetry]"      # HPC + telemetry
 pip install -e ".[dev]"                   # + pytest, ruff, coverage
 ```
 
