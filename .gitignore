@@ -2,17 +2,10 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
-*.egg
-.eggs/
-dist/
-build/
-*.whl
 
 # Virtual environments
 .venv/
 venv/
-env/
-# venv created in repo root (bin/lib/lib64/pyvenv.cfg)
 bin/
 lib/
 lib64
@@ -46,13 +39,6 @@ tests/*.json
 slurm-*.out
 slurm-*.err
 
-# Editor / OS
+# OS / local tooling
 .DS_Store
-*.swp
-*.swo
-.idea/
-.vscode/
-*.iml
-
-# Local Claude Code settings
 .claude/settings.local.json
