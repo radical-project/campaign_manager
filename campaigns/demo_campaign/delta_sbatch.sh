@@ -61,8 +61,14 @@ fi
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 CM_DIR="${CM_DIR:-${WORK_DIR}/campaign_manager}"
-VE="${VE:-${WORK_DIR}/ve/ddsim}"
 CAMPAIGN_DIR="${CM_DIR}/campaigns/demo_campaign"
+# shellcheck source=delta_env_setup.sh
+source "${CAMPAIGN_DIR}/delta_env_setup.sh"
+if [ ! -d "${VE}" ]; then
+    echo "ERROR: VE not found at ${VE}."
+    echo "       Run: bash ${CAMPAIGN_DIR}/delta_env_setup.sh"
+    exit 1
+fi
 TELEMETRY_DIR="${TELEMETRY_DIR:-${CAMPAIGN_DIR}/aucam-tel-${SLURM_JOB_ID:-local}}"
 
 # Config YAML selection — HPC YAMLs for dragon, local YAMLs for concurrent.

@@ -446,7 +446,12 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
         )
     )
 
-    await cm.run()
+    try:
+        await cm.run()
+    finally:
+        if _rdb is not None:
+            await _rdb.shutdown()
+
     elapsed = time.monotonic() - t0
 
     # Print after cm.run() returns (Dragon/asyncflow fully shut down) so stdout
@@ -457,9 +462,6 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
         print(f"\n[POLICY] {cname}:")
         _print_policy_summary(cpolicy, gcfg.scheduling.policy)
     print(f"\nTotal elapsed: {elapsed:.1f}s", flush=True)
-
-    if _rdb is not None:
-        await _rdb.shutdown()
 
 
 # ── Argument parser ───────────────────────────────────────────────────────────

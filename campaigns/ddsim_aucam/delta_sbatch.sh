@@ -48,12 +48,14 @@ fi
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 CM_DIR="${CM_DIR:-${WORK_DIR}/campaign_manager}"
-VE="${VE:-${WORK_DIR}/ve/ddsim}"
-MINIAPPS_VE="${MINIAPPS_VE:-${WORK_DIR}/ve/miniapps}"
-export MINIAPPS_VE
-DDSIM_DIR="${DDSIM_DIR:-${WORK_DIR}/DeepDriveSim}"
-export DDSIM_DIR
 CAMPAIGN_DIR="${CM_DIR}/campaigns/ddsim_aucam"
+# shellcheck source=delta_env_setup.sh
+source "${CAMPAIGN_DIR}/delta_env_setup.sh"
+if [ ! -d "${VE}" ]; then
+    echo "ERROR: VE not found at ${VE}."
+    echo "       Run: bash ${CAMPAIGN_DIR}/delta_env_setup.sh"
+    exit 1
+fi
 TELEMETRY_DIR="${TELEMETRY_DIR:-${CAMPAIGN_DIR}/aucam-tel-${SLURM_JOB_ID:-local}}"
 
 # HPC YAMLs on SLURM, dev YAMLs for local runs.

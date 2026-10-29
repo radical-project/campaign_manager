@@ -59,6 +59,7 @@ class CampaignManager:
         telemetry_checkpoint_dir: str | None = None,
     ) -> None:
         self._backend = backend
+        self._owns_backend = backend is None  # CM created it; CM must shut it down
         self._global_budget = global_budget
         self._enable_telemetry = enable_telemetry
         self._telemetry_checkpoint_dir = telemetry_checkpoint_dir
@@ -338,7 +339,7 @@ class CampaignManager:
                 if telemetry is not None:
                     await telemetry.stop()
                     logger.info("[CM] asyncflow telemetry stopped")
-                await self._flow.shutdown(skip_execution_backend=True)
+                await self._flow.shutdown(skip_execution_backend=not self._owns_backend)
                 logger.info("[CM] WorkflowEngine shut down")
 
         logger.info("[CM] all campaigns complete")

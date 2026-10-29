@@ -370,6 +370,23 @@ async def _driver(
 # ── Main run ──────────────────────────────────────────────────────────────────
 
 
+def _reconfigure_logging(*, level: int, telemetry_dir: str) -> None:
+    """Re-apply logging config after Dragon runtime init clears our handlers."""
+    fmt = logging.Formatter(
+        "%(asctime)s %(levelname)-8s %(name)-30s %(message)s", datefmt="%H:%M:%S"
+    )
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.setLevel(level)
+    sh = logging.StreamHandler(sys.stdout)
+    sh.setFormatter(fmt)
+    root.addHandler(sh)
+    Path(telemetry_dir).mkdir(parents=True, exist_ok=True)
+    fh = logging.FileHandler(Path(telemetry_dir) / "campaign.log")
+    fh.setFormatter(fmt)
+    root.addHandler(fh)
+
+
 async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace) -> None:
     n = gcfg.num_campaigns
     labels = [chr(ord("a") + i) for i in range(n)] if n > 1 else [""]
@@ -377,6 +394,16 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
     # Each campaign gets its own scheduling policy instance.
     policies: list = []  # (campaign name, policy)
     backend = await _make_backend(gcfg.engine)
+
+    # Dragon's runtime init (inside _make_backend) re-hooks the root logger and
+    # removes handlers added before asyncio.run().  Re-apply them here so all
+    # subsequent CM/policy/spend logs reach the telemetry file.
+    if gcfg.telemetry.dir:
+        _reconfigure_logging(
+            level=logging.DEBUG if gcfg.verbose else logging.INFO,
+            telemetry_dir=gcfg.telemetry.dir,
+        )
+
     data_backend, _rdb = await _make_data_backend(
         gcfg.engine, gcfg.data_backend, gcfg.redis_server_path
     )
@@ -463,7 +490,16 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
             cm.submit_campaign(spec)
             logging.info("[DRIVER] submitted '%s'", name)
 
-    await cm.run()
+    try:
+        await cm.run()
+    finally:
+        if _rdb is not None:
+            if hasattr(data_backend, "close"):
+                data_backend.close()
+            await _rdb.shutdown()
+        if backend is not None and hasattr(backend, "shutdown"):
+            await backend.shutdown()
+
     elapsed = time.monotonic() - t0
 
     # ── Summary ───────────────────────────────────────────────────────────────
@@ -477,13 +513,6 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
         print(f"\n  campaign {cname}:")
         print_policy_summary(cpolicy, gcfg.scheduling.policy)
     print(f"\nTotal elapsed: {elapsed:.1f}s", flush=True)
-
-    if _rdb is not None:
-        if hasattr(data_backend, "close"):
-            data_backend.close()
-        await _rdb.shutdown()
-    if backend is not None and hasattr(backend, "shutdown"):
-        await backend.shutdown()
 
     # Cancel any background asyncio tasks left by Dragon/CM so that
     # asyncio.run() can close the event loop without hanging.
@@ -653,13 +682,20 @@ def main() -> None:
     )
 
     level = logging.DEBUG if gcfg.verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)-8s %(name)-30s %(message)s",
-        datefmt="%H:%M:%S",
-        stream=sys.stdout,  # stdout, so Dragon captures logs with the program output
-        force=True,  # Dragon's api_setup pre-configures the root logger; force overrides it
+    fmt = logging.Formatter(
+        "%(asctime)s %(levelname)-8s %(name)-30s %(message)s", datefmt="%H:%M:%S"
     )
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+    # Always write to a file: Dragon re-hooks the root logger during runtime
+    # init and swallows subsequent writes to sys.stdout.
+    if gcfg.telemetry.dir:
+        Path(gcfg.telemetry.dir).mkdir(parents=True, exist_ok=True)
+        fh = logging.FileHandler(Path(gcfg.telemetry.dir) / "campaign.log")
+        fh.setFormatter(fmt)
+        handlers.append(fh)
+    for h in handlers:
+        h.setFormatter(fmt)
+    logging.basicConfig(level=level, handlers=handlers, force=True)
 
     raise SystemExit(asyncio.run(run(gcfg, ccfg, args)))
 

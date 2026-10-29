@@ -38,8 +38,13 @@ redis = [
 # Dragon/RADICAL HPC backend
 dragon = [
     "dragonhpc>=0.13.2",
-    "rhapsody-py>=0.2.0",
+    "rhapsody-py[dragon]>=0.2.0",
     "nvidia-ml-py"
+]
+
+# AsyncFlow / Rhapsody telemetry (OpenTelemetry + GPU metrics)
+telemetry = [
+    "rhapsody-py[telemetry]>=0.2.0",
 ]
 
 # ADR bridge — drive campaign scheduling from a radical.adr Policy.
@@ -54,6 +59,11 @@ adr = [
 llm = [
     "openai>=1.0.0",
     "instructor>=1.0.0",
+]
+
+# Plotting — doc figures and capability demo visualization
+plotting = [
+    "matplotlib>=3.7.0",
 ]
 
 # Development dependencies

@@ -952,7 +952,10 @@ class _CampaignInstance:
                 asyncio.ensure_future(self.spec.data_backend.delete_report(_inst.wf_id))
 
             # Update scheduler policy, controller counters, and history.
-            self._policy.on_outcome(_inst.request, result)
+            # DAG-triggered and init requests were not selected by the policy,
+            # so they must not feed back into the policy's arm statistics.
+            if _inst.request.requester == "policy_agent":
+                self._policy.on_outcome(_inst.request, result)
             self.spec.controller.on_complete(result)
             self._history.append(result)
             if len(self._history) > self._history_max:
