@@ -55,7 +55,7 @@ pytest                       # tests needing unreleased radical.asyncflow featur
 pytest -m "not slow"
 ruff check --no-fix . && ruff format --check .   # lint (plain `ruff check .` edits files)
 python docs/figures/src/architecture.py              # redraw the architecture figure
-python campaigns/demo_campaign/doc_figures.py        # redraw the budget/bandit figures (~1 min)
+python campaigns/demo_campaign/figures/doc_figures.py # redraw the budget/bandit figures (~1 min)
 ```
 
 `docs/code-walkthrough.md` has the module map and main code paths.

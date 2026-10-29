@@ -14,8 +14,8 @@ Figures for the AuCaM docs, from real (short, synthetic) AuCaM runs.
 
 Run (about 1.5 minutes, needs matplotlib):
     cd $WORK_DIR/campaign_manager
-    python campaigns/demo_campaign/doc_figures.py              # run all, write JSON + PNGs
-    python campaigns/demo_campaign/doc_figures.py --plot-only  # redraw from the JSON
+    python campaigns/demo_campaign/figures/doc_figures.py              # run all, write JSON + PNGs
+    python campaigns/demo_campaign/figures/doc_figures.py --plot-only  # redraw from the JSON
 """
 
 from __future__ import annotations

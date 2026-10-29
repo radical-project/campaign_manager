@@ -68,7 +68,7 @@ before planning the next:
 ## 3. See what AuCaM adds
 
 ```bash
-python run_impact.py        # ~75 s
+python figures/run_impact.py        # ~75 s
 ```
 
 Cancellation, learning, spending and driver feedback on one run, explained in
@@ -117,5 +117,6 @@ Set `SBATCH_ACCOUNT`, and adjust the node count and time limit for your site.
 | `scheduler.py` | Builds the scheduling policy named in `global.yaml` |
 | `campaign_configs/` | `global.yaml`, `campaign.yaml` (local); `global_hpc.yaml`, `campaign_hpc.yaml` (HPC); `global_redis.yaml` (Redis backend test) |
 | `delta_sbatch.sh` | SLURM batch script |
-| `run_impact.py`, `gen_impact_fig.py` | Capability demo and its figure |
+| `figures/run_impact.py`, `figures/gen_impact_fig.py` | Capability demo and its figure |
+| `figures/doc_figures.py` | Generates documentation figures (budget, bandit, global budget) |
 | `cmd_sim_worker.py` | A command-line workflow, added automatically with the Redis or Dragon backend |

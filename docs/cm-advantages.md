@@ -4,7 +4,7 @@ Running a campaign by hand means watching every workflow, stopping the ones
 that perform poorly and deciding what to launch next. AuCaM does this on its
 own: it follows the results while workflows run, acts on them, and returns each
 campaign's outcome to a driver that plans the next campaign. The demo in
-`campaigns/demo_campaign/run_impact.py` shows four of these capabilities on a
+`campaigns/demo_campaign/figures/run_impact.py` shows four of these capabilities on a
 small example that stands in for the long-running campaigns AuCaM is built for:
 
 1. **Science-driven steering** — the controller makes the scientific decisions
@@ -134,10 +134,10 @@ each of these.
 cd $WORK_DIR/campaign_manager
 
 # Run the demo (two campaigns, ~75 s)
-python campaigns/demo_campaign/run_impact.py --json-out /tmp/impact_run.json
+python campaigns/demo_campaign/figures/run_impact.py --json-out /tmp/impact_run.json
 
 # Draw the figure from the JSON output (needs matplotlib)
-python -I campaigns/demo_campaign/gen_impact_fig.py \
+python -I campaigns/demo_campaign/figures/gen_impact_fig.py \
     --json-in /tmp/impact_run.json \
     --out docs/figures/aucam_impact.png
 ```
@@ -162,6 +162,6 @@ Expected output (abridged):
 
 | File | Purpose |
 |---|---|
-| `campaigns/demo_campaign/run_impact.py` | The demo: workflows, controller, driver |
-| `campaigns/demo_campaign/gen_impact_fig.py` | Draws the figure from the demo's JSON output |
+| `campaigns/demo_campaign/figures/run_impact.py` | The demo: workflows, controller, driver |
+| `campaigns/demo_campaign/figures/gen_impact_fig.py` | Draws the figure from the demo's JSON output |
 | `docs/figures/aucam_impact.png` | The figure |
