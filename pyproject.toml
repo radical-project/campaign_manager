@@ -22,7 +22,8 @@ dependencies = [
     "pyyaml>=6.0",
     "radical.asyncflow>=0.3.0",
     "rhapsody-py>=0.2.0",
-    "nvidia-ml-py"
+    "nvidia-ml-py",
+    "psutil>=5.9",
 ]
 
 [project.scripts]
