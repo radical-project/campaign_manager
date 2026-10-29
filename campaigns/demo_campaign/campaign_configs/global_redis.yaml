@@ -1,0 +1,30 @@
+# Global CampaignManager configuration — local concurrent execution + Redis data backend.
+# Tests RhapsodyRedisBackend / RhapsodyRedisReporter end-to-end.
+#
+# Run:
+#   python run_campaign.py \
+#     --global-config  campaign_configs/global_redis.yaml \
+#     --campaign-config campaign_configs/campaign.yaml
+
+engine: concurrent
+data_backend: redis
+redis_server_path: /sw/external/python/anaconda3_4.2.0/bin/redis-server
+asyncflow_blocks: false
+verbose: false
+num_campaigns: 1
+
+driver:
+  enabled: false
+  delay_s: 2.0
+
+scheduling:
+  policy: bandit
+
+global_budget:
+  max_concurrent_campaigns: ~
+  max_total_concurrent_workflows: ~
+  spending: {}
+
+telemetry:
+  enabled: false
+  dir: ~

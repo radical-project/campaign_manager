@@ -12,6 +12,11 @@ build/
 .venv/
 venv/
 env/
+# venv created in repo root (bin/lib/lib64/pyvenv.cfg)
+bin/
+lib/
+lib64
+pyvenv.cfg
 
 # Test, lint and coverage
 .pytest_cache/
