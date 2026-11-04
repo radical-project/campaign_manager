@@ -96,8 +96,8 @@ Override `condition` to gate on score, metrics, or any field of `WorkflowResult`
 ```python
 CampaignBudget(
     max_concurrent_workflows=4,
-    max_concurrency_per_workflow=2,   # per-type cap enforced by the CM
-    spending={"cpu_hours": 0.05},     # hard cap; workflows self-report actual usage
+    max_concurrency_per_workflow=2,  # per-type cap enforced by the CM
+    spending={"cpu_hours": 0.05},  # hard cap; workflows self-report actual usage
 )
 ```
 
@@ -110,8 +110,8 @@ CampaignBudget(
 ```python
 super().__init__(
     rules=[
-        LaunchRule("fast_sim"),           # explicit form of launch= shorthand
-        CancelRule("fast_sim",  when=lambda r: r.score is not None and r.score < threshold),
+        LaunchRule("fast_sim"),  # explicit form of launch= shorthand
+        CancelRule("fast_sim", when=lambda r: r.score is not None and r.score < threshold),
         CancelRule("precise_sim", when=...),
     ],
     goal_type="analysis",
@@ -127,7 +127,7 @@ super().__init__(
 ```python
 def observe(self, queue_snapshot, budget, running=None, **kwargs) -> dict:
     obs = super().observe(queue_snapshot, budget, running, **kwargs)
-    obs["cancel_rate"] = cancelled / max(1, total)   # custom field for decide()
+    obs["cancel_rate"] = cancelled / max(1, total)  # custom field for decide()
     return obs
 ```
 
@@ -138,14 +138,17 @@ Called by the CM before every `decide()`.  Add any derived metric here so
 
 ```python
 def decide(self, obs: dict) -> PolicyResult:
-    base = self._apply_rules(self._rules, obs)   # applies LaunchRule + CancelRule from __init__
+    base = self._apply_rules(self._rules, obs)  # applies LaunchRule + CancelRule from __init__
     q = obs["queue_snapshot"]
 
     # Keep one precise_sim queued; promote it to HIGH when a good score was seen.
     extra = []
     if not self.is_goal_reached() and q.by_type.get("precise_sim", 0) == 0:
-        priority = LaunchPriority.HIGH if self._best is not None and self._best > 0.7 \
-                   else LaunchPriority.NORMAL
+        priority = (
+            LaunchPriority.HIGH
+            if self._best is not None and self._best > 0.7
+            else LaunchPriority.NORMAL
+        )
         extra.append(LaunchRequest.make("precise_sim", priority=priority))
 
     # High cancel rate → drop queued fast_sims to free slots for analysis.
@@ -174,7 +177,7 @@ concurrency slots for `analysis` workflows.
 ```python
 def is_goal_reached(self) -> bool:
     if self._best is not None and self._best >= 0.99:
-        return True          # perfect score: stop regardless of analysis count
+        return True  # perfect score: stop regardless of analysis count
     return super().is_goal_reached()
 ```
 
@@ -189,7 +192,7 @@ def goals(self) -> list[Goal]:
 
 ```python
 def on_complete(self, result: WorkflowResult) -> None:
-    super().on_complete(result)   # keeps completed/cancelled/failed counters accurate
+    super().on_complete(result)  # keeps completed/cancelled/failed counters accurate
     if result.returncode == 0 and result.final_score is not None:
         if self._best is None or result.final_score > self._best:
             self._best = result.final_score
@@ -245,14 +248,14 @@ if isinstance(policy, BanditSchedulingPolicy):
 
 ```python
 cm = CampaignManager()
-result = cm.submit_campaign(spec)        # synchronous pre-submit; no outcome future
+result = cm.submit_campaign(spec)  # synchronous pre-submit; no outcome future
 if not result.accepted:
     return
 
-await cm.run()                           # runs until the campaign finishes
+await cm.run()  # runs until the campaign finishes
 cm.close()
 
-s = spec.controller.get_summary()        # read summary directly from controller
+s = spec.controller.get_summary()  # read summary directly from controller
 ```
 
 `submit_campaign()` queues the spec before `run()` starts.  The CM shuts down
