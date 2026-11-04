@@ -1,16 +1,16 @@
 #!/bin/bash
 #
-# Demo Campaign — Delta HPC
+# HPC Campaign — Delta HPC
 #
 # Usage:
 #   export WORK_DIR=$WORK_DIR
 #   export SBATCH_ACCOUNT=<project>-delta-cpu
-#   mkdir -p $WORK_DIR/campaign_manager/campaigns/demo_campaign/logs
-#   sbatch campaigns/demo_campaign/delta_sbatch.sh
+#   mkdir -p $WORK_DIR/campaign_manager/campaigns/hpc_campaign/logs
+#   sbatch campaigns/hpc_campaign/delta_sbatch.sh
 #
 # Optional env overrides:
 #   ENGINE=dragon             (default) | concurrent
-#   TELEMETRY_DIR=<path>      (default: campaigns/demo_campaign/aucam-tel-<jobid>)
+#   TELEMETRY_DIR=<path>      (default: campaigns/hpc_campaign/aucam-tel-<jobid>)
 #   GLOBAL_CONFIG=<path>      overrides the YAML chosen by ENGINE
 #   CAMPAIGN_CONFIG=<path>    overrides the YAML chosen by ENGINE
 #
@@ -61,7 +61,7 @@ fi
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 CM_DIR="${CM_DIR:-${WORK_DIR}/campaign_manager}"
-CAMPAIGN_DIR="${CM_DIR}/campaigns/demo_campaign"
+CAMPAIGN_DIR="${CM_DIR}/campaigns/hpc_campaign"
 # shellcheck source=delta_env_setup.sh
 source "${CAMPAIGN_DIR}/delta_env_setup.sh"
 if [ ! -d "${VE}" ]; then

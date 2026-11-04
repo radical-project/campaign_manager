@@ -23,8 +23,8 @@ One driver runs two campaigns in sequence:
 
 Run:
     cd $WORK_DIR/campaign_manager
-    python campaigns/demo_campaign/figures/run_impact.py --json-out /tmp/impact_run.json
-    python campaigns/demo_campaign/figures/gen_impact_fig.py --json-in /tmp/impact_run.json
+    python campaigns/hpc_campaign/figures/run_impact.py --json-out /tmp/impact_run.json
+    python campaigns/hpc_campaign/figures/gen_impact_fig.py --json-in /tmp/impact_run.json
 """
 
 from __future__ import annotations

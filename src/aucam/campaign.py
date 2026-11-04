@@ -574,13 +574,6 @@ class _CampaignInstance:
             return
 
         if not res or not tag:
-            if etype in ("TaskStarted", "TaskCompleted", "TaskFailed"):
-                logger.debug(
-                    "[SPEND-DBG] %s filtered: res=%s tag=%s",
-                    etype,
-                    bool(res),
-                    bool(tag),
-                )
             return
         wf_id = self._wf_tags.get(tag)
         if wf_id is None:

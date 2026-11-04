@@ -278,3 +278,17 @@ def _optional_float(v: object) -> float | None:
 
 def _optional_int(v: object) -> int | None:
     return int(v) if v is not None else None
+
+
+def parse_csv_floats(val: str | None, n: int) -> list[float | None]:
+    """Parse a comma-separated float string into a list of length n.
+
+    A single value is broadcast to all n slots.  Missing or empty tokens
+    become None (no limit).  Used to pass per-campaign spending caps from CLI.
+    """
+    if val is None:
+        return [None] * n
+    parts = [float(x.strip()) if x.strip() else None for x in str(val).split(",")]
+    if len(parts) == 1:
+        return parts * n
+    return (parts + [None] * n)[:n]

@@ -479,7 +479,7 @@ async def main() -> None:
 
 ### Config-driven runners
 
-`campaigns/demo_campaign/run_campaign.py` and `campaigns/ddsim_aucam/` build
+`campaigns/hpc_campaign/run_campaign.py` and `campaigns/ddsim_aucam/` build
 specs from YAML files (one for the manager, one per campaign template) with
 command-line overrides. Their keys are specific to each example; see the
 [demo campaign guide](demo-campaign-guide.md) and the files'
