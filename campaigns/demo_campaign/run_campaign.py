@@ -288,7 +288,7 @@ async def run(args: argparse.Namespace) -> None:
         return
 
     t0 = time.monotonic()
-    await cm.run()   # returns when the campaign finishes
+    await cm.run()  # returns when the campaign finishes
     cm.close()
 
     s = spec.controller.get_summary()

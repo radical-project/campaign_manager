@@ -160,8 +160,12 @@ def build_spec(
     ]
     dependencies = [
         # Each successful sim triggers one analysis.
-        WorkflowDependency(source="sim_worker",   target="analysis_worker", condition=lambda r: r.returncode == 0),
-        WorkflowDependency(source="sim_worker_b", target="analysis_worker", condition=lambda r: r.returncode == 0),
+        WorkflowDependency(
+            source="sim_worker", target="analysis_worker", condition=lambda r: r.returncode == 0
+        ),
+        WorkflowDependency(
+            source="sim_worker_b", target="analysis_worker", condition=lambda r: r.returncode == 0
+        ),
     ]
 
     if use_cmd_worker:
@@ -180,7 +184,11 @@ def build_spec(
             )
         )
         dependencies.append(
-            WorkflowDependency(source="cmd_sim_worker", target="analysis_worker", condition=lambda r: r.returncode == 0)
+            WorkflowDependency(
+                source="cmd_sim_worker",
+                target="analysis_worker",
+                condition=lambda r: r.returncode == 0,
+            )
         )
 
     return CampaignSpec(
@@ -229,12 +237,18 @@ async def _driver(
 
         if prev_outcome is not None:
             # Inspect previous outcome — adapt next campaign if needed.
-            sims_ok  = prev_outcome.completed.get("sim_worker", 0) + prev_outcome.completed.get("sim_worker_b", 0)
-            sims_can = prev_outcome.cancelled.get("sim_worker", 0) + prev_outcome.cancelled.get("sim_worker_b", 0)
+            sims_ok = prev_outcome.completed.get("sim_worker", 0) + prev_outcome.completed.get(
+                "sim_worker_b", 0
+            )
+            sims_can = prev_outcome.cancelled.get("sim_worker", 0) + prev_outcome.cancelled.get(
+                "sim_worker_b", 0
+            )
             cancel_rate = sims_can / max(1, sims_ok + sims_can)
             logging.info(
                 "[DRIVER] %s → planning %s | goal_reached=%s  cancel_rate=%.0f%%  analyses=%d  elapsed=%.1fs",
-                prev_outcome.campaign_name, name, prev_outcome.goal_reached,
+                prev_outcome.campaign_name,
+                name,
+                prev_outcome.goal_reached,
                 cancel_rate * 100,
                 prev_outcome.completed.get("analysis_worker", 0),
                 prev_outcome.elapsed_s,
@@ -339,7 +353,9 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
         cm.expect_driver()
         driver_task = asyncio.create_task(
             _driver(
-                cm, gcfg, ccfg,
+                cm,
+                gcfg,
+                ccfg,
                 n_campaigns=n,
                 policy_name=gcfg.scheduling.policy,
                 policies=policies,
@@ -435,9 +451,11 @@ def _reconfigure_logging(*, level: int, telemetry_dir: str) -> None:
 async def _make_backend(engine: str):
     if engine == "dragon":
         from rhapsody.backends.execution.dragon import DragonExecutionBackend
+
         return await DragonExecutionBackend()
     if engine == "concurrent":
         from rhapsody.backends.execution.concurrent import ConcurrentExecutionBackend
+
         return await ConcurrentExecutionBackend()
     return None
 
@@ -449,6 +467,7 @@ async def _make_data_backend(
 
     if resolved == "dragon":
         from rhapsody.backends.data import DragonDataBackend as _RhapsodyDDB
+
         rdb = await _RhapsodyDDB(managers_per_node=1, n_nodes=1, total_mem=256 * 1024 * 1024)
         descriptor = rdb.endpoints[0].serialize()
         logging.info("Dragon data backend ready")
@@ -456,6 +475,7 @@ async def _make_data_backend(
 
     if resolved == "redis":
         from rhapsody.backends.data import RedisDataBackend as _RhapsodyRDB
+
         kwargs = {}
         if redis_server_path:
             kwargs["redis_server_path"] = redis_server_path
@@ -482,28 +502,55 @@ def _build_parser(gcfg: GlobalConfig, ccfg: CampaignConfig) -> argparse.Argument
     p.add_argument("--engine", choices=["default", "concurrent", "dragon"], default=gcfg.engine)
     p.add_argument("--telemetry-dir", default=gcfg.telemetry.dir, help="enables telemetry JSONL")
     p.add_argument("--num-campaigns", type=int, default=gcfg.num_campaigns)
-    p.add_argument("--policy", choices=["bandit", "fifo", "adr", "llm"], default=gcfg.scheduling.policy)
+    p.add_argument(
+        "--policy", choices=["bandit", "fifo", "adr", "llm"], default=gcfg.scheduling.policy
+    )
 
     # Driver mode
-    p.add_argument("--driver", action="store_true", default=gcfg.driver.enabled,
-                   help="submit campaigns sequentially, adapting between each")
-    p.add_argument("--driver-delay", type=float, default=gcfg.driver.delay_s,
-                   help="pause (s) between submissions in driver mode")
-    p.add_argument("--max-concurrent-campaigns", type=int,
-                   default=gcfg.global_budget.max_concurrent_campaigns)
+    p.add_argument(
+        "--driver",
+        action="store_true",
+        default=gcfg.driver.enabled,
+        help="submit campaigns sequentially, adapting between each",
+    )
+    p.add_argument(
+        "--driver-delay",
+        type=float,
+        default=gcfg.driver.delay_s,
+        help="pause (s) between submissions in driver mode",
+    )
+    p.add_argument(
+        "--max-concurrent-campaigns", type=int, default=gcfg.global_budget.max_concurrent_campaigns
+    )
 
     # Campaign overrides
-    p.add_argument("--goal-analyses", type=int, default=ccfg.controller.goal_analyses,
-                   help="analyses before campaign terminates")
-    p.add_argument("--max-concurrent", type=int, default=ccfg.budget.max_concurrent,
-                   help="max concurrent workflows per campaign")
+    p.add_argument(
+        "--goal-analyses",
+        type=int,
+        default=ccfg.controller.goal_analyses,
+        help="analyses before campaign terminates",
+    )
+    p.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=ccfg.budget.max_concurrent,
+        help="max concurrent workflows per campaign",
+    )
     p.add_argument("--checkpoint-dir", default=ccfg.checkpoint_dir)
 
     # Workflow timing
-    p.add_argument("--n-iters", type=int, default=ccfg.workflows.sim_worker.n_iters,
-                   help="iterations per sim_worker")
-    p.add_argument("--iter-sleep", type=float, default=ccfg.workflows.sim_worker.iter_sleep_s,
-                   help="sleep (s) per iteration")
+    p.add_argument(
+        "--n-iters",
+        type=int,
+        default=ccfg.workflows.sim_worker.n_iters,
+        help="iterations per sim_worker",
+    )
+    p.add_argument(
+        "--iter-sleep",
+        type=float,
+        default=ccfg.workflows.sim_worker.iter_sleep_s,
+        help="sleep (s) per iteration",
+    )
     p.add_argument("--analysis-steps", type=int, default=ccfg.workflows.analysis_worker.steps)
 
     return p

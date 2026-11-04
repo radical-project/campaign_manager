@@ -299,14 +299,16 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
     gpu_hours_list = parse_csv_floats(args.spending_gpu_hours, n)
 
     policies: list = []  # (name, policy) — populated by _driver, printed at the end
-    triples: list = []   # (name, outcome, ccfg) — filled as campaigns complete
+    triples: list = []  # (name, outcome, ccfg) — filled as campaigns complete
 
     # Create the execution backend.
     if gcfg.engine == "dragon":
         from rhapsody.backends.execution.dragon import DragonExecutionBackend
+
         backend = await DragonExecutionBackend()
     elif gcfg.engine == "concurrent":
         from rhapsody.backends.execution.concurrent import ConcurrentExecutionBackend
+
         backend = await ConcurrentExecutionBackend()
     else:
         backend = None
@@ -354,7 +356,7 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
         )
     )
 
-    await cm.run()      # returns when all campaigns finish and driver_done() was called
+    await cm.run()  # returns when all campaigns finish and driver_done() was called
     await driver_task  # propagates any exception from the driver
     cm.close()
 
@@ -382,24 +384,42 @@ def _build_parser(gcfg: GlobalConfig, ccfg: CampaignConfig) -> argparse.Argument
     p.add_argument("--campaign-config", default=None, help="path to campaign YAML config")
     p.add_argument("-v", "--verbose", action="store_true", default=gcfg.verbose)
     p.add_argument("--engine", choices=["default", "concurrent", "dragon"], default=gcfg.engine)
-    p.add_argument("--telemetry-dir", default=gcfg.telemetry.dir, help="directory for telemetry JSONL")
+    p.add_argument(
+        "--telemetry-dir", default=gcfg.telemetry.dir, help="directory for telemetry JSONL"
+    )
     p.add_argument("--num-campaigns", type=int, default=gcfg.driver.num_campaigns)
     p.add_argument("--max-concurrent-campaigns", type=int, default=gcfg.driver.max_concurrent)
     p.add_argument("--policy", choices=["bandit", "fifo"], default=gcfg.scheduling.policy)
 
     # Controller / budget
-    p.add_argument("--goal-n", type=int, default=ccfg.controller.goal_n,
-                   help="completions to reach before campaign terminates")
-    p.add_argument("--score-ceiling", type=float, default=ccfg.controller.score_ceiling,
-                   help="cancel workflow if mean MSE exceeds this")
-    p.add_argument("--max-concurrent", type=int, default=ccfg.budget.max_concurrent,
-                   help="max concurrent replicas per campaign")
+    p.add_argument(
+        "--goal-n",
+        type=int,
+        default=ccfg.controller.goal_n,
+        help="completions to reach before campaign terminates",
+    )
+    p.add_argument(
+        "--score-ceiling",
+        type=float,
+        default=ccfg.controller.score_ceiling,
+        help="cancel workflow if mean MSE exceeds this",
+    )
+    p.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=ccfg.budget.max_concurrent,
+        help="max concurrent replicas per campaign",
+    )
     p.add_argument("--checkpoint-dir", default=ccfg.checkpoint_dir)
 
     # MiniApps workflow parameters
     p.add_argument("--total-num-sim", type=int, default=ccfg.workflows.miniapps.total_num_sim)
-    p.add_argument("--num-step", type=int, default=ccfg.workflows.miniapps.num_step,
-                   help="timesteps per run (fast arm baseline)")
+    p.add_argument(
+        "--num-step",
+        type=int,
+        default=ccfg.workflows.miniapps.num_step,
+        help="timesteps per run (fast arm baseline)",
+    )
     p.add_argument("--num-epochs", type=int, default=ccfg.workflows.miniapps.num_epochs)
 
     # Per-campaign spending caps (comma-separated for multiple campaigns)
