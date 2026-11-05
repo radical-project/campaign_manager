@@ -8,11 +8,8 @@ Figures for the AuCaM docs, from real (short, synthetic) AuCaM runs.
   bandit   — one campaign, two workflow types; the bandit learns which one
              completes and explores less as the budget is used up.
              → docs/figures/aucam_bandit_budget.png
-  global   — a driver submits four campaigns under a global spending limit:
-             two run side by side, one is rejected, one is admitted after an
-             earlier campaign finishes.  → docs/figures/aucam_global_budget.png
 
-Run (about 1.5 minutes, needs matplotlib):
+Run (about 1 minute, needs matplotlib):
     cd $WORK_DIR/campaign_manager
     python campaigns/hpc_campaign/figures/doc_figures.py              # run all, write JSON + PNGs
     python campaigns/hpc_campaign/figures/doc_figures.py --plot-only  # redraw from the JSON
@@ -29,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
 from src.aucam import (  # noqa: E402
@@ -38,7 +35,6 @@ from src.aucam import (  # noqa: E402
     CampaignController,
     CampaignManager,
     CampaignSpec,
-    GlobalBudget,
     PolicyResult,
     WorkflowConfig,
     WorkflowReporter,
@@ -56,27 +52,6 @@ def cpu_s(hours: float) -> float:
 
 def declared(cpus: float, wall_s: float) -> dict[str, float]:
     return {"wall_hours": wall_s / H, "cpu_hours": cpus * wall_s / H}
-
-
-async def instance_of(cm: CampaignManager, name: str):
-    """The running campaign object (to read its exit_reason after it ends)."""
-    while name not in cm._active_instances:
-        await asyncio.sleep(0.01)
-    return cm._active_instances[name]
-
-
-async def run_with_driver(cm: CampaignManager, driver) -> None:
-    cm.expect_driver()
-
-    async def wrapped() -> None:
-        try:
-            await driver()
-        finally:
-            cm.driver_done()
-
-    task = asyncio.create_task(wrapped())
-    await cm.run()
-    await task
 
 
 # ── 1. Campaign spending limit ─────────────────────────────────────────────────
@@ -130,20 +105,12 @@ async def exp_budget() -> dict:
         workflows=[WorkflowConfig(name="sim", block=sim, declared_spending=declared(2, 1.0))],
         policy_interval_s=0.1,
     )
-    outcome = {}
-
-    async def driver() -> None:
-        res = await cm.submit(spec)
-        inst = await instance_of(cm, spec.name)
-        o = await res.wait()
-        outcome.update(
-            exit_reason=inst.exit_reason,
-            elapsed=time.monotonic() - t0,
-            spent=cpu_s(o.spent.get("cpu_hours", 0.0)),
-        )
-
-    cm = CampaignManager()
-    await run_with_driver(cm, driver)
+    o = await CampaignManager().run(spec)
+    outcome = {
+        "exit_reason": o.exit_reason,
+        "elapsed": time.monotonic() - t0,
+        "spent": cpu_s(o.spent.get("cpu_hours", 0.0)),
+    }
     return {
         "limit": limit,
         "samples": samples,
@@ -207,107 +174,8 @@ async def exp_bandit() -> dict:
         scheduling_policy=RecordingBandit(exploration=2.0),
         policy_interval_s=0.2,
     )
-
-    info = {}
-
-    async def driver() -> None:
-        res = await cm.submit(spec)
-        inst = await instance_of(cm, spec.name)
-        await res.wait()
-        info["exit_reason"] = inst.exit_reason
-
-    cm = CampaignManager()
-    await run_with_driver(cm, driver)
-    return {"picks": picks, "exploration": 2.0, "exit_reason": info["exit_reason"]}
-
-
-# ── 3. Global budget and admission ─────────────────────────────────────────────
-
-
-async def exp_global() -> dict:
-    """Global limit 32 CPU·s.  A (limit 12) and B (limit 12) run side by side;
-    C (limit 12) is rejected; after A finishes having spent ~6, D (limit 12)
-    fits (6 + 12 + 12 ≤ 32) and is admitted."""
-    t0 = time.monotonic()
-    cap = 32.0
-    events: list[dict] = []
-    ledger: list[dict] = []
-
-    async def sim(reporter: WorkflowReporter) -> None:
-        await asyncio.sleep(1.0)
-        await reporter.emit(score=1.0)
-
-    def spec(name: str, goal: int, limit: float) -> CampaignSpec:
-        return CampaignSpec(
-            name=name,
-            budget=CampaignBudget(
-                max_concurrent_workflows=1,
-                max_concurrency_per_workflow=1,
-                spending={"cpu_hours": limit / H},
-            ),
-            controller=CampaignController(launch=["sim"], goal_type="sim", goal_n=goal),
-            workflows=[WorkflowConfig(name="sim", block=sim, declared_spending=declared(2, 1.0))],
-            policy_interval_s=0.2,
-        )
-
-    cm = CampaignManager(global_budget=GlobalBudget(spending={"cpu_hours": cap / H}))
-    stop = asyncio.Event()
-
-    async def sampler() -> None:
-        while not stop.is_set():
-            snap = cm._allocator.snapshot()
-            open_limits = sum(
-                cpu_s(c["limits"].get("cpu_hours", 0.0)) for c in snap["campaigns"].values()
-            )
-            open_spent = sum(
-                cpu_s(c["spent"].get("cpu_hours", 0.0)) for c in snap["campaigns"].values()
-            )
-            ledger.append(
-                {
-                    "t": time.monotonic() - t0,
-                    "closed_spent": cpu_s(snap["global_spent"].get("cpu_hours", 0.0)),
-                    "open_limits": open_limits,
-                    "open_spent": open_spent,
-                }
-            )
-            await asyncio.sleep(0.1)
-
-    async def submit(name: str, goal: int, limit: float):
-        res = await cm.submit(spec(name, goal, limit))
-        events.append(
-            {
-                "name": name,
-                "t_submit": time.monotonic() - t0,
-                "accepted": res.accepted,
-                "limit": limit,
-                "reason": res.reason,
-            }
-        )
-        return res
-
-    async def finish(name: str, res) -> None:
-        o = await res.wait()
-        for e in events:
-            if e["name"] == name:
-                e.update(t_end=time.monotonic() - t0, spent=cpu_s(o.spent.get("cpu_hours", 0.0)))
-
-    async def driver() -> None:
-        samp = asyncio.create_task(sampler())
-        a = await submit("A", 3, 12.0)
-        b = await submit("B", 8, 12.0)
-        wait_b = asyncio.create_task(finish("B", b))
-        await asyncio.sleep(1.0)
-        await submit("C", 4, 12.0)  # 12 + 12 + 12 > 32: rejected
-        await finish("A", a)
-        await asyncio.sleep(0.3)
-        d = await submit("D", 4, 12.0)  # A spent ~6: 6 + 12 + 12 ≤ 32
-        await finish("D", d)
-        await wait_b
-        stop.set()
-        await samp
-
-    await run_with_driver(cm, driver)
-    return {"cap": cap, "events": events, "ledger": ledger}
+    o = await CampaignManager().run(spec)
+    return {"picks": picks, "exploration": 2.0, "exit_reason": o.exit_reason}
 
 
 # ── Plots ──────────────────────────────────────────────────────────────────────
@@ -425,77 +293,6 @@ def plot_bandit(d: dict, plt) -> None:
     fig.savefig(FIG_DIR / "aucam_bandit_budget.png", dpi=150)
 
 
-def plot_global(d: dict, plt) -> None:
-    fig, (a1, a2) = plt.subplots(
-        2, 1, figsize=(10, 5.8), sharex=True, gridspec_kw={"height_ratios": [1, 1.3]}
-    )
-    ev = d["events"]
-    end_t = max(e.get("t_end", e["t_submit"]) for e in ev) + 0.5
-    for i, e in enumerate(ev):
-        y = len(ev) - i
-        if e["accepted"]:
-            a1.barh(y, e["t_end"] - e["t_submit"], left=e["t_submit"], color=C_SPENT, height=0.55)
-            a1.text(
-                e["t_end"] + 0.1,
-                y,
-                f"spent {e['spent']:.0f} of {e['limit']:.0f} CPU·s",
-                va="center",
-                fontsize=8.5,
-                color=C_ANN,
-            )
-        else:
-            a1.plot(e["t_submit"], y, marker="x", color=C_LIMIT, ms=11, mew=2.5)
-            a1.text(
-                e["t_submit"] + 0.2,
-                y,
-                f"rejected: 12 + 12 + 12 > {d['cap']:.0f} CPU·s",
-                va="center",
-                fontsize=8.5,
-                color=C_LIMIT,
-            )
-    a1.set_yticks([len(ev) - i for i in range(len(ev))], [f"campaign {e['name']}" for e in ev])
-    a1.set_title(
-        "Campaigns submitted by one driver under a global spending limit", loc="left", fontsize=11
-    )
-    a1.set_xlim(0, end_t + 1.8)
-    led = d["ledger"]
-    t = [x["t"] for x in led]
-    closed = [x["closed_spent"] for x in led]
-    held = [x["open_limits"] for x in led]
-    a2.stackplot(
-        t,
-        closed,
-        held,
-        colors=[C_SPENT, C_FLIGHT],
-        step="post",
-        labels=["spent by finished campaigns", "limits of running campaigns (reserved)"],
-    )
-    a2.plot(
-        t,
-        [c + x["open_spent"] for c, x in zip(closed, led, strict=True)],
-        color="#1f2d3d",
-        lw=1.2,
-        label="actually spent so far",
-    )
-    a2.axhline(d["cap"], color=C_LIMIT, ls="--", lw=1.5)
-    a2.text(
-        0.1,
-        d["cap"] + 0.6,
-        f"global spending limit = {d['cap']:.0f} CPU·s",
-        color=C_LIMIT,
-        fontsize=9,
-    )
-    a2.set_ylim(0, d["cap"] * 1.35)
-    a2.set_ylabel("CPU-seconds")
-    a2.set_xlabel("time (s)")
-    a2.legend(loc="upper right", fontsize=8.5, frameon=False)
-    for ax in (a1, a2):
-        for s in ("top", "right"):
-            ax.spines[s].set_visible(False)
-    fig.tight_layout()
-    fig.savefig(FIG_DIR / "aucam_global_budget.png", dpi=150)
-
-
 def plot_all(data: dict) -> None:
     import matplotlib
 
@@ -505,14 +302,13 @@ def plot_all(data: dict) -> None:
     plt.rcParams.update({"font.size": 10})
     plot_budget(data["budget"], plt)
     plot_bandit(data["bandit"], plt)
-    plot_global(data["global"], plt)
     print(f"figures → {FIG_DIR}")
 
 
 async def run_all() -> dict:
     random.seed(11)
     out = {}
-    for name, fn in (("budget", exp_budget), ("bandit", exp_bandit), ("global", exp_global)):
+    for name, fn in (("budget", exp_budget), ("bandit", exp_bandit)):
         print(f"── {name}")
         out[name] = await fn()
     return out

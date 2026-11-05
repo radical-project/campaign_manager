@@ -2,7 +2,7 @@
 
 Only serializable state lives here — queue, active workflow metadata, counters,
 and spent budget.  The CampaignSpec (which carries callables and the controller
-object) is NOT serialized; the driver must provide the same spec on recovery.
+object) is NOT serialized; the caller must pass the same spec again on recovery.
 
 Atomic write strategy: write to <path>.tmp then os.replace() to <path>.
 os.replace() is atomic on POSIX (rename(2)) so a partial write is never

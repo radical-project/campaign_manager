@@ -58,8 +58,7 @@ def test_python_workflow_gets_context_argument_not_env() -> None:
         shutdown_timeout_s=5.0,
     )
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    asyncio.run(asyncio.wait_for(cm.run(), timeout=30.0))
+    asyncio.run(asyncio.wait_for(cm.run(spec), timeout=30.0))
 
     assert sorted(s["context"]["seed"] for s in seen) == [1, 2]
     assert len({s["wf_id"] for s in seen}) == 2
@@ -84,6 +83,5 @@ def test_reporter_injected_by_name_in_any_position() -> None:
         shutdown_timeout_s=5.0,
     )
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    asyncio.run(asyncio.wait_for(cm.run(), timeout=15.0))
+    asyncio.run(asyncio.wait_for(cm.run(spec), timeout=15.0))
     assert got.get("reporter") is not None

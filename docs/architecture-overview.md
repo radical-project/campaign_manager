@@ -12,8 +12,8 @@ their own scripts, and a person still watches the runs and decides what to do
 next. AuCaM takes over that work: a campaign describes what success looks like
 and how to react to results, and AuCaM launches the workflows, watches their
 progress, cancels the ones that fall behind and ends the campaign when it is
-done. Its outcome then goes back to a driver, which can plan the next campaign
-on its own.
+done. It then returns the campaign's outcome to the caller — a person, a
+script or an agent — which can plan the next campaign.
 
 ---
 
@@ -23,10 +23,10 @@ on its own.
 |---|---|
 | **Campaign** | One coordinated scientific effort toward a goal, e.g. "run folding simulations until 50 high-confidence structures are found". It has workflow types, decision logic and a budget. |
 | **Workflow** | One unit of work that AuCaM launches and cancels: a simulation, an analysis, a scoring pass. Many run in parallel, up to the campaign's limit on workflows running at once. |
-| **Driver** | The code that decides which campaigns to run. It submits campaigns and receives each campaign's outcome when it ends. |
+| **Caller** | Whoever runs the campaign — a person, a script or an agent. It calls `CampaignManager.run(spec)` and gets the campaign's outcome when it ends, then can run the next campaign. |
 | **Controller** | A campaign's decision logic: which workflows to launch, which to cancel, when the goal is reached. |
 | **Policy cycle** | The controller's periodic step: observe the campaign, decide, act. It runs every `policy_interval_s` and whenever a workflow finishes. |
-| **Budget** | Spending limits (CPU-hours, GPU-hours or any other dimension, such as LLM tokens) per campaign and across all campaigns, plus limits on how many workflows run at once. |
+| **Budget** | Spending limits (CPU-hours, GPU-hours or any other dimension, such as LLM tokens) for the campaign, plus limits on how many workflows run at once. |
 
 A workflow can be a **Python function** or a **command-line program** written
 in any language. AuCaM runs either kind as a single AsyncFlow *block*, so both
@@ -41,21 +41,26 @@ its tasks, and what those tasks cost is charged to the workflow.
 
 ![AuCaM architecture](figures/aucam-architecture.png)
 
-**Shared by all campaigns**
+AuCaM runs one campaign at a time:
 
-- **Campaign Manager** — admits campaigns submitted by drivers, runs them,
-  and returns each one's outcome to its driver.
-- **Budget ledger** (`BudgetAllocator`) — one record of every campaign's
-  limits, actual spending and the expected cost of its running workflows.
-  Used to admit campaigns and to stop launching at a campaign's limit.
+```python
+cm = CampaignManager()
+outcome = await cm.run(spec)  # returns when the campaign ends
+```
+
+- **Campaign Manager** — sets up execution, runs the campaign and returns its
+  outcome. The caller can then call `run()` again with the next spec.
+- **Budget ledger** (`BudgetAllocator`) — the campaign's limits, actual
+  spending and the expected cost of its running workflows. Used to stop
+  launching at the spending limit.
 - **Data backend** — the channel through which workflows report to AuCaM (a
   score and metrics). An in-process store for local runs; Redis or Dragon for
   multi-node runs.
-- **Execution** — a shared AsyncFlow engine on a RHAPSODY backend; AuCaM
-  launches and cancels workflows through it.
+- **Execution** — an AsyncFlow engine on a RHAPSODY backend; AuCaM launches
+  and cancels workflows through it.
 
-**One set per campaign** — each part works out of the box; a campaign can
-replace the controller or the scheduling policy with its own.
+Each of the following works out of the box; a campaign can replace the
+controller or the scheduling policy with its own.
 
 - **Controller** — the campaign's decision logic. Out of the box it keeps
   launching new runs of the workflow types in its `launch` list (set in the
@@ -72,8 +77,7 @@ replace the controller or the scheduling policy with its own.
   balances *exploring* (trying types it knows little about) with *exploiting*
   (launching the types that complete most often), and explores less as the
   budget runs down. FIFO is also built in, and a campaign can plug
-  in its own policy. Each campaign has its own policy, so learning stays within
-  the campaign.
+  in its own policy.
 
 **What a campaign gets without writing any code**, compared with launching
 workflows by hand:
@@ -88,11 +92,11 @@ workflows by hand:
 - a workflow type can wait for another to succeed (dependencies);
 - state is checkpointed, and a restarted campaign continues;
 - the outcome — counts, spending, the controller's summary — goes back to the
-  driver, which can analyse it and propose the next campaign (for example, drop
+  caller, which can analyse it and plan the next campaign (for example, drop
   workflow types that never succeeded, or adjust parameters and limits).
 
-The [capability demo](cm-advantages.md) shows cancellation, the bandit,
-accounting and driver feedback on one run.
+The [capability demo](cm-advantages.md) shows cancellation, the bandit and
+accounting on one run.
 
 ---
 
@@ -127,45 +131,26 @@ several runs or changing goals.
 | `controller_terminate` | Ended by the controller, which decides to stop for its own reason: its goal is reached (the built-in "N successful runs" goal ends this way), or it gives up (e.g. the goal looks unreachable). The goal may or may not be reached. |
 | `spending_limit` | The spending limit is reached and no workflows are running |
 | `campaign_idle` | Nothing queued or running for a while (`idle_exit_s`, configurable or off) |
-| `signal` | AuCaM receives SIGTERM or SIGINT, e.g. before a SLURM job's time limit |
+| `signal` | AuCaM receives SIGTERM or SIGINT, e.g. before a SLURM job's time limit, or the caller calls `cm.stop()` |
 
 In each case the queue is cleared, running workflows are cancelled with a
-grace period, a final checkpoint is written (if enabled), and the driver
-receives a `CampaignOutcome`: workflow counts per type, time, spending,
-whether the goal was reached, and the controller's summary (e.g. the best
-score). The driver can use it to plan its next campaign.
+grace period, a final checkpoint is written (if enabled), and `run()` returns
+a `CampaignOutcome`: the exit reason, workflow counts per type, time,
+spending, whether the goal was reached, and the controller's summary (e.g. the
+best score). The caller can use it to plan the next campaign.
 
 ---
 
 ## Budgets
 
-- **Per campaign:** a campaign limits how many workflows run at once
-  (`max_concurrent_workflows` in total and `max_concurrency_per_workflow` for
-  each workflow type) and can set a spending limit. AuCaM adds what has been
-  spent to the expected cost of the workflows still running, and stops starting
-  new workflows once that total reaches the limit. Workflows already running
-  are not cancelled: the campaign ends after they finish.
-- **Across campaigns:** a new campaign is admitted only if it fits: the
-  number of running campaigns stays within its limit, and what finished
-  campaigns spent plus the limits of running ones plus its own limit stays
-  under the global spending limit. Otherwise it is rejected with the reason,
-  and the driver can react.
-
-![Global budget admission](figures/aucam_global_budget.png)
+A campaign limits how many workflows run at once (`max_concurrent_workflows`
+in total and `max_concurrency_per_workflow` for each workflow type) and can
+set a spending limit. AuCaM adds what has been spent to the expected cost of
+the workflows still running, and stops starting new workflows once that total
+reaches the limit. Workflows already running are not cancelled: the campaign
+ends after they finish.
 
 See [budgets and spending](budget.md) for how spending is measured.
-
----
-
-## Drivers
-
-One or more drivers can submit campaigns, one after another or several at
-once; campaigns run side by side. Each driver registers with
-`expect_driver()` and calls `driver_done()` after its last submission. AuCaM
-stops accepting campaigns when all drivers are done (or after
-`GlobalBudget.n_campaigns` campaigns, or more than `max_rejections` budget
-rejections, or when the global spending budget is used up) and exits once the
-running campaigns have finished.
 
 ---
 
@@ -173,26 +158,21 @@ running campaigns have finished.
 
 *Choices that may look like missing features, and why AuCaM makes them.*
 
-- **No limit on resources in use at once.** AuCaM limits what campaigns spend
+- **One campaign at a time.** `run()` runs one campaign and returns its
+  outcome; a second `run()` while one is running raises an error. *Why:* the
+  caller decides what to run next from each outcome. A scheduling policy
+  instance passed to several specs keeps what it learned across runs.
+- **No limit on resources in use at once.** AuCaM limits what a campaign spends
   and how many workflows run, not how many CPUs or GPUs are busy. *Why:* AuCaM
   cannot know which nodes or GPUs a workflow's tasks hold at a given moment,
   and the HPC allocation itself already bounds what can run at the same time.
-- **Campaigns don't learn from each other.** Each campaign has its own
-  controller and scheduling policy, and neither sees other campaigns. *Why:*
-  campaigns pursue different hypotheses, so what works in one can mislead
-  another. Knowledge passes between campaigns through the driver, which reads
-  each outcome and plans the next campaign.
 - **The controller makes the scientific decisions.** AuCaM itself cancels a
   workflow only when it stops reporting or runs past its wall-time limit; every
   other launch and cancel comes from the controller. *Why:* what counts as a
   poor result depends on the science. AuCaM ships default rules, and a campaign
   can replace them.
-- **Admission reserves a campaign's whole spending limit.** *Why:* an admitted
-  campaign can always spend up to its limit, without being cut short because
-  another campaign spent first. *Cost:* a new campaign can be refused while
-  reserved budget is still unspent.
 - **Idle campaigns end by default.** *Why:* a campaign without goals would
-  otherwise wait forever and keep its budget reserved. Set `idle_exit_s=None`
+  otherwise wait forever and hold the allocation. Set `idle_exit_s=None`
   for a controller that waits on purpose.
 
 ---
@@ -200,10 +180,10 @@ running campaigns have finished.
 ## Further reading
 
 - [Demo campaign guide](demo-campaign-guide.md) — run a campaign in minutes.
-- [Capability demo](cm-advantages.md) — cancellation, learning, accounting and
-  driver feedback on one run.
+- [Capability demo](cm-advantages.md) — cancellation, learning and accounting
+  on one run.
 - [Campaign developer guide](campaign-developer-guide.md) — write workflows,
-  controllers and drivers.
+  controllers and the code that runs campaigns.
 - [Budgets and spending](budget.md) — how spending is measured, limited and
   reported.
 - [Code walkthrough](code-walkthrough.md) — module map for contributors.

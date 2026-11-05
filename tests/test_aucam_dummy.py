@@ -133,10 +133,9 @@ async def _run_dummy_campaign() -> None:
     )
 
     cm = CampaignManager()
-    cm.submit_campaign(spec)
 
     start = time.monotonic()
-    await asyncio.wait_for(cm.run(), timeout=20.0)
+    await asyncio.wait_for(cm.run(spec), timeout=20.0)
     elapsed = time.monotonic() - start
 
     assert elapsed < 10.0, "campaign took too long"
@@ -205,8 +204,7 @@ async def _run_sequential_campaign() -> None:
     )
 
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    await asyncio.wait_for(cm.run(), timeout=20.0)
+    await asyncio.wait_for(cm.run(spec), timeout=20.0)
 
     assert completed_count >= 2
     if len(launch_times) >= 2:

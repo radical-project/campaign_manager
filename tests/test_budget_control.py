@@ -249,8 +249,7 @@ def test_three_tier_budget_control() -> None:
     )
 
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    asyncio.run(asyncio.wait_for(cm.run(), timeout=30.0))
+    asyncio.run(asyncio.wait_for(cm.run(spec), timeout=30.0))
 
     _print_summary(ctrl)
 

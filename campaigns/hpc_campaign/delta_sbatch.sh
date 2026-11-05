@@ -20,9 +20,6 @@
 # ENGINE=concurrent — launches via plain Python (in-process asyncio, local dict backend)
 #                     Useful for single-node smoke tests on a login or compute node.
 #
-# To demo rejection: set num_campaigns=3 and lower the global cpu_hours cap to 0.120
-# so campaign c (requesting 0.042) exceeds the ledger after a+b complete.
-#
 #SBATCH --partition=cpu
 #SBATCH --nodes=2
 #SBATCH --tasks-per-node=4
@@ -119,7 +116,6 @@ COMMON_ARGS=(
     --campaign-config "${CAMPAIGN_CONFIG}"
     --telemetry-dir   "${TELEMETRY_DIR}"
     --engine          "${ENGINE}"
-    --driver
 )
 
 if [ "${ENGINE}" = "dragon" ]; then

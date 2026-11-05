@@ -152,8 +152,7 @@ async def _run_stale() -> None:
     )
 
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    await asyncio.wait_for(cm.run(), timeout=15.0)
+    await asyncio.wait_for(cm.run(spec), timeout=15.0)
 
     assert ctrl2.completions >= 1, "Expected ≥1 good_worker completion"
     # stale_worker must have been cancelled (returncode -1); it never completes (rc=0)
@@ -191,8 +190,7 @@ async def _run_walltime() -> None:
     )
 
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    await asyncio.wait_for(cm.run(), timeout=15.0)
+    await asyncio.wait_for(cm.run(spec), timeout=15.0)
 
     assert ctrl.completions >= 1, "Expected ≥1 fast_worker completion"
 
@@ -235,7 +233,6 @@ async def _run_both() -> None:
     )
 
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    await asyncio.wait_for(cm.run(), timeout=15.0)
+    await asyncio.wait_for(cm.run(spec), timeout=15.0)
 
     assert completions[0] >= 1, "Expected ≥1 fast_worker completion"

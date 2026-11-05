@@ -36,7 +36,7 @@ class _ResultsWriter:
 
 
 def _log_comparison(triples: list[tuple[str, CampaignOutcome, CampaignConfig]]) -> None:
-    """Print a per-campaign, per-arm MSE and CPU-hours table."""
+    """Print a per-arm MSE and CPU-hours table."""
     best_name = None
     best_score = float("inf")
 

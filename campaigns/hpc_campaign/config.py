@@ -3,13 +3,13 @@ Config dataclasses and YAML loaders for the dummy campaign.
 
 Two config objects are used at runtime:
 
-  GlobalConfig     — CM-level settings: engine, scheduling policy, global
-                     budget, telemetry, and driver behaviour.
+  GlobalConfig     — CM-level settings: engine, data backend, scheduling
+                     policy and telemetry.
                      Loaded from  campaign_configs/global.yaml  (or global_hpc.yaml).
 
-  CampaignConfig   — Campaign template: controller specs, per-campaign budget,
-                     and workflow timing.  The driver instantiates one
-                     CampaignSpec from this template for each run.
+  CampaignConfig   — The campaign: controller settings, budget and
+                     workflow timing.  run_campaign.py builds the
+                     CampaignSpec from it.
                      Loaded from  campaign_configs/campaign.yaml  (or campaign_hpc.yaml).
 
 Usage::
@@ -33,24 +33,9 @@ class SchedulingConfig:
 
 
 @dataclass
-class GlobalBudgetConfig:
-    max_concurrent_campaigns: int | None = None
-    max_total_concurrent_workflows: int | None = None
-    spending: dict[str, float] = field(default_factory=dict)
-    n_campaigns: int | None = None
-    max_rejections: int | None = None
-
-
-@dataclass
 class TelemetryConfig:
     enabled: bool = False
     dir: str | None = None
-
-
-@dataclass
-class DriverConfig:
-    enabled: bool = False  # use cm.submit()/cm.close() driver API
-    delay_s: float = 2.0  # pause between consecutive submissions
 
 
 @dataclass
@@ -59,11 +44,8 @@ class GlobalConfig:
     data_backend: str = "auto"  # auto | dragon | redis | local
     redis_server_path: str | None = None  # path to redis-server binary (redis backend only)
     verbose: bool = False
-    num_campaigns: int = 1
     scheduling: SchedulingConfig = field(default_factory=SchedulingConfig)
-    global_budget: GlobalBudgetConfig = field(default_factory=GlobalBudgetConfig)
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
-    driver: DriverConfig = field(default_factory=DriverConfig)
 
 
 # ── Campaign config ───────────────────────────────────────────────────────────
@@ -128,32 +110,18 @@ def load_global(path: str | Path) -> GlobalConfig:
     """Load a :class:`GlobalConfig` from a YAML file."""
     d = _load_yaml(path)
     sched = d.get("scheduling") or {}
-    gb = d.get("global_budget") or {}
     tel = d.get("telemetry") or {}
-    drv = d.get("driver") or {}
     return GlobalConfig(
         engine=d.get("engine", "concurrent"),
         data_backend=d.get("data_backend", "auto"),
         redis_server_path=d.get("redis_server_path") or None,
         verbose=bool(d.get("verbose", False)),
-        num_campaigns=int(d.get("num_campaigns", 1)),
         scheduling=SchedulingConfig(
             policy=sched.get("policy", "bandit"),
-        ),
-        global_budget=GlobalBudgetConfig(
-            max_concurrent_campaigns=gb.get("max_concurrent_campaigns"),
-            max_total_concurrent_workflows=gb.get("max_total_concurrent_workflows"),
-            spending={k: float(v) for k, v in (gb.get("spending") or {}).items() if v is not None},
-            n_campaigns=_optional_int(gb.get("n_campaigns")),
-            max_rejections=_optional_int(gb.get("max_rejections")),
         ),
         telemetry=TelemetryConfig(
             enabled=bool(tel.get("enabled", False)),
             dir=tel.get("dir"),
-        ),
-        driver=DriverConfig(
-            enabled=bool(drv.get("enabled", False)),
-            delay_s=float(drv.get("delay_s", 2.0)),
         ),
     )
 
@@ -221,7 +189,3 @@ def _load_yaml(path: str | Path) -> dict:
 
 def _optional_float(v: object) -> float | None:
     return float(v) if v is not None else None
-
-
-def _optional_int(v: object) -> int | None:
-    return int(v) if v is not None else None

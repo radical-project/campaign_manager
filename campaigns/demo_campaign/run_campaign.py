@@ -281,19 +281,13 @@ async def run(args: argparse.Namespace) -> None:
         policy=policy,
     )
 
-    cm = CampaignManager()
-    result = cm.submit_campaign(spec)
-    if not result.accepted:
-        logging.warning("campaign rejected: %s", result.reason)
-        return
-
     t0 = time.monotonic()
-    await cm.run()  # returns when the campaign finishes
-    cm.close()
+    outcome = await CampaignManager().run(spec)  # returns when the campaign ends
 
-    s = spec.controller.get_summary()
+    s = outcome.summary  # the controller's get_summary()
     logging.info(
-        "done — best=%.3f  analyses=%d  cancel_rate=%.0f%%",
+        "done (%s) — best=%.3f  analyses=%d  cancel_rate=%.0f%%",
+        outcome.exit_reason,
         s.get("best_score") or 0.0,
         s.get("analyses_done") or 0,
         (s.get("cancel_rate") or 0.0) * 100,

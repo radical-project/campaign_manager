@@ -3,15 +3,13 @@ Config dataclasses and YAML loaders for the MiniApps AuCaM campaign.
 
 Two config objects:
 
-  GlobalConfig    — CM-level: engine, scheduling policy, global budget,
-                    telemetry, driver behaviour (num_campaigns, concurrency).
+  GlobalConfig    — CM-level: engine, scheduling policy, telemetry.
                     Loaded from campaign_configs/global.yaml.
 
-  CampaignConfig  — Campaign template: controller params, per-campaign budget,
-                    and MiniApps workflow settings.  Each campaign runs two arms
+  CampaignConfig  — The campaign: controller params, budget and MiniApps
+                    workflow settings.  The campaign runs two arms
                     (miniapps_fast / miniapps_slow) via WorkflowsConfig.fast_config()
-                    and slow_config(); vary_config() returns identical copies so all
-                    campaigns explore the same arm space.
+                    and slow_config().
                     Loaded from campaign_configs/campaign.yaml.
 
 Usage::
@@ -35,25 +33,9 @@ class SchedulingConfig:
 
 
 @dataclass
-class GlobalBudgetConfig:
-    max_concurrent_campaigns: int | None = None
-    max_total_concurrent_workflows: int | None = None
-    spending: dict[str, float] = field(default_factory=dict)
-    n_campaigns: int | None = None
-    max_rejections: int | None = None
-
-
-@dataclass
 class TelemetryConfig:
     enabled: bool = False
     dir: str | None = None
-
-
-@dataclass
-class DriverConfig:
-    num_campaigns: int = 2  # total campaigns (alternates fast/slow)
-    max_concurrent: int | None = 2  # max running simultaneously
-    spending_cpu_hours: list[float | None] = field(default_factory=list)
 
 
 @dataclass
@@ -61,9 +43,7 @@ class GlobalConfig:
     engine: str = "concurrent"
     verbose: bool = False
     scheduling: SchedulingConfig = field(default_factory=SchedulingConfig)
-    global_budget: GlobalBudgetConfig = field(default_factory=GlobalBudgetConfig)
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
-    driver: DriverConfig = field(default_factory=DriverConfig)
 
 
 # ── Campaign config ───────────────────────────────────────────────────────────
@@ -156,58 +136,20 @@ class CampaignConfig:
     checkpoint_dir: str | None = None
 
 
-# ── Per-campaign variation ─────────────────────────────────────────────────────
-
-
-def vary_config(template: CampaignConfig, idx: int) -> CampaignConfig:
-    """Return a per-campaign config variant.
-
-    Fast and slow arms now live within each campaign as separate workflow
-    types (miniapps_fast / miniapps_slow), so all campaigns use the same
-    template.  Override this function to vary other parameters across
-    campaigns (e.g. total_num_sim, num_epochs, random seed).
-    """
-    return deepcopy(template)
-
-
 # ── Loaders ───────────────────────────────────────────────────────────────────
 
 
 def load_global(path: str | Path) -> GlobalConfig:
     d = _load_yaml(path)
     sched = d.get("scheduling") or {}
-    gb = d.get("global_budget") or {}
     tel = d.get("telemetry") or {}
-    drv = d.get("driver") or {}
-
-    raw_spending = drv.get("spending_cpu_hours") or ""
-    spending_list: list[float | None] = []
-    if isinstance(raw_spending, (int, float)):
-        spending_list = [float(raw_spending)]
-    elif isinstance(raw_spending, str) and raw_spending.strip():
-        for tok in raw_spending.split(","):
-            tok = tok.strip()
-            spending_list.append(None if tok in ("", "~", "null") else float(tok))
-
     return GlobalConfig(
         engine=d.get("engine", "concurrent"),
         verbose=bool(d.get("verbose", False)),
         scheduling=SchedulingConfig(policy=sched.get("policy", "bandit")),
-        global_budget=GlobalBudgetConfig(
-            max_concurrent_campaigns=gb.get("max_concurrent_campaigns"),
-            max_total_concurrent_workflows=gb.get("max_total_concurrent_workflows"),
-            spending={k: float(v) for k, v in (gb.get("spending") or {}).items() if v is not None},
-            n_campaigns=_optional_int(gb.get("n_campaigns")),
-            max_rejections=_optional_int(gb.get("max_rejections")),
-        ),
         telemetry=TelemetryConfig(
             enabled=bool(tel.get("enabled", False)),
             dir=tel.get("dir"),
-        ),
-        driver=DriverConfig(
-            num_campaigns=int(drv.get("num_campaigns", 2)),
-            max_concurrent=_optional_int(drv.get("max_concurrent")),
-            spending_cpu_hours=spending_list,
         ),
     )
 
@@ -274,21 +216,3 @@ def _load_yaml(path: str | Path) -> dict:
 
 def _optional_float(v: object) -> float | None:
     return float(v) if v is not None else None
-
-
-def _optional_int(v: object) -> int | None:
-    return int(v) if v is not None else None
-
-
-def parse_csv_floats(val: str | None, n: int) -> list[float | None]:
-    """Parse a comma-separated float string into a list of length n.
-
-    A single value is broadcast to all n slots.  Missing or empty tokens
-    become None (no limit).  Used to pass per-campaign spending caps from CLI.
-    """
-    if val is None:
-        return [None] * n
-    parts = [float(x.strip()) if x.strip() else None for x in str(val).split(",")]
-    if len(parts) == 1:
-        return parts * n
-    return (parts + [None] * n)[:n]

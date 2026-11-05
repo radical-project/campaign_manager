@@ -148,10 +148,10 @@ class CampaignController:
         """Return scientific aggregates collected during this campaign's run.
 
         Called once by the CM when the campaign completes; the result is stored
-        in ``CampaignOutcome.summary`` and returned to the driver via ``await
-        result.wait()``.  Override to expose domain-specific data (best score,
-        score distribution, candidate list, etc.) so the driver can build the
-        next campaign intelligently.  Base implementation returns ``{}``.
+        in ``CampaignOutcome.summary``, which ``CampaignManager.run()`` returns.
+        Override to expose domain-specific data (best score, score
+        distribution, candidate list, etc.) so whoever plans the next campaign
+        can use it.  Base implementation returns ``{}``.
         """
         return {}
 

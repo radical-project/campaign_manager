@@ -25,12 +25,12 @@ Guidance for Claude Code in this repository.
   limited by the allocation and the workflow-count limits.
 - Only the `CampaignController` decides to cancel workflows (plus CM's
   automatic stale-reporter and wall-time cancels).
-- One scheduling-policy instance per campaign; no cross-campaign learning.
-  Results reach other campaigns only through the driver.
+- AuCaM runs one campaign at a time: `outcome = await cm.run(spec)`; the
+  caller (a script or an agent) plans the next campaign from the outcome.
 - Every workflow runs as one AsyncFlow block (`launch_cmd` = a block with one
   executable task).
-- Terms: CampaignManager (CM), driver API (`submit()` → `SubmitResult` →
-  `CampaignOutcome`), GlobalBudget, CampaignBudget, `declared_spending`,
+- Terms: CampaignManager (CM), `run(spec)` → `CampaignOutcome`,
+  CampaignBudget, `declared_spending`,
   CampaignController, PolicyResult, WorkflowQueue, SchedulingPolicy,
   WorkflowReporter, DataBackend.
 

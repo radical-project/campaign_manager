@@ -2,24 +2,16 @@
 """
 AuCaM capability demo — what AuCaM adds over launching workflows by hand.
 
-One driver runs two campaigns in sequence:
-
-  Campaign 1 "explore" — two workflow types compete for one workflow slot:
-      fast_good  1 CPU · 1.5 s · score 0.75–0.95, completes
-      slow_poor  4 CPU · 5 s   · score drifts down → cancelled at ~3 s
-    Shows:
-      1. Cancellation — the controller's CancelRule stops slow_poor runs whose
-         score falls below a floor, so they never use their full cost.
-      2. Bandit scheduling — the campaign's UCB1 bandit tries both types,
-         learns that slow_poor never completes, and launches it less and less.
-      3. Spending accounting — every run is charged in AuCaM's ledger
-         (prorated cpu_hours), reported back in CampaignOutcome.spent.
-
-  Campaign 2 "follow-up" — the driver reads campaign 1's CampaignOutcome
-    (completions, cancellations, spending, the controller's summary), drops
-    workflow types that never completed, and submits a new campaign.
-      4. Driver feedback loop — results flow back to the driver, which plans
-         the next campaign.
+One campaign, "explore": two workflow types compete for one workflow slot:
+    fast_good  1 CPU · 1.5 s · score 0.75–0.95, completes
+    slow_poor  4 CPU · 5 s   · score drifts down → cancelled at ~3 s
+  Shows:
+    1. Cancellation — the controller's CancelRule stops slow_poor runs whose
+       score falls below a floor, so they never use their full cost.
+    2. Bandit scheduling — the campaign's UCB1 bandit tries both types,
+       learns that slow_poor never completes, and launches it less and less.
+    3. Spending accounting — every run is charged in AuCaM's ledger
+       (prorated cpu_hours), reported back in CampaignOutcome.spent.
 
 Run:
     cd $WORK_DIR/campaign_manager
@@ -38,7 +30,7 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from src.aucam import (  # noqa: E402
     BanditSchedulingPolicy,
@@ -107,7 +99,7 @@ WORKFLOWS = {
 class DemoController(CampaignController):
     """Keeps one request of each type queued, cancels low-scoring slow_poor
     runs, and stops after GOAL_N fast_good completions.  Records every finished
-    workflow for the figure and returns per-type statistics to the driver."""
+    workflow for the figure and returns per-type statistics in the outcome."""
 
     def __init__(self, types: list[str]) -> None:
         super().__init__(
@@ -143,7 +135,7 @@ class DemoController(CampaignController):
         )
 
     def get_summary(self) -> dict:
-        """Returned to the driver in CampaignOutcome.summary."""
+        """Returned in CampaignOutcome.summary."""
         by_type: dict[str, dict] = {}
         for r in self.runs:
             s = by_type.setdefault(
@@ -174,13 +166,7 @@ def _spec(name: str, types: list[str]) -> tuple[CampaignSpec, DemoController]:
     return spec, ctrl
 
 
-# ── Driver ─────────────────────────────────────────────────────────────────────
-
-
-def plan_next(outcome: CampaignOutcome) -> list[str]:
-    """Driver logic: keep the workflow types that completed at least once."""
-    by_type = outcome.summary.get("by_type", {})
-    return [t for t, s in by_type.items() if s["completed"] > 0]
+# ── Run ────────────────────────────────────────────────────────────────────────
 
 
 def _record(outcome: CampaignOutcome, types: list[str]) -> dict:
@@ -210,42 +196,18 @@ def _print(rec: dict) -> None:
         )
 
 
-async def driver(cm: CampaignManager, results: list) -> None:
-    try:
-        types = ["fast_good", "slow_poor"]
-        for name in ("explore", "follow-up"):
-            print(f"\n── Campaign {name}: types={types}")
-            spec, _ = _spec(name, types)
-            sub = await cm.submit(spec)
-            if not sub.accepted:
-                print(f"  rejected: {sub.reason}")
-                return
-            outcome = await sub.wait()
-            rec = _record(outcome, types)
-            results.append(rec)
-            _print(rec)
-            types = plan_next(outcome)
-            dropped = sorted(set(rec["types"]) - set(types))
-            if name == "explore":
-                print(f"  driver: dropping {dropped or 'nothing'} for the next campaign")
-    finally:
-        cm.driver_done()
-
-
 async def run(json_out: str | None) -> None:
     random.seed(SEED)
-    cm = CampaignManager()
-    cm.expect_driver()
-    results: list = []
-    t0 = time.monotonic()
-    task = asyncio.ensure_future(driver(cm, results))
-    await cm.run()
-    await task
-    print(f"\nTotal {time.monotonic() - t0:.1f}s")
+    types = ["fast_good", "slow_poor"]
+    print(f"── Campaign explore: types={types}")
+    spec, _ = _spec("explore", types)
+    outcome = await CampaignManager().run(spec)
+    rec = _record(outcome, types)
+    _print(rec)
 
     if json_out:
         payload = {
-            "campaigns": results,
+            "campaign": rec,
             "meta": {
                 "fast_wall_s": FAST_WALL_S,
                 "slow_wall_s": SLOW_WALL_S,

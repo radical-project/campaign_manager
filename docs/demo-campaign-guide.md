@@ -31,8 +31,8 @@ python run_campaign.py
 Finishes in a few seconds. You should see:
 
 ```
-[SCHEDULER-demo-a] LAUNCH fast_sim id=demo-a.fast_sim.… requester=policy_agent
-[CTRL] CancelRule(fast_sim): cancelling demo-a.fast_sim.… score=0.212
+[SCHEDULER-demo] LAUNCH fast_sim id=demo.fast_sim.… requester=policy_agent
+[CTRL] CancelRule(fast_sim): cancelling demo.fast_sim.… score=0.212
 [CM] DAG fast_sim→analysis satisfied — created 1 request(s)
 ```
 
@@ -247,19 +247,14 @@ if isinstance(policy, BanditSchedulingPolicy):
 ### CM lifecycle (`run_campaign.py → run`)
 
 ```python
-cm = CampaignManager()
-result = cm.submit_campaign(spec)  # synchronous pre-submit; no outcome future
-if not result.accepted:
-    return
-
-await cm.run()  # runs until the campaign finishes
-cm.close()
-
-s = spec.controller.get_summary()  # read summary directly from controller
+outcome = await CampaignManager().run(spec)  # returns when the campaign ends
+s = outcome.summary  # the controller's get_summary()
+print(outcome.exit_reason, outcome.spent)
 ```
 
-`submit_campaign()` queues the spec before `run()` starts.  The CM shuts down
-automatically once the campaign finishes.
+`run()` sets up the AsyncFlow engine, runs the campaign, shuts the engine down
+and returns the `CampaignOutcome`.  Call it again with another spec to run the
+next campaign.
 
 ---
 

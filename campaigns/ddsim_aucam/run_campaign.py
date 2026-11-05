@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """
-MiniApps AuCaM campaign — parallel exploration of fast vs slow pipeline arms.
+MiniApps AuCaM campaign — fast vs slow pipeline arms.
 
-Two workflow arms compete per campaign:
+Two workflow arms compete in the campaign:
   miniapps_fast — baseline num_step
   miniapps_slow — num_step × slow_step_multiplier (default 3×)
 
 The bandit learns which arm converges faster; the controller cancels high-MSE runs.
-N campaigns run in parallel (up to max_concurrent at a time); a comparison table
-shows per-arm best/avg MSE and CPU spend across all campaigns.
+At the end a table shows per-arm best/avg MSE and the CPU spent.
 
 Score semantics: lower MSE is better.
 
-Reading order: build_spec → _make_policy → _run_one_campaign → _driver → run
+Reading order: build_spec → _make_policy → run
 
 Usage:
 ------
@@ -43,8 +42,6 @@ from config import (
     GlobalConfig,
     load_campaign,
     load_global,
-    parse_csv_floats,
-    vary_config,
 )
 from controller import MiniAppsController
 from reporting import _ResultsWriter, _log_comparison, _print_policy_summary
@@ -52,11 +49,8 @@ from reporting import _ResultsWriter, _log_comparison, _print_policy_summary
 from src.aucam import (
     CampaignBudget,
     CampaignManager,
-    CampaignOutcome,
     CampaignSpec,
-    GlobalBudget,
     SchedulingPolicy,
-    SubmitResult,
     WorkflowConfig,
     WorkflowResult,
 )
@@ -79,8 +73,7 @@ def build_spec(
     """Describe one campaign: two arms, a controller, and a budget.
 
     The controller (MiniAppsController) holds the science logic — cancel threshold
-    and goal count.  The two workers are closures so concurrent campaigns never
-    share config state.
+    and goal count.  Each arm's worker is a closure over its own config.
     """
     ctrl = MiniAppsController(
         goal_n=ccfg.controller.goal_n,
@@ -152,7 +145,6 @@ def _make_policy(name: str, ccfg=None) -> SchedulingPolicy | None:
 
     ref_s = stale_timeout / slow_multiplier  — calibrated to the fast arm's
     expected duration, so the fast arm naturally scores higher than the slow arm.
-    Each campaign gets its own bandit instance (no cross-campaign learning).
     """
     from src.aucam import BanditSchedulingPolicy, FIFOSchedulingPolicy
 
@@ -176,132 +168,8 @@ def _make_policy(name: str, ccfg=None) -> SchedulingPolicy | None:
 # ── Execution ──────────────────────────────────────────────────────────────────
 
 
-async def _run_one_campaign(
-    sem: asyncio.Semaphore,
-    cm: CampaignManager,
-    *,
-    name: str,
-    ccfg: CampaignConfig,
-    policy: SchedulingPolicy | None,
-    data_backend,
-    telemetry_dir: str | None,
-    cpu_hours: float | None,
-    gpu_hours: float | None,
-    engine: str = "concurrent",
-) -> tuple[str, CampaignOutcome, CampaignConfig] | None:
-    """Acquire a semaphore slot, submit one campaign, and wait for its outcome."""
-    async with sem:  # limits how many campaigns run at the same time
-        rw = None
-        if telemetry_dir:
-            fname = f"results_{name.split('-')[-1]}.jsonl"
-            rw = _ResultsWriter(Path(telemetry_dir) / fname)
-
-        spec = build_spec(
-            name=name,
-            ccfg=ccfg,
-            results_writer=rw,
-            data_backend=data_backend,
-            scheduling_policy=policy,
-            cpu_hours=cpu_hours,
-            gpu_hours=gpu_hours,
-            engine=engine,
-        )
-
-        result: SubmitResult = await cm.submit(spec)
-        if not result.accepted:
-            logging.warning("[DRIVER] %s: rejected — %s", name, result.reason)
-            if rw:
-                rw.close()
-            return None
-
-        logging.info(
-            "[DRIVER] %s: accepted (num_step_fast=%d  num_step_slow=%d)",
-            name,
-            ccfg.workflows.fast_config().num_step,
-            ccfg.workflows.slow_config().num_step,
-        )
-        outcome = await result.wait()  # blocks until the campaign reaches its goal
-        if rw:
-            rw.close()
-        return (name, outcome, ccfg)
-
-
-async def _driver(
-    cm: CampaignManager,
-    gcfg: GlobalConfig,
-    ccfg_template: CampaignConfig,
-    *,
-    n_campaigns: int,
-    policy_name: str,
-    policies: list,
-    triples: list,
-    data_backend,
-    telemetry_dir: str | None,
-    cpu_hours_list: list[float | None],
-    gpu_hours_list: list[float | None],
-) -> None:
-    """Submit all campaigns as concurrent tasks; a semaphore caps how many run at once."""
-    max_cc = gcfg.driver.max_concurrent or n_campaigns
-    sem = asyncio.Semaphore(max_cc)
-    labels = [chr(ord("a") + i) for i in range(n_campaigns)] if n_campaigns > 1 else [""]
-
-    logging.info("[DRIVER] launching %d campaigns (max_concurrent=%d)", n_campaigns, max_cc)
-
-    tasks = []
-    for i, label in enumerate(labels):
-        name = f"miniapps-campaign-{label}" if label else "miniapps-campaign"
-        ccfg = vary_config(ccfg_template, i)
-        policy = _make_policy(policy_name, ccfg)
-        policies.append((name, policy))
-        tasks.append(
-            _run_one_campaign(
-                sem,
-                cm,
-                name=name,
-                ccfg=ccfg,
-                policy=policy,
-                data_backend=data_backend,
-                telemetry_dir=telemetry_dir,
-                cpu_hours=cpu_hours_list[i],
-                gpu_hours=gpu_hours_list[i],
-                engine=gcfg.engine,
-            )
-        )
-
-    raw = await asyncio.gather(*tasks)
-    # Collect results in-place; run() prints them after Dragon shuts down.
-    triples.extend(t for t in raw if t is not None)
-    if not triples:
-        logging.warning("[DRIVER] all campaigns were rejected or failed")
-
-    cm.driver_done()  # tell the CM this driver is finished; cm.run() can now return
-
-
-# ── CM lifecycle ───────────────────────────────────────────────────────────────
-
-
 async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace) -> None:
-    """Create the CampaignManager, run all campaigns, then print results.
-
-    Lifecycle:
-        cm.expect_driver()          — register one driver
-        asyncio.create_task(driver) — driver submits campaigns in the background
-        await cm.run()              — blocks until driver_done() + all campaigns finish
-        await driver_task           — surface any driver exception
-        cm.close()                  — explicit shutdown
-    """
-    n = gcfg.driver.num_campaigns
-    # CLI flag wins; fall back to YAML driver.spending_cpu_hours list
-    if args.spending_cpu_hours:
-        cpu_hours_list = parse_csv_floats(args.spending_cpu_hours, n)
-    else:
-        cpu_hours_list = (gcfg.driver.spending_cpu_hours + [None] * n)[:n]
-    gpu_hours_list = parse_csv_floats(args.spending_gpu_hours, n)
-
-    policies: list = []  # (name, policy) — populated by _driver, printed at the end
-    triples: list = []  # (name, outcome, ccfg) — filled as campaigns complete
-
-    # Create the execution backend.
+    """Create the backend and the CampaignManager, run the campaign, print results."""
     if gcfg.engine == "dragon":
         from rhapsody.backends.execution.dragon import DragonExecutionBackend
 
@@ -312,62 +180,48 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
         backend = await ConcurrentExecutionBackend()
     else:
         backend = None
-    data_backend = None
 
-    global_budget: GlobalBudget | None = None
-    gb = gcfg.global_budget
-    if (
-        gb.max_total_concurrent_workflows is not None
-        or gb.spending
-        or gb.n_campaigns is not None
-        or gb.max_rejections is not None
-    ):
-        global_budget = GlobalBudget(
-            max_concurrent_campaigns=None,
-            max_total_concurrent_workflows=gb.max_total_concurrent_workflows,
-            spending=gb.spending,
-            n_campaigns=gb.n_campaigns,
-            max_rejections=gb.max_rejections,
-        )
+    name = "miniapps-campaign"
+    rw = None
+    if gcfg.telemetry.dir:
+        rw = _ResultsWriter(Path(gcfg.telemetry.dir) / "results.jsonl")
+    policy = _make_policy(gcfg.scheduling.policy, ccfg)
+    spec = build_spec(
+        name=name,
+        ccfg=ccfg,
+        results_writer=rw,
+        scheduling_policy=policy,
+        cpu_hours=args.spending_cpu_hours,
+        gpu_hours=args.spending_gpu_hours,
+        engine=gcfg.engine,
+    )
+    logging.info(
+        "[RUN] %s (num_step_fast=%d  num_step_slow=%d)",
+        name,
+        ccfg.workflows.fast_config().num_step,
+        ccfg.workflows.slow_config().num_step,
+    )
 
     cm = CampaignManager(
         backend=backend,
-        global_budget=global_budget,
         enable_telemetry=gcfg.telemetry.enabled,
         telemetry_checkpoint_dir=gcfg.telemetry.dir,
     )
-
     t0 = time.monotonic()
-
-    cm.expect_driver()
-    driver_task = asyncio.create_task(
-        _driver(
-            cm,
-            gcfg,
-            ccfg,
-            n_campaigns=n,
-            policy_name=gcfg.scheduling.policy,
-            policies=policies,
-            triples=triples,
-            data_backend=data_backend,
-            telemetry_dir=gcfg.telemetry.dir,
-            cpu_hours_list=cpu_hours_list,
-            gpu_hours_list=gpu_hours_list,
-        )
-    )
-
-    await cm.run()  # returns when all campaigns finish and driver_done() was called
-    await driver_task  # propagates any exception from the driver
-    cm.close()
-
+    try:
+        outcome = await cm.run(spec)  # returns when the campaign ends
+    finally:
+        if rw:
+            rw.close()
+        if backend is not None and hasattr(backend, "shutdown"):
+            await backend.shutdown()
     elapsed = time.monotonic() - t0
 
-    # Print after cm.run() returns — Dragon is fully shut down, stdout is not intercepted.
-    if triples:
-        _log_comparison(triples)
-    for cname, cpolicy in policies:
-        print(f"\n[POLICY] {cname}:")
-        _print_policy_summary(cpolicy)
+    # Print after the backend is shut down — Dragon no longer intercepts stdout.
+    logging.info("[RUN] %s ended: %s", name, outcome.exit_reason)
+    _log_comparison([(name, outcome, ccfg)])
+    print(f"\n[POLICY] {name}:")
+    _print_policy_summary(policy)
     print(f"\nTotal elapsed: {elapsed:.1f}s", flush=True)
 
 
@@ -376,7 +230,7 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
 
 def _build_parser(gcfg: GlobalConfig, ccfg: CampaignConfig) -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="MiniApps AuCaM campaign — parallel variant exploration",
+        description="MiniApps AuCaM campaign — fast vs slow arms",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
@@ -387,8 +241,6 @@ def _build_parser(gcfg: GlobalConfig, ccfg: CampaignConfig) -> argparse.Argument
     p.add_argument(
         "--telemetry-dir", default=gcfg.telemetry.dir, help="directory for telemetry JSONL"
     )
-    p.add_argument("--num-campaigns", type=int, default=gcfg.driver.num_campaigns)
-    p.add_argument("--max-concurrent-campaigns", type=int, default=gcfg.driver.max_concurrent)
     p.add_argument("--policy", choices=["bandit", "fifo"], default=gcfg.scheduling.policy)
 
     # Controller / budget
@@ -422,9 +274,9 @@ def _build_parser(gcfg: GlobalConfig, ccfg: CampaignConfig) -> argparse.Argument
     )
     p.add_argument("--num-epochs", type=int, default=ccfg.workflows.miniapps.num_epochs)
 
-    # Per-campaign spending caps (comma-separated for multiple campaigns)
-    p.add_argument("--spending-cpu-hours", type=str, default=None)
-    p.add_argument("--spending-gpu-hours", type=str, default=None)
+    # Spending limits (override budget.spending in the campaign YAML)
+    p.add_argument("--spending-cpu-hours", type=float, default=None)
+    p.add_argument("--spending-gpu-hours", type=float, default=None)
 
     return p
 
@@ -454,8 +306,6 @@ def main() -> None:
     gcfg.telemetry.dir = args.telemetry_dir
     if args.telemetry_dir:
         gcfg.telemetry.enabled = True
-    gcfg.driver.num_campaigns = args.num_campaigns
-    gcfg.driver.max_concurrent = args.max_concurrent_campaigns
 
     ccfg.controller.goal_n = args.goal_n
     ccfg.controller.score_ceiling = args.score_ceiling

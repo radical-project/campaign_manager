@@ -137,8 +137,7 @@ def test_pause_resume_lifecycle() -> None:
     )
 
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    asyncio.run(asyncio.wait_for(cm.run(), timeout=30.0))
+    asyncio.run(asyncio.wait_for(cm.run(spec), timeout=30.0))
 
     # Workflow completed
     assert "COMPLETED" in events, f"Worker never completed; events={events}"

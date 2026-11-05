@@ -11,19 +11,12 @@ Three workflow types:
 
 Campaign terminates when goal_analyses analyses have completed.
 
-Two run modes:
-  default    — submit all N campaigns up front; CM runs them in parallel.
-  --driver   — submit campaigns sequentially; each adapts based on the previous.
-
-Reading order: build_spec → _driver → run
+Reading order: build_spec → run
 
 Usage:
 ------
     # Local — quick start (all defaults):
     python run_campaign.py --policy bandit
-
-    # Driver mode — sequential adaptive campaigns:
-    python run_campaign.py --driver --num-campaigns 3 --driver-delay 1.0
 
     # HPC with Dragon and telemetry:
     python run_campaign.py \\
@@ -59,11 +52,9 @@ from src.aucam import (
     CampaignManager,
     CampaignOutcome,
     CampaignSpec,
-    GlobalBudget,
     RadexDragonBackend,
     RhapsodyRedisBackend,
     SchedulingPolicy,
-    SubmitResult,
     WorkflowConfig,
     WorkflowDependency,
     WorkflowResult,
@@ -209,104 +200,29 @@ def build_spec(
     )
 
 
-# ── Driver (sequential, adaptive) ─────────────────────────────────────────────
-
-
-async def _driver(
-    cm: CampaignManager,
-    gcfg: GlobalConfig,
-    ccfg: CampaignConfig,
-    *,
-    n_campaigns: int,
-    policy_name: str,
-    policies: list,
-    data_backend,
-    telemetry_dir: str | None,
-) -> None:
-    """Submit campaigns one by one; each waits for the previous outcome.
-
-    After each campaign the driver inspects cancel rate and analyses done —
-    this is where science feedback loops live.  Here we log; a real driver
-    would update ccfg fields (e.g. tighten score_floor if cancel rate is high).
-    """
-    labels = [chr(ord("a") + i) for i in range(n_campaigns)] if n_campaigns > 1 else [""]
-    prev_outcome: CampaignOutcome | None = None
-
-    for label in labels:
-        name = f"demo-campaign-{label}" if label else "demo-campaign"
-
-        if prev_outcome is not None:
-            # Inspect previous outcome — adapt next campaign if needed.
-            sims_ok = prev_outcome.completed.get("sim_worker", 0) + prev_outcome.completed.get(
-                "sim_worker_b", 0
-            )
-            sims_can = prev_outcome.cancelled.get("sim_worker", 0) + prev_outcome.cancelled.get(
-                "sim_worker_b", 0
-            )
-            cancel_rate = sims_can / max(1, sims_ok + sims_can)
-            logging.info(
-                "[DRIVER] %s → planning %s | goal_reached=%s  cancel_rate=%.0f%%  analyses=%d  elapsed=%.1fs",
-                prev_outcome.campaign_name,
-                name,
-                prev_outcome.goal_reached,
-                cancel_rate * 100,
-                prev_outcome.completed.get("analysis_worker", 0),
-                prev_outcome.elapsed_s,
-            )
-            if gcfg.driver.delay_s > 0:
-                await asyncio.sleep(gcfg.driver.delay_s)
-
-        rw = None
-        if telemetry_dir:
-            fname = f"results_{label}.jsonl" if label else "results.jsonl"
-            rw = _ResultsWriter(Path(telemetry_dir) / fname)
-
-        # Each campaign gets its own policy instance — no cross-campaign learning.
-        policy = make_policy(policy_name)
-        policies.append((name, policy))
-
-        spec = build_spec(
-            name=name,
-            ccfg=ccfg,
-            results_writer=rw,
-            data_backend=data_backend,
-            scheduling_policy=policy,
-            use_cmd_worker=data_backend is not None,
-        )
-
-        result: SubmitResult = await cm.submit(spec)
-        if not result.accepted:
-            logging.warning("[DRIVER] %s: rejected — %s", name, result.reason)
-            if rw:
-                rw.close()
-            continue
-
-        logging.info("[DRIVER] %s: accepted", name)
-        prev_outcome = await result.wait()  # wait for this campaign before submitting next
-        if rw:
-            rw.close()
-
-        if prev_outcome.spent:
-            spent_str = "  ".join(f"{k}={v:.5f}" for k, v in sorted(prev_outcome.spent.items()))
-            logging.info("[DRIVER] %s: spent: %s", prev_outcome.campaign_name, spent_str)
-
-    cm.driver_done()  # signal CM this driver is finished; cm.run() can now return
-
-
 # ── CM lifecycle ───────────────────────────────────────────────────────────────
 
 
+def _log_outcome(outcome: CampaignOutcome) -> None:
+    """Log what a planner would use to decide the next campaign."""
+    sims_ok = outcome.completed.get("sim_worker", 0) + outcome.completed.get("sim_worker_b", 0)
+    sims_can = outcome.cancelled.get("sim_worker", 0) + outcome.cancelled.get("sim_worker_b", 0)
+    logging.info(
+        "[CM] %s: exit=%s goal_reached=%s cancel_rate=%.0f%% analyses=%d elapsed=%.1fs",
+        outcome.campaign_name,
+        outcome.exit_reason,
+        outcome.goal_reached,
+        100 * sims_can / max(1, sims_ok + sims_can),
+        outcome.completed.get("analysis_worker", 0),
+        outcome.elapsed_s,
+    )
+    if outcome.spent:
+        spent_str = "  ".join(f"{k}={v:.5f}" for k, v in sorted(outcome.spent.items()))
+        logging.info("[CM] %s: spent: %s", outcome.campaign_name, spent_str)
+
+
 async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace) -> None:
-    """Create the CampaignManager, run all campaigns, then print results.
-
-    Two paths:
-      default  — submit all campaigns up front; cm.run() processes them in parallel.
-      --driver — driver submits campaigns sequentially, adapting between each.
-    """
-    n = gcfg.num_campaigns
-    labels = [chr(ord("a") + i) for i in range(n)] if n > 1 else [""]
-    policies: list = []  # (name, policy) — printed at the end
-
+    """Create the CampaignManager, run the campaign, then print results."""
     backend = await _make_backend(gcfg.engine)
 
     # Dragon's runtime init re-hooks the root logger — re-apply after it returns.
@@ -320,104 +236,42 @@ async def run(gcfg: GlobalConfig, ccfg: CampaignConfig, args: argparse.Namespace
         gcfg.engine, gcfg.data_backend, gcfg.redis_server_path
     )
 
-    global_budget: GlobalBudget | None = None
-    gb = gcfg.global_budget
-    if (
-        gb.max_concurrent_campaigns is not None
-        or gb.max_total_concurrent_workflows is not None
-        or gb.spending
-        or gb.n_campaigns is not None
-        or gb.max_rejections is not None
-    ):
-        global_budget = GlobalBudget(
-            max_concurrent_campaigns=gb.max_concurrent_campaigns,
-            max_total_concurrent_workflows=gb.max_total_concurrent_workflows,
-            spending=gb.spending,
-            n_campaigns=gb.n_campaigns,
-            max_rejections=gb.max_rejections,
-        )
-
     cm = CampaignManager(
         backend=backend,
-        global_budget=global_budget,
         enable_telemetry=gcfg.telemetry.enabled,
         telemetry_checkpoint_dir=gcfg.telemetry.dir,
     )
 
+    name = "demo-campaign"
+    rw = _ResultsWriter(Path(gcfg.telemetry.dir) / "results.jsonl") if gcfg.telemetry.dir else None
+    policy = make_policy(gcfg.scheduling.policy)
+    spec = build_spec(
+        name=name,
+        ccfg=ccfg,
+        results_writer=rw,
+        data_backend=data_backend,
+        scheduling_policy=policy,
+        use_cmd_worker=data_backend is not None,
+    )
+
     t0 = time.monotonic()
-    writers: list[_ResultsWriter | None] = []
-
-    if gcfg.driver.enabled:
-        # ── Driver mode: submit campaigns one-by-one, adapt between each ─────
-        # Lifecycle: expect_driver → create_task(driver) → cm.run() → await driver_task → close
-        cm.expect_driver()
-        driver_task = asyncio.create_task(
-            _driver(
-                cm,
-                gcfg,
-                ccfg,
-                n_campaigns=n,
-                policy_name=gcfg.scheduling.policy,
-                policies=policies,
-                data_backend=data_backend,
-                telemetry_dir=gcfg.telemetry.dir,
-            )
-        )
-        try:
-            await cm.run()  # returns when driver_done() was called and all campaigns finish
-        finally:
-            if _rdb is not None:
-                if hasattr(data_backend, "close"):
-                    data_backend.close()
-                await _rdb.shutdown()
-            if backend is not None and hasattr(backend, "shutdown"):
-                await backend.shutdown()
-        await driver_task  # propagates any driver exception
-        cm.close()
-
-    else:
-        # ── Default mode: submit all campaigns up front; CM runs in parallel ──
-        for label in labels:
-            name = f"demo-campaign-{label}" if label else "demo-campaign"
-            rw = None
-            if gcfg.telemetry.dir:
-                fname = f"results_{label}.jsonl" if label else "results.jsonl"
-                rw = _ResultsWriter(Path(gcfg.telemetry.dir) / fname)
-            writers.append(rw)
-
-            policy = make_policy(gcfg.scheduling.policy)
-            policies.append((name, policy))
-            spec = build_spec(
-                name=name,
-                ccfg=ccfg,
-                results_writer=rw,
-                data_backend=data_backend,
-                scheduling_policy=policy,
-                use_cmd_worker=data_backend is not None,
-            )
-            cm.submit_campaign(spec)
-            logging.info("[DRIVER] submitted '%s'", name)
-
-        try:
-            await cm.run()
-        finally:
-            if _rdb is not None:
-                if hasattr(data_backend, "close"):
-                    data_backend.close()
-                await _rdb.shutdown()
-            if backend is not None and hasattr(backend, "shutdown"):
-                await backend.shutdown()
-        cm.close()
-        for rw in writers:
-            if rw is not None:
-                rw.close()
-
+    try:
+        outcome = await cm.run(spec)
+    finally:
+        if rw is not None:
+            rw.close()
+        if _rdb is not None:
+            if hasattr(data_backend, "close"):
+                data_backend.close()
+            await _rdb.shutdown()
+        if backend is not None and hasattr(backend, "shutdown"):
+            await backend.shutdown()
     elapsed = time.monotonic() - t0
+    _log_outcome(outcome)
 
     # Print after cm.run() returns — Dragon is fully shut down, stdout is safe.
-    for cname, cpolicy in policies:
-        print(f"\n  campaign {cname}:")
-        print_policy_summary(cpolicy, gcfg.scheduling.policy)
+    print(f"\n  campaign {name}:")
+    print_policy_summary(policy, gcfg.scheduling.policy)
     print(f"\nTotal elapsed: {elapsed:.1f}s", flush=True)
 
     # Cancel lingering asyncio tasks left by Dragon/CM so the event loop can close.
@@ -501,26 +355,8 @@ def _build_parser(gcfg: GlobalConfig, ccfg: CampaignConfig) -> argparse.Argument
     p.add_argument("-v", "--verbose", action="store_true", default=gcfg.verbose)
     p.add_argument("--engine", choices=["default", "concurrent", "dragon"], default=gcfg.engine)
     p.add_argument("--telemetry-dir", default=gcfg.telemetry.dir, help="enables telemetry JSONL")
-    p.add_argument("--num-campaigns", type=int, default=gcfg.num_campaigns)
     p.add_argument(
         "--policy", choices=["bandit", "fifo", "adr", "llm"], default=gcfg.scheduling.policy
-    )
-
-    # Driver mode
-    p.add_argument(
-        "--driver",
-        action="store_true",
-        default=gcfg.driver.enabled,
-        help="submit campaigns sequentially, adapting between each",
-    )
-    p.add_argument(
-        "--driver-delay",
-        type=float,
-        default=gcfg.driver.delay_s,
-        help="pause (s) between submissions in driver mode",
-    )
-    p.add_argument(
-        "--max-concurrent-campaigns", type=int, default=gcfg.global_budget.max_concurrent_campaigns
     )
 
     # Campaign overrides
@@ -534,7 +370,7 @@ def _build_parser(gcfg: GlobalConfig, ccfg: CampaignConfig) -> argparse.Argument
         "--max-concurrent",
         type=int,
         default=ccfg.budget.max_concurrent,
-        help="max concurrent workflows per campaign",
+        help="max concurrent workflows",
     )
     p.add_argument("--checkpoint-dir", default=ccfg.checkpoint_dir)
 
@@ -577,15 +413,10 @@ def main() -> None:
 
     gcfg.engine = args.engine if args.engine != "default" else gcfg.engine
     gcfg.verbose = args.verbose
-    gcfg.num_campaigns = args.num_campaigns
     gcfg.scheduling.policy = args.policy
-    gcfg.driver.enabled = args.driver
-    gcfg.driver.delay_s = args.driver_delay
     gcfg.telemetry.dir = args.telemetry_dir
     if args.telemetry_dir:
         gcfg.telemetry.enabled = True
-    if args.max_concurrent_campaigns is not None:
-        gcfg.global_budget.max_concurrent_campaigns = args.max_concurrent_campaigns
 
     ccfg.controller.goal_analyses = args.goal_analyses
     ccfg.budget.max_concurrent = args.max_concurrent

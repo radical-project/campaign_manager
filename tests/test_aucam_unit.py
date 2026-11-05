@@ -9,28 +9,14 @@ from src.aucam import BudgetAllocator, LaunchPriority, LaunchRequest, WorkflowQu
 # ── BudgetAllocator (spending ledger) ───────────────────────────────────────
 
 
-def test_ledger_admission_against_global_cap() -> None:
+def test_ledger_close_returns_actual_spending() -> None:
     alloc = BudgetAllocator()
-    cap = {"gpu_hours": 100.0}
-    assert alloc.admit("camp-a", {"gpu_hours": 60.0}, cap) is None
-    assert alloc.admit("camp-b", {"gpu_hours": 40.0}, cap) is None
-    reason = alloc.admit("camp-c", {"gpu_hours": 1.0}, cap)
-    assert reason is not None and "global spending[gpu_hours]" in reason
-    assert alloc.committed("gpu_hours") == pytest.approx(100.0)
-
-
-def test_ledger_close_moves_actual_spending_to_global() -> None:
-    alloc = BudgetAllocator()
-    cap = {"gpu_hours": 100.0}
-    alloc.admit("camp-a", {"gpu_hours": 60.0}, cap)
-    alloc.admit("camp-b", {"gpu_hours": 40.0}, cap)
+    alloc.open("camp-a", {"gpu_hours": 60.0})
     alloc.record("camp-a", {"gpu_hours": 10.0})
+    alloc.set_in_flight("camp-a", "wf1", {"gpu_hours": 5.0})
+    # In-flight estimates are dropped; only actual spending is returned.
     assert alloc.close("camp-a") == {"gpu_hours": 10.0}
-    assert alloc.global_spent() == {"gpu_hours": 10.0}
-    # 10 spent + 40 committed (camp-b) → 50 left
-    assert alloc.global_remaining("gpu_hours", 100.0) == pytest.approx(50.0)
-    assert alloc.admit("camp-c", {"gpu_hours": 50.0}, cap) is None
-    assert alloc.admit("camp-d", {"gpu_hours": 0.5}, cap) is not None
+    assert alloc.close("camp-a") == {}  # safe to call twice
 
 
 def test_ledger_in_flight_counts_toward_campaign_limit() -> None:
@@ -49,21 +35,18 @@ def test_ledger_in_flight_counts_toward_campaign_limit() -> None:
     assert alloc.spent("c1") == {"gpu_hours": 7.5}
 
 
-def test_ledger_snapshot_and_late_charge() -> None:
+def test_ledger_view_and_late_charge() -> None:
     alloc = BudgetAllocator()
     alloc.open("c1", {"cpu_hours": 5.0})
     alloc.set_in_flight("c1", "wf1", {"cpu_hours": 2.0})
-    snap = alloc.snapshot()
-    assert snap["campaigns"]["c1"] == {
-        "limits": {"cpu_hours": 5.0},
-        "spent": {},
-        "in_flight": {"cpu_hours": 2.0},
-    }
+    view = alloc.campaign_view("c1")
+    assert view["limits"] == {"cpu_hours": 5.0}
+    assert view["in_flight"] == {"cpu_hours": 2.0}
+    assert view["burn"]["cpu_hours"]["remaining"] == pytest.approx(3.0)
     alloc.close("c1")
-    # A workflow that finishes after its campaign was closed is charged globally.
+    # A workflow that finishes after the campaign was closed is not charged.
     alloc.record("c1", {"cpu_hours": 1.0})
-    assert alloc.global_spent() == {"cpu_hours": 1.0}
-    assert "c1" not in alloc.snapshot()["campaigns"]
+    assert alloc.spent("c1") == {}
 
 
 # ── WorkflowQueue ────────────────────────────────────────────────────────────

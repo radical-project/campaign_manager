@@ -6,7 +6,7 @@ controller:
   score_floor: 0.4
 
 budget:
-  max_concurrent: 3           # per-campaign; 2 campaigns × 3 = 6 total on 2 nodes
+  max_concurrent: 3           # max concurrent workflows in this campaign
   max_concurrency_per_workflow: 2
   spending:
     cpu_hours: 0.042          # ~3 sim_worker completions at ≈50 s each; remove to disable
