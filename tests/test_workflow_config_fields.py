@@ -130,8 +130,7 @@ def _run_pause_scenario(supports_pause: bool) -> tuple[int, list[str]]:
             shutdown_timeout_s=5.0,
         )
         cm = CampaignManager()
-        cm.submit_campaign(spec)
-        asyncio.run(asyncio.wait_for(cm.run(), timeout=15.0))
+        asyncio.run(asyncio.wait_for(cm.run(spec), timeout=15.0))
     finally:
         log.removeHandler(handler)
 

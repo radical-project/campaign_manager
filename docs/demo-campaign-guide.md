@@ -1,28 +1,26 @@
-# Demo campaign — quick start
+# Demo campaign — API walkthrough
 
-Run an AuCaM campaign on your laptop in a few seconds, then adapt it.
-Everything is in `campaigns/demo_campaign/`.
+A single self-contained file (`campaigns/demo_campaign/run_campaign.py`) that
+exercises every AuCaM API.  Runs anywhere in a few seconds — no HPC, no Dragon.
 
 ---
 
 ## What the demo runs
 
-A campaign that searches for good simulation results:
+Two simulation arms compete; a dependency triggers analysis after each successful sim.
 
-| Workflow type | What it does |
+| Workflow | Behaviour |
 |---|---|
-| `sim_worker` | A synthetic simulation (~0.8 s). Its score drifts up or down; about a third of runs go bad. |
-| `sim_worker_b` | A shorter simulation (~0.3 s) that goes bad less often. |
-| `analysis_worker` | Analyses a simulation's result; starts after a successful simulation (a dependency). |
+| `fast_sim` | 6 steps, ~70% convergence. Kept queued via `LaunchRule`. |
+| `precise_sim` | 10 steps, ~90% convergence. Launched by `decide()` with dynamic priority. |
+| `analysis` | Post-processing; fires after every successful sim via `WorkflowDependency`. |
 
-The campaign's controller (`ScoreController` in `controller.py`) keeps both
-simulation types queued, cancels any simulation whose score falls below 0.4,
-and ends the campaign after 3 successful analyses. The scheduler (a bandit)
-learns which simulation type succeeds more often and launches it more.
+The campaign ends after `goal_analyses` analyses complete **or** a perfect score (≥ 0.99)
+is found — whichever comes first.
 
 ---
 
-## 1. Run one campaign
+## 1. Run it
 
 ```bash
 pip install -e .
@@ -30,93 +28,239 @@ cd campaigns/demo_campaign
 python run_campaign.py
 ```
 
-It finishes in about 3 seconds. Look for:
+Finishes in a few seconds. You should see:
 
 ```
-[CM] Campaign demo-campaign SUMMARY — exit=controller_terminate run=19 ok=14 cancelled=5 ... spent={'cpu_hours': 0.0027}
-
-  bandit arms (3 learned):
-    analysis_worker   n=  4  mean=0.750
-    sim_worker        n=  4  mean=0.500
-    sim_worker_b      n= 11  mean=0.818
+[SCHEDULER-demo] LAUNCH fast_sim id=demo.fast_sim.… requester=policy_agent
+[CTRL] CancelRule(fast_sim): cancelling demo.fast_sim.… score=0.212
+[CM] DAG fast_sim→analysis satisfied — created 1 request(s)
 ```
 
-- `exit=controller_terminate` — the goal (3 analyses) was reached.
-- `cancelled=5` — runs stopped early because their scores fell below 0.4.
-- The bandit launched `sim_worker_b` most, because it succeeded most often
-  (`mean` is its success rate).
-- `spent` — the CPU-hours the campaign was charged.
-
-Add `-v` to see every launch, cancellation and policy cycle.
-
-## 2. Run several campaigns with a driver
+Try other policies:
 
 ```bash
-python run_campaign.py --driver --num-campaigns 3 --driver-delay 0
+python run_campaign.py --policy science       # reward = final score
+python run_campaign.py --policy bandit_tight  # low exploration, faster exploitation
+python run_campaign.py --policy custom        # recency-bias subclass of SchedulingPolicy
+python run_campaign.py --policy fifo          # no learning; queue order
+python run_campaign.py -v                     # verbose: every launch and policy cycle
 ```
-
-A driver submits the campaigns one after another and reads each outcome
-before planning the next:
-
-```
-[DRIVER] demo-campaign-a: accepted
-[DRIVER] demo-campaign-a: science summary — n_scores=3  best=1.000  avg=1.000
-[DRIVER] demo-campaign-a → planning demo-campaign-b | prev: goal_reached=True  cancel_rate=36%  analyses=3  elapsed=2.6s
-...
-```
-
-## 3. See what AuCaM adds
-
-```bash
-python figures/run_impact.py        # ~75 s
-```
-
-Cancellation, learning, spending and driver feedback on one run, explained in
-the [capability demo](cm-advantages.md).
 
 ---
 
-## Adapt it
+## 2. API tour
 
-| To change | Edit |
-|---|---|
-| Goal, cancel threshold | `campaign_configs/campaign.yaml` → `controller.goal_analyses`, `controller.score_floor` |
-| Concurrency and spending limits | `campaign.yaml` → `budget.max_concurrent`, `budget.max_concurrency_per_workflow`, `budget.spending` |
-| Expected cost per run | `campaign.yaml` → `workflows.<type>.declared_spending` |
-| Number of campaigns, global limits, scheduling policy | `campaign_configs/global.yaml` → `num_campaigns`, `global_budget`, `scheduling.policy` |
-| The science | `workflows.py` (workflows) and `controller.py` (decision logic) |
+### Workflows (`run_campaign.py`)
 
-`python run_campaign.py --help` lists the command-line overrides.
+Each workflow is an `async def` that receives a `WorkflowReporter`.  It calls
+`reporter.emit()` every step to push a score snapshot to the CM.  The CM reads
+it on each policy cycle and evaluates `CancelRule` against the latest score.
 
-To write your own campaign from scratch, see the
-[campaign developer guide](campaign-developer-guide.md).
-
-## Run on an HPC allocation
-
-`delta_sbatch.sh` is a SLURM script for NCSA Delta (two nodes). It uses the
-Dragon backend with `campaign_configs/global_hpc.yaml` and `campaign_hpc.yaml`
-(longer runs, a global spending limit):
-
-```bash
-sbatch delta_sbatch.sh                       # Dragon backend
-ENGINE=concurrent sbatch delta_sbatch.sh     # without Dragon, for debugging
+```python
+async def fast_sim(reporter: WorkflowReporter) -> None:
+    t0 = time.monotonic()
+    score = 0.5
+    for step in range(6):
+        await asyncio.sleep(0.05)
+        score += random.gauss(0.06 if converging else -0.10, 0.04)
+        await reporter.emit(
+            score=score,
+            metrics={"step": step, "cpu_hours": (time.monotonic() - t0) / 3600.0},
+            iteration=step,
+        )
 ```
 
-Set `SBATCH_ACCOUNT`, and adjust the node count and time limit for your site.
+Each emit includes the cumulative `cpu_hours` elapsed so far.  The CM uses the
+last reported value to track actual budget consumption as the workflow runs.
 
 ---
 
-## Files
+### WorkflowDependency (`run_campaign.py → build_spec`)
 
-| File | Purpose |
-|---|---|
-| `run_campaign.py` | Entry point: reads the configs, builds the campaign, runs it (with or without a driver) |
-| `controller.py` | `ScoreController`: cancel rule, goal, summary for the driver |
-| `workflows.py` | The three workflow types |
-| `config.py` | Config dataclasses and YAML loading |
-| `scheduler.py` | Builds the scheduling policy named in `global.yaml` |
-| `campaign_configs/` | `global.yaml`, `campaign.yaml` (local); `global_hpc.yaml`, `campaign_hpc.yaml` (HPC); `global_redis.yaml` (Redis backend test) |
-| `delta_sbatch.sh` | SLURM batch script |
-| `figures/run_impact.py`, `figures/gen_impact_fig.py` | Capability demo and its figure |
-| `figures/doc_figures.py` | Generates documentation figures (budget, bandit, global budget) |
-| `cmd_sim_worker.py` | A command-line workflow, added automatically with the Redis or Dragon backend |
+```python
+WorkflowDependency(source="fast_sim", target="analysis")
+WorkflowDependency(
+    source="precise_sim",
+    target="analysis",
+    condition=lambda r: r.returncode == 0 and r.final_score > 0.5,  # custom gate
+)
+```
+
+Default condition is `returncode == 0` (successful completion only).
+Override `condition` to gate on score, metrics, or any field of `WorkflowResult`.
+
+---
+
+### CampaignBudget (`run_campaign.py → build_spec`)
+
+```python
+CampaignBudget(
+    max_concurrent_workflows=4,
+    max_concurrency_per_workflow=2,  # per-type cap enforced by the CM
+    spending={"cpu_hours": 0.05},  # hard cap; workflows self-report actual usage
+)
+```
+
+---
+
+### ShowcaseController — all controller hooks (`run_campaign.py`)
+
+#### `__init__` — rules and goal
+
+```python
+super().__init__(
+    rules=[
+        LaunchRule("fast_sim"),  # explicit form of launch= shorthand
+        CancelRule("fast_sim", when=lambda r: r.score is not None and r.score < threshold),
+        CancelRule("precise_sim", when=...),
+    ],
+    goal_type="analysis",
+    goal_n=goal_analyses,
+)
+```
+
+`LaunchRule` keeps exactly one request of the given type queued at all times
+(guarded: only enqueues when `queue_snapshot.by_type[type] == 0`).
+
+#### `observe` — augment the snapshot
+
+```python
+def observe(self, queue_snapshot, budget, running=None, **kwargs) -> dict:
+    obs = super().observe(queue_snapshot, budget, running, **kwargs)
+    obs["cancel_rate"] = cancelled / max(1, total)  # custom field for decide()
+    return obs
+```
+
+Called by the CM before every `decide()`.  Add any derived metric here so
+`decide()` doesn't recompute it.
+
+#### `decide` — custom launch logic and full PolicyResult
+
+```python
+def decide(self, obs: dict) -> PolicyResult:
+    base = self._apply_rules(self._rules, obs)  # applies LaunchRule + CancelRule from __init__
+    q = obs["queue_snapshot"]
+
+    # Keep one precise_sim queued; promote it to HIGH when a good score was seen.
+    extra = []
+    if not self.is_goal_reached() and q.by_type.get("precise_sim", 0) == 0:
+        priority = (
+            LaunchPriority.HIGH
+            if self._best is not None and self._best > 0.7
+            else LaunchPriority.NORMAL
+        )
+        extra.append(LaunchRequest.make("precise_sim", priority=priority))
+
+    # High cancel rate → drop queued fast_sims to free slots for analysis.
+    cancel_queued = {"fast_sim": 2} if obs["cancel_rate"] > 0.6 else None
+
+    return PolicyResult(
+        decisions=base.decisions,
+        launch_requests=base.launch_requests + extra,
+        terminate=base.terminate,
+        cancel_queued=cancel_queued,
+    )
+```
+
+`_apply_rules` processes the declarative rules from `__init__` (the `LaunchRule`
+that keeps `fast_sim` queued, and the `CancelRule`s).  `decide()` then adds
+`precise_sim` imperatively — it always keeps one in the queue and raises its
+priority to `HIGH` once a score above 0.7 has been seen.
+
+`cancel_queued` removes queued-but-not-yet-running requests.  When the cancel
+rate exceeds 60 %, up to 2 queued `fast_sim` requests are dropped to free
+concurrency slots for `analysis` workflows.
+
+
+#### `is_goal_reached` — custom early-stop
+
+```python
+def is_goal_reached(self) -> bool:
+    if self._best is not None and self._best >= 0.99:
+        return True  # perfect score: stop regardless of analysis count
+    return super().is_goal_reached()
+```
+
+#### `goals` — declare tracked targets
+
+```python
+def goals(self) -> list[Goal]:
+    return [Goal(name="quality", metric="score", threshold=0.8, direction="maximize")]
+```
+
+#### `on_complete` — accumulate per-result state
+
+```python
+def on_complete(self, result: WorkflowResult) -> None:
+    super().on_complete(result)  # keeps completed/cancelled/failed counters accurate
+    if result.returncode == 0 and result.final_score is not None:
+        if self._best is None or result.final_score > self._best:
+            self._best = result.final_score
+```
+
+#### `get_summary` — campaign outcome
+
+```python
+def get_summary(self) -> dict:
+    return {"best_score": self._best, "analyses_done": ..., "cancel_rate": ...}
+```
+
+Accessible directly from `spec.controller.get_summary()` after `cm.run()` returns.
+
+---
+
+### Scheduling policies (`scheduler.py`)
+
+| Name | Class | What changes |
+|---|---|---|
+| `bandit` | `BanditSchedulingPolicy()` | Default throughput reward (1=success, 0=cancel) |
+| `science` | `BanditSchedulingPolicy(reward_fn=_score_reward)` | reward = final score |
+| `bandit_tight` | `BanditSchedulingPolicy(exploration=0.5)` | Less exploration, faster exploitation |
+| `custom` | `_RecencyBiasPolicy` | `SchedulingPolicy` subclass: `select()` + `on_outcome()` |
+| `fifo` | `FIFOSchedulingPolicy()` | Queue order, no learning |
+
+**Custom subclass pattern:**
+
+```python
+class _RecencyBiasPolicy(SchedulingPolicy):
+    def select(self, candidates, ctx: SchedulingContext) -> list:
+        # ctx fields: running_by_type, history, policy_cycles,
+        #             budget_remaining_fraction, max_concurrency, …
+        ...
+
+    def on_outcome(self, request, result: WorkflowResult) -> None:
+        # update local state after each completion
+        if result.returncode == 0:
+            self._last_success = request.workflow_type
+```
+
+**Reading arm beliefs after a campaign:**
+
+```python
+if isinstance(policy, BanditSchedulingPolicy):
+    logging.info("arm stats: %s", policy.arm_stats())
+# → {'fast_sim': {'n': 4, 'mean': 0.500, 'ucb': 1.23}, 'precise_sim': {'n': 8, 'mean': 0.875, 'ucb': 1.05}}
+```
+
+---
+
+### CM lifecycle (`run_campaign.py → run`)
+
+```python
+outcome = await CampaignManager().run(spec)  # returns when the campaign ends
+s = outcome.summary  # the controller's get_summary()
+print(outcome.exit_reason, outcome.spent)
+```
+
+`run()` sets up the AsyncFlow engine, runs the campaign, shuts the engine down
+and returns the `CampaignOutcome`.  Call it again with another spec to run the
+next campaign.
+
+---
+
+## 3. What to read next
+
+- [Campaign developer guide](campaign-developer-guide.md) — full reference for every API.
+- `campaigns/hpc_campaign/` — production example: Dragon backend, SLURM, telemetry,
+  config files, and figures for benchmarking.
+- `campaigns/ddsim_aucam/` — real DeepDriveSim workflows wired to AuCaM.

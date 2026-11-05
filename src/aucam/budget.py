@@ -1,4 +1,4 @@
-"""BudgetAllocator: the spending ledger for all campaigns.
+"""BudgetAllocator: the campaign's spending ledger.
 
 AuCaM budgets are expressed as *spending* — resource-hours per dimension
 (e.g. ``cpu_hours``, ``gpu_hours``).  CM does not budget resources "in use at
@@ -7,25 +7,25 @@ allocation as resources free up, so CM cannot know which GPUs or nodes a
 workflow holds.  Capacity sharing is left to the allocation / RHAPSODY and to
 the workflow-count limits (``CampaignBudget.max_concurrent_workflows`` etc.).
 
-The ledger keeps, per campaign:
+The ledger keeps, for the campaign:
   limits    — the campaign's spending limit (``CampaignBudget.spending``)
   spent     — actual spending of finished workflows
   in_flight — estimated spending of running workflows (their declared_spending),
               replaced by the actual amount when the workflow finishes
 
-and, across campaigns:
-  global spent — actual spending of closed campaigns
-  committed    — spending limits of admitted, still-open campaigns
-
-Admission against a global spending cap, the per-campaign "limit reached"
-check, and the cross-campaign remaining budget all read from this one place.
+The "limit reached" check, the controller's budget observation and the
+scheduler's remaining-budget fraction all read from this one place.  Entries
+are keyed by campaign name.
 
 Thread-safe; all public methods acquire a single lock.
 """
 
 from __future__ import annotations
 
+import logging
 import threading
+
+logger = logging.getLogger(__name__)
 
 
 def _add(into: dict[str, float], usage: dict[str, float]) -> None:
@@ -34,65 +34,33 @@ def _add(into: dict[str, float], usage: dict[str, float]) -> None:
 
 
 class BudgetAllocator:
-    """Spending ledger shared by CampaignManager and all campaign instances."""
+    """Spending ledger of a campaign."""
 
     def __init__(self) -> None:
         self._limits: dict[str, dict[str, float]] = {}
         self._spent: dict[str, dict[str, float]] = {}
         self._in_flight: dict[str, dict[str, dict[str, float]]] = {}
-        self._global_spent: dict[str, float] = {}
         self._lock = threading.Lock()
 
     # ── Campaign lifecycle ───────────────────────────────────────────────────
 
-    def admit(
-        self,
-        campaign: str,
-        limits: dict[str, float],
-        global_limits: dict[str, float] | None = None,
-    ) -> str | None:
-        """Check ``limits`` against the global spending cap and open the campaign.
-
-        Admission rule, per dimension of ``global_limits``:
-            global spent + committed (limits of open campaigns) + limits <= cap
-        Returns a rejection reason, or None if the campaign was admitted
-        (in which case its limits now count as committed).
-        """
-        with self._lock:
-            for key, cap in (global_limits or {}).items():
-                spent = self._global_spent.get(key, 0.0)
-                committed = self._committed_locked(key)
-                incoming = limits.get(key, 0.0)
-                total = spent + committed + incoming
-                if total > cap:
-                    return (
-                        f"global spending[{key}]={cap} would be exceeded "
-                        f"(spent={spent:.5f}, committed={committed:.5f}, "
-                        f"requesting={incoming:.5f}, total={total:.5f})"
-                    )
-            self._open_locked(campaign, limits)
-            return None
-
     def open(self, campaign: str, limits: dict[str, float] | None = None) -> None:
-        """Register a campaign without a global check (no-op if already open)."""
+        """Register a campaign and its spending limit (no-op if already open)."""
         with self._lock:
             if campaign not in self._limits:
                 self._open_locked(campaign, limits or {})
 
     def close(self, campaign: str) -> dict[str, float]:
-        """Close a campaign: move its actual spending into the global total.
+        """Close a campaign and return its actual spending.
 
         In-flight estimates are dropped (only finished workflows are charged).
-        Returns the campaign's actual spending.  Safe to call more than once.
+        Safe to call more than once.
         """
         with self._lock:
             spent = self._spent.pop(campaign, None)
             self._limits.pop(campaign, None)
             self._in_flight.pop(campaign, None)
-            if spent is None:
-                return {}
-            _add(self._global_spent, spent)
-            return dict(spent)
+            return dict(spent) if spent is not None else {}
 
     # ── Workflow accounting ──────────────────────────────────────────────────
 
@@ -113,8 +81,8 @@ class BudgetAllocator:
         with self._lock:
             if campaign not in self._limits:
                 # Late charge after the campaign was closed (e.g. a workflow that
-                # finished after the shutdown timeout): count it globally.
-                _add(self._global_spent, usage)
+                # finished after the shutdown timeout): it is not in the outcome.
+                logger.debug("[BUDGET] %s: late charge after close ignored: %s", campaign, usage)
                 return
             _add(self._spent[campaign], usage)
 
@@ -164,15 +132,6 @@ class BudgetAllocator:
                     return key, done, inflight, limit
             return None
 
-    def global_spent(self) -> dict[str, float]:
-        with self._lock:
-            return dict(self._global_spent)
-
-    def committed(self, key: str, exclude: str | None = None) -> float:
-        """Sum of the spending limits of open campaigns for ``key``."""
-        with self._lock:
-            return self._committed_locked(key, exclude)
-
     def spending_fraction(self, campaign: str) -> float:
         """Fraction of budget consumed: max over all limit dimensions of
         (spent + in_flight) / limit.  Returns 0.0 when no limits are set,
@@ -194,17 +153,11 @@ class BudgetAllocator:
                 max_frac = max(max_frac, used / limit)
             return min(1.0, max_frac)
 
-    def global_remaining(self, key: str, cap: float) -> float:
-        """cap − global spent − committed, for one dimension."""
-        with self._lock:
-            return cap - self._global_spent.get(key, 0.0) - self._committed_locked(key)
-
     def campaign_view(self, campaign: str) -> dict:
-        """One campaign's part of the ledger, passed to its controller as the
-        ``budget`` observation (controllers do not see other campaigns)::
+        """The campaign's ledger, passed to its controller as the ``budget``
+        observation::
 
             {"limits": {...}, "spent": {...}, "in_flight": {...},
-             "global_spent": {...},
              "burn": {dim: {"remaining": float, "fraction_left": float}}}
         """
         with self._lock:
@@ -222,28 +175,7 @@ class BudgetAllocator:
                         "remaining": remaining,
                         "fraction_left": remaining / limit,
                     }
-            return {
-                "limits": limits,
-                "spent": spent,
-                "in_flight": live,
-                "global_spent": dict(self._global_spent),
-                "burn": burn,
-            }
-
-    def snapshot(self) -> dict:
-        """Whole-ledger view (all open campaigns), for CM-level inspection."""
-        with self._lock:
-            campaigns = {}
-            for name in self._limits:
-                live: dict[str, float] = {}
-                for est in self._in_flight.get(name, {}).values():
-                    _add(live, est)
-                campaigns[name] = {
-                    "limits": dict(self._limits[name]),
-                    "spent": dict(self._spent.get(name, {})),
-                    "in_flight": live,
-                }
-            return {"campaigns": campaigns, "global_spent": dict(self._global_spent)}
+            return {"limits": limits, "spent": spent, "in_flight": live, "burn": burn}
 
     # ── Internals (lock held) ────────────────────────────────────────────────
 
@@ -255,6 +187,3 @@ class BudgetAllocator:
     def _ensure_locked(self, campaign: str) -> None:
         if campaign not in self._limits:
             self._open_locked(campaign, {})
-
-    def _committed_locked(self, key: str, exclude: str | None = None) -> float:
-        return sum(lim.get(key, 0.0) for name, lim in self._limits.items() if name != exclude)

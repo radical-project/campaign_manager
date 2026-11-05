@@ -11,44 +11,38 @@ planned work in [known gaps](known-gaps.md), and budget internals in
 
 | Module | Holds |
 |---|---|
-| `src/aucam/manager.py` | `CampaignManager`: admission (`submit()`, `_admit()`), driver bookkeeping (`expect_driver()`, `driver_done()`), the main `run()` loop, auto-close, signal handling |
+| `src/aucam/manager.py` | `CampaignManager`: `run(spec)` (engine set-up, one campaign, its outcome), `stop()`, signal handling |
 | `src/aucam/campaign.py` | `_CampaignInstance`: everything that runs one campaign — launch, policy cycle, scheduler, accounting, dependencies, checkpoint, shutdown |
 | `src/aucam/controller.py` | `CampaignController` base class, `CancelRule`, `LaunchRule`, `Goal`, `PolicyResult` |
 | `src/aucam/scheduler.py` | `SchedulingPolicy` (FIFO base), `FIFOSchedulingPolicy`, `BanditSchedulingPolicy` (UCB1), `ADRSchedulingPolicy` / `LLMSchedulingPolicy` (stubs), `SchedulingContext` |
 | `src/aucam/queue.py` | `WorkflowQueue`: priority heap with aging |
-| `src/aucam/budget.py` | `BudgetAllocator`: the spending ledger for all campaigns |
+| `src/aucam/budget.py` | `BudgetAllocator`: the campaign's spending ledger |
 | `src/aucam/spec.py` | `CampaignSpec`, `CampaignBudget`, `WorkflowConfig`, `WorkflowDependency` |
-| `src/aucam/types.py` | `WorkflowResult`, `LaunchRequest`, `GlobalBudget`, `CampaignOutcome`, `SubmitResult`, snapshots and enums |
+| `src/aucam/types.py` | `WorkflowResult`, `LaunchRequest`, `CampaignOutcome`, snapshots and enums |
 | `src/aucam/reporter.py` | `WorkflowReport`, `WorkflowReporter` (interface), `LocalDictReporter` |
 | `src/aucam/data_backend.py` | `DataBackend` protocol; `LocalDictBackend`, `RadexDragonBackend`, `RhapsodyRedisBackend` and their reporters |
 | `src/aucam/checkpoint.py` | `CampaignCheckpoint` and its JSON read/write |
 | `src/aucam/profiler.py` | `BlockProfiler`, `TaskProfiler`: optional CPU/memory sampling inside workflows |
 | `src/aucam_client/` | `Reporter` and the `aucam-report` command for command-line workflows (any language) |
-| `campaigns/` | Example campaigns: `demo_campaign` (quick start, capability demo), `ddsim_aucam` (HPC example) |
+| `campaigns/` | Example campaigns: `demo_campaign` (API walkthrough, all capabilities), `hpc_campaign` (production HPC example), `ddsim_aucam` (DeepDriveSim integration) |
 
 ---
 
 ## Main paths
 
-### Admission — `CampaignManager`
+### Running a campaign — `CampaignManager.run(spec)`
 
 ```
-submit(spec) / submit_campaign(spec)
-└── _admit(spec)
-    ├── _policy_check()          scheduling-policy instance not used by another campaign
-    ├── _admission_check()       running campaigns, total concurrent workflows (GlobalBudget)
-    └── BudgetAllocator.admit()  spent + committed limits + new limit ≤ global spending
+run(spec)
+├── WorkflowEngine.create(backend)   a local backend if none was given; telemetry if enabled
+├── _CampaignInstance(spec, BudgetAllocator(), flow).run()   as a task; SIGTERM/SIGINT → stop()
+├── _outcome()                       CampaignOutcome from the instance, controller and ledger
+└── flow.shutdown()                  the backend too, unless it was passed in
 ```
 
-Rejected → `SubmitResult(accepted=False, reason=…)`. Accepted → the spec goes
-to the submission queue; `run()` starts it with `_start_campaign()`, which
-creates a `_CampaignInstance` and a task for its `run()`. When the task ends,
-`_resolve_future()` closes the campaign in the ledger and resolves the
-driver's `CampaignOutcome`.
-
-`run()` creates the shared AsyncFlow engine (and telemetry, if enabled), then
-waits on campaign tasks, the submission queue and a shutdown event until all
-drivers are done and all campaigns have finished.
+`stop()` cancels the campaign task; the instance shuts down gracefully and the
+outcome has `exit_reason="signal"`. One `run()` at a time; the manager can run
+again after it returns.
 
 ### One campaign — `_CampaignInstance.run()`
 
@@ -137,5 +131,5 @@ code changes (the scripts need matplotlib: `pip install matplotlib`):
 | Figure | Script |
 |---|---|
 | `aucam-architecture.png` | `python docs/figures/src/architecture.py` |
-| `aucam_budget_burn.png`, `aucam_bandit_budget.png`, `aucam_global_budget.png` | `python campaigns/demo_campaign/figures/doc_figures.py` (real runs, ~1 min) |
-| `aucam_impact.png` | `campaigns/demo_campaign/figures/run_impact.py --json-out …`, then `figures/gen_impact_fig.py` |
+| `aucam_budget_burn.png`, `aucam_bandit_budget.png` | `python campaigns/hpc_campaign/figures/doc_figures.py` (real runs, ~1 min) |
+| `aucam_impact.png` | `campaigns/hpc_campaign/figures/run_impact.py --json-out …`, then `figures/gen_impact_fig.py` |

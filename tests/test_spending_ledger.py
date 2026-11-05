@@ -1,4 +1,4 @@
-"""Integration test: spending admission and accounting through the ledger."""
+"""Integration test: spending accounting through the ledger, returned in the outcome."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from src.aucam import (
     CampaignController,
     CampaignManager,
     CampaignSpec,
-    GlobalBudget,
     WorkflowConfig,
 )
 
@@ -40,37 +39,8 @@ def _spec(name: str, limit_cpu_h: float) -> CampaignSpec:
     )
 
 
-def test_global_spending_admission_and_outcome() -> None:
-    results: dict = {}
-
-    async def driver(cm: CampaignManager) -> None:
-        try:
-            ok = await cm.submit(_spec("a", 6.0))
-            rejected = await cm.submit(_spec("b", 5.0))  # 6 + 5 > 10 → rejected
-            results["rejected"] = rejected
-            results["outcome"] = await ok.wait()
-            # a closed: its tiny actual spending is global; its 6.0 no longer committed
-            results["after"] = await cm.submit(_spec("c", 5.0))
-            if results["after"].accepted:
-                await results["after"].wait()
-        finally:
-            cm.driver_done()
-
-    async def main() -> CampaignManager:
-        cm = CampaignManager(global_budget=GlobalBudget(spending={"cpu_hours": 10.0}))
-        cm.expect_driver()
-        asyncio.ensure_future(driver(cm))
-        await asyncio.wait_for(cm.run(), timeout=30.0)
-        return cm
-
-    cm = asyncio.run(main())
-
-    assert results["rejected"].accepted is False
-    assert "global spending[cpu_hours]" in results["rejected"].reason
-    out = results["outcome"]
+def test_spending_is_charged_and_returned_in_outcome() -> None:
+    out = asyncio.run(asyncio.wait_for(CampaignManager().run(_spec("a", 6.0)), timeout=30.0))
     assert out.goal_reached
+    assert out.exit_reason == "controller_terminate"
     assert 0.0 < out.spent.get("cpu_hours", 0.0) < 1e-3
-    assert results["after"].accepted
-    gs = cm._allocator.global_spent()["cpu_hours"]
-    assert gs > out.spent["cpu_hours"]  # a + c both charged
-    assert cm._allocator.snapshot()["campaigns"] == {}  # every campaign closed

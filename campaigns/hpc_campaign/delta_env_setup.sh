@@ -1,9 +1,9 @@
 #!/bin/bash
-# Create and configure the demo_campaign VE on Delta HPC.
+# Create and configure the hpc_campaign VE on Delta HPC.
 #
 # Run once to create the VE:
 #   export WORK_DIR=<your_work_dir>
-#   bash campaigns/demo_campaign/delta_env_setup.sh
+#   bash campaigns/hpc_campaign/delta_env_setup.sh
 #
 # Sourced by delta_sbatch.sh to set VE.
 # Override VE by exporting it before calling this script.

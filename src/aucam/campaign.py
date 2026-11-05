@@ -9,7 +9,6 @@ import logging
 import shlex
 import time
 import uuid
-from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -207,14 +206,11 @@ class _CampaignInstance:
         spec: CampaignSpec,
         allocator: BudgetAllocator,
         flow: Any,
-        all_task_counts: Callable[[], dict[str, int]] | None = None,
     ) -> None:
         self.spec = spec
         self.name = spec.name
         self._allocator = allocator
         self._flow = flow
-        # Task counts summed over all campaigns (set by CampaignManager).
-        self._all_task_counts = all_task_counts
         self._policy: SchedulingPolicy = (
             spec.scheduling_policy
             if spec.scheduling_policy is not None
@@ -238,7 +234,7 @@ class _CampaignInstance:
         self._done = False
         self._slot_event = asyncio.Event()
         self._completion_event = asyncio.Event()  # set on each workflow done → early policy wake
-        # Spending is kept in the shared BudgetAllocator ledger (per campaign).
+        # Spending is kept in the BudgetAllocator ledger.
         self._allocator.open(self.name, spec.budget.spending)
 
         # Observability counters — surfaced in summary log at shutdown.
@@ -530,15 +526,13 @@ class _CampaignInstance:
         return counts
 
     def _task_observation(self) -> dict | None:
-        """obs["tasks"]: this campaign's counts plus all campaigns' ("all").
+        """obs["tasks"]: this campaign's AsyncFlow task counts per state.
 
         None when AsyncFlow telemetry is off (no task events to count).
         """
         if not self._tracking_tasks:
             return None
-        own = self.task_counts()
-        every = self._all_task_counts() if self._all_task_counts is not None else own
-        return {**own, "all": every}
+        return self.task_counts()
 
     def _on_task_event(self, event: Any) -> None:
         """Charge a workflow from AsyncFlow task events (telemetry subscriber).
@@ -574,13 +568,6 @@ class _CampaignInstance:
             return
 
         if not res or not tag:
-            if etype in ("TaskStarted", "TaskCompleted", "TaskFailed"):
-                logger.debug(
-                    "[SPEND-DBG] %s filtered: res=%s tag=%s",
-                    etype,
-                    bool(res),
-                    bool(tag),
-                )
             return
         wf_id = self._wf_tags.get(tag)
         if wf_id is None:
@@ -1455,8 +1442,8 @@ class _CampaignInstance:
             # wf_types: wf_id → workflow_type; lets controllers identify
             # which workflow type each live report belongs to.
             wf_types={wf_id: inst.workflow_type for wf_id, inst in self._active.items()},
-            # tasks: AsyncFlow task counts (waiting / submitted / running, and
-            # "all" for every campaign); None without telemetry.
+            # tasks: AsyncFlow task counts (waiting / submitted / running);
+            # None without telemetry.
             tasks=self._task_observation(),
         )
         result: PolicyResult = self.spec.controller.decide(obs)

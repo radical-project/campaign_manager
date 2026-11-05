@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -136,48 +135,14 @@ class TelemetrySnapshot:
 
 
 @dataclass
-class GlobalBudget:
-    """Cross-campaign resource limits enforced by CampaignManager at admission time.
-
-    Checked when a driver calls ``cm.submit(spec)``; a campaign is rejected before
-    it starts if accepting it would violate any limit.
-
-    max_concurrent_campaigns          — hard cap on the number of campaigns running
-                                        simultaneously.
-    max_total_concurrent_workflows    — sum of each campaign's
-                                        max_concurrent_workflows must not exceed this.
-    spending                          — per-dimension global spending caps
-                                        (same keys as CampaignBudget.spending,
-                                        e.g. ``{"cpu_hours": 1.0}``).  Admission
-                                        checks: actual spending by completed
-                                        campaigns + declared limits of running
-                                        campaigns + incoming campaign's declared
-                                        limit must not exceed this cap.
-    n_campaigns                       — auto-close after this many campaigns complete.
-                                        The CM signals no-more-submissions internally;
-                                        the driver does not need to call ``close()``.
-    max_rejections                    — auto-close after this many budget-spending
-                                        rejections.  Handles the case where remaining
-                                        global budget is too small for any campaign the
-                                        driver proposes but not exactly zero.
-    """
-
-    max_concurrent_campaigns: int | None = None
-    max_total_concurrent_workflows: int | None = None
-    spending: dict[str, float] = field(default_factory=dict)
-    n_campaigns: int | None = None
-    max_rejections: int | None = None
-
-
-@dataclass
 class CampaignOutcome:
-    """Summary of a completed campaign, returned by ``SubmitResult.wait()``.
+    """Summary of a finished campaign, returned by ``CampaignManager.run()``.
 
-    Drivers use this to decide what to submit next::
+    An agent or script uses it to decide what to run next::
 
-        outcome = await result.wait()
+        outcome = await cm.run(spec)
         if not outcome.goal_reached:
-            # re-submit with adjusted parameters
+            ...  # run again with adjusted parameters
         cancel_rate = (
             sum(outcome.cancelled.values()) /
             max(1, sum(outcome.completed.values()) + sum(outcome.cancelled.values()))
@@ -190,38 +155,8 @@ class CampaignOutcome:
     failed: dict[str, int]  # workflow_type → hard failures (other returncode)
     elapsed_s: float
     goal_reached: bool
+    # Why the campaign ended: goals_satisfied, controller_terminate,
+    # spending_limit, campaign_idle or signal.
+    exit_reason: str = "unknown"
     spent: dict[str, float] = field(default_factory=dict)  # actual resource consumption
     summary: dict = field(default_factory=dict)  # controller-provided scientific aggregates
-
-
-@dataclass
-class SubmitResult:
-    """Return value of ``CampaignManager.submit()``.
-
-    Call ``await result.wait()`` to block until the campaign finishes and
-    receive its :class:`CampaignOutcome`.
-    """
-
-    accepted: bool
-    campaign_name: str
-    reason: str | None = None
-    # Set by CampaignManager.submit() when accepted; None for rejected submissions
-    # and for campaigns submitted via submit_campaign().
-    outcome_future: asyncio.Future[CampaignOutcome] | None = field(
-        default=None, init=False, repr=False, compare=False
-    )
-
-    async def wait(self) -> CampaignOutcome:
-        """Wait for the campaign to finish and return its outcome.
-
-        Raises :exc:`RuntimeError` if the campaign was rejected or was
-        submitted via ``submit_campaign()``.
-        """
-        if not self.accepted:
-            raise RuntimeError(f"Campaign '{self.campaign_name}' was not accepted: {self.reason}")
-        if self.outcome_future is None:
-            raise RuntimeError(
-                f"Campaign '{self.campaign_name}' has no outcome future; "
-                "it was submitted via submit_campaign(); use submit() to get one."
-            )
-        return await self.outcome_future

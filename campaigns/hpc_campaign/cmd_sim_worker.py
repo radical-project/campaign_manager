@@ -18,7 +18,7 @@ import sys
 import time
 
 _here = os.path.dirname(os.path.abspath(__file__))
-_root = os.path.join(_here, "..", "..")  # campaigns/demo_campaign → campaign_manager
+_root = os.path.join(_here, "..", "..")  # campaigns/hpc_campaign → campaign_manager
 sys.path.insert(0, os.path.abspath(_root))
 
 from src.aucam_client import Reporter  # noqa: E402

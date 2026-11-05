@@ -1,0 +1,12 @@
+# Global CampaignManager configuration — local / dev defaults.
+# Override individual keys on the CLI; use global_hpc.yaml for Dragon runs.
+
+engine: concurrent            # concurrent | dragon
+verbose: false
+
+scheduling:
+  policy: bandit              # bandit | fifo | adr | llm
+
+telemetry:
+  enabled: false
+  dir: ~                                      # null = no telemetry checkpoint

@@ -83,8 +83,7 @@ def _run_and_capture(
 
 async def _run(spec: CampaignSpec) -> None:
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    await cm.run()
+    await cm.run(spec)
 
 
 # ── Simple controller ─────────────────────────────────────────────────────────

@@ -49,8 +49,7 @@ async def quick(reporter: WorkflowReporter) -> None:
 
 async def _run_campaign(spec: CampaignSpec, timeout: float = 20.0) -> None:
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    await asyncio.wait_for(cm.run(), timeout=timeout)
+    await asyncio.wait_for(cm.run(spec), timeout=timeout)
 
 
 # ── B0: any budget dimension ──────────────────────────────────────────────────
@@ -191,11 +190,8 @@ def test_campaign_idle_exit() -> None:
         shutdown_timeout_s=5.0,
     )
 
-    cm = CampaignManager()
-    cm.submit_campaign(spec)
-    asyncio.run(asyncio.wait_for(cm.run(), timeout=15.0))
-    inst = cm._active_instances["idle_exit"]
-    assert inst.exit_reason == "campaign_idle", f"got: {inst.exit_reason}"
+    out = asyncio.run(asyncio.wait_for(CampaignManager().run(spec), timeout=15.0))
+    assert out.exit_reason == "campaign_idle", f"got: {out.exit_reason}"
 
 
 def _idle_spec(name: str, **kw) -> CampaignSpec:
@@ -238,10 +234,11 @@ def test_idle_exit_s_values() -> None:
 def test_idle_exit_s_custom_value_ends_campaign() -> None:
     """With idle_exit_s=0.5 an idle campaign ends well before the 5 s default."""
     cm = CampaignManager()
-    cm.submit_campaign(_idle_spec("idle_custom", idle_exit_s=0.5))
     t0 = time.time()
-    asyncio.run(asyncio.wait_for(cm.run(), timeout=15.0))
-    assert cm._active_instances["idle_custom"].exit_reason == "campaign_idle"
+    out = asyncio.run(
+        asyncio.wait_for(cm.run(_idle_spec("idle_custom", idle_exit_s=0.5)), timeout=15.0)
+    )
+    assert out.exit_reason == "campaign_idle"
     assert time.time() - t0 < 4.5
 
 
@@ -250,17 +247,13 @@ def test_idle_exit_s_none_keeps_campaign_waiting() -> None:
 
     async def run() -> str:
         cm = CampaignManager()
-        cm.submit_campaign(_idle_spec("idle_never", idle_exit_s=None))
-        task = asyncio.ensure_future(cm.run())
+        task = asyncio.ensure_future(cm.run(_idle_spec("idle_never", idle_exit_s=None)))
         await asyncio.sleep(6.5)  # longer than the 5 s 'auto' window
-        inst = cm._active_instances["idle_never"]
+        inst = cm._instance
         still_running = not task.done() and inst.exit_reason == "unknown"
-        task.cancel()
-        try:
-            await task
-        except (asyncio.CancelledError, Exception):
-            pass
-        return "waiting" if still_running else inst.exit_reason
+        cm.stop()
+        out = await asyncio.wait_for(task, timeout=15.0)
+        return "waiting" if still_running else out.exit_reason
 
     assert asyncio.run(asyncio.wait_for(run(), timeout=20.0)) == "waiting"
 
@@ -754,16 +747,11 @@ def test_task_counts_follow_task_events() -> None:
 
 
 def test_task_observation_needs_telemetry() -> None:
-    """obs["tasks"] is None without telemetry; with it, it carries this
-    campaign's counts and the manager-wide counts under "all"."""
+    """obs["tasks"] is None without telemetry; with it, it carries the
+    campaign's task counts per state."""
     inst = _counting_instance()
     assert inst._task_observation() is None
 
     inst._tracking_tasks = True
     inst._on_task_event(_task_event("TaskCreated", "task.1", "block.000001"))
-    obs = inst._task_observation()
-    assert obs == {"waiting": 1, "submitted": 0, "running": 0, "all": obs["all"]}
-    assert obs["all"] == {"waiting": 1, "submitted": 0, "running": 0}  # no manager: own counts
-
-    inst._all_task_counts = lambda: {"waiting": 5, "submitted": 2, "running": 7}
-    assert inst._task_observation()["all"] == {"waiting": 5, "submitted": 2, "running": 7}
+    assert inst._task_observation() == {"waiting": 1, "submitted": 0, "running": 0}

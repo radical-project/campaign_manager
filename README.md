@@ -1,32 +1,31 @@
 # AuCaM — Autonomous Campaign Manager
 
-AuCaM runs many scientific campaigns at once under a shared budget. A
-**campaign** pursues one scientific goal through many **workflows** (simulation
-runs, analyses, …). You describe the workflows, the decision logic and the
+AuCaM runs a scientific campaign on HPC within its budget. A **campaign**
+pursues one scientific goal through many **workflows** (simulation runs,
+analyses, …). You describe the workflows, the decision logic and the
 limits; AuCaM launches the workflows, watches their results while they run, and
 acts on them.
 
 What AuCaM does:
 
-- **Steers each campaign from live results** — a controller (built-in rules,
+- **Steers the campaign from live results** — a controller (built-in rules,
   or your own code, which may call an LLM or ADR) decides which workflows to launch and which to cancel,
   every policy cycle and whenever a workflow finishes.
-- **Learns what to run** — a per-campaign scheduler (a UCB1 bandit) favours
+- **Learns what to run** — the scheduler (a UCB1 bandit) favours
   workflow types that complete and explores less as the budget runs down.
 - **Keeps spending within limits** — every run is charged (CPU-hours,
-  GPU-hours or any other dimension) in one ledger; campaigns stop launching at
-  their limit, and new campaigns are admitted only if they fit the global budget.
+  GPU-hours or any other dimension) in one ledger, and the campaign stops
+  launching at its limit.
 - **Runs any workflow** — Python functions or command-line programs in any
   language, on AsyncFlow and RHAPSODY backends, from a laptop to an HPC
   allocation.
-- **Closes the loop with drivers** — when a campaign ends, its outcome
-  (counts, spending, the controller's summary) goes back to the driver that
-  submitted it, which can plan the next campaign.
+- **Returns the outcome** — when the campaign ends, `run()` returns its
+  outcome (exit reason, counts, spending, the controller's summary), so a
+  script or an agent can plan the next campaign.
 
 ![AuCaM capability demo](docs/figures/aucam_impact.png)
 
-*One campaign cancels poor runs and learns to avoid them; the driver uses its
-outcome to plan a cheaper follow-up campaign (see
+*The campaign cancels poor runs and learns to avoid them (see
 [the capability demo](docs/cm-advantages.md)).*
 
 ---
@@ -34,9 +33,11 @@ outcome to plan a cheaper follow-up campaign (see
 ## Install
 
 ```bash
-pip install -e .              # core (Python ≥ 3.10)
-pip install -e ".[dragon]"    # + Dragon/RADICAL HPC backend (Python ≥ 3.11)
-pip install -e ".[dev]"       # + pytest, ruff, coverage
+pip install -e .                          # core (Python ≥ 3.10)
+pip install -e ".[telemetry]"             # + OpenTelemetry + GPU metrics
+pip install -e ".[dragon]"                # + Dragon/RADICAL HPC backend (Python ≥ 3.11)
+pip install -e ".[dragon,telemetry]"      # HPC + telemetry
+pip install -e ".[dev]"                   # + pytest, ruff, coverage
 ```
 
 ## Hello world
@@ -71,20 +72,8 @@ spec = CampaignSpec(
 
 
 async def main() -> None:
-    cm = CampaignManager()
-    cm.expect_driver()  # one driver will submit campaigns
-
-    async def driver() -> None:
-        try:
-            result = await cm.submit(spec)  # accepted, or rejected with a reason
-            outcome = await result.wait()  # CampaignOutcome, when the campaign ends
-            print(outcome.completed, outcome.elapsed_s)
-        finally:
-            cm.driver_done()
-
-    task = asyncio.create_task(driver())
-    await cm.run()  # returns when all drivers are done
-    await task
+    outcome = await CampaignManager().run(spec)  # returns when the campaign ends
+    print(outcome.exit_reason, outcome.completed, outcome.elapsed_s)
 
 
 asyncio.run(main())
@@ -99,7 +88,7 @@ asyncio.run(main())
 | [Architecture overview](docs/architecture-overview.md) | Everyone | Concepts, components and design decisions, without code |
 | [Demo campaign guide](docs/demo-campaign-guide.md) | New users | Run a demo campaign in a few minutes |
 | [Capability demo](docs/cm-advantages.md) | Everyone | What AuCaM adds, shown on one run |
-| [Campaign developer guide](docs/campaign-developer-guide.md) | Campaign authors | Workflows, controllers, scheduling, budgets, drivers |
+| [Campaign developer guide](docs/campaign-developer-guide.md) | Campaign authors | Workflows, controllers, scheduling, budgets, running campaigns |
 | [Budgets and spending](docs/budget.md) | Campaign authors | How spending is measured, limited and reported |
 | [Code walkthrough](docs/code-walkthrough.md) | Contributors | Module map and main code paths |
 | [Known gaps](docs/known-gaps.md) | Contributors | What is planned or not implemented yet |

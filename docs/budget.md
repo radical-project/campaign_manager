@@ -1,6 +1,6 @@
 # AuCaM budgets and spending
 
-How AuCaM limits what campaigns spend, how it measures spending, and what it
+How AuCaM limits what a campaign spends, how it measures spending, and what it
 does with the numbers. Sections 1–7 are for campaign authors; sections 8–9
 are implementation notes for developers.
 
@@ -25,15 +25,11 @@ are implementation notes for developers.
 - **In-flight** — what running workflows are still expected to cost and is not
   in *spent* yet. Counting it lets AuCaM stop launching *before* running
   workflows push a campaign over its limit.
-- **Ledger** — the single place where all of the above is kept, for every
-  campaign (`BudgetAllocator`, §8).
+- **Ledger** — the single place where all of the above is kept
+  (`BudgetAllocator`, §8).
 
-There are two levels of control:
-
-| Level | Limits | Checked |
-|---|---|---|
-| Campaign | `CampaignBudget.spending` | Before launching workflows (§4) |
-| Global (all campaigns in one AuCaM run) | `GlobalBudget.spending` | When a campaign is submitted (§4) |
+The limit is set in `CampaignBudget.spending` and checked before launching
+workflows (§4).
 
 ---
 
@@ -52,15 +48,6 @@ WorkflowConfig(
     name="sim",
     block=my_workflow,
     declared_spending={"wall_hours": 0.5, "cpu_hours": 0.5, "gpu_hours": 0.05},
-)
-
-# Global limit across all campaigns (optional)
-CampaignManager(
-    global_budget=GlobalBudget(
-        spending={"gpu_hours": 50.0},
-        max_concurrent_campaigns=4,
-        max_rejections=10,  # stop accepting campaigns after more than 10 budget rejections
-    )
 )
 ```
 
@@ -179,8 +166,6 @@ charged.
 
 ## 4. How limits are enforced
 
-### Campaign limit
-
 Before launching, AuCaM checks every limited dimension:
 
 ```
@@ -214,35 +199,6 @@ whose estimated cost doesn't fit, so a cheaper workflow type can still start
 A campaign that is idle below its limit ends separately, after
 `CampaignSpec.idle_exit_s` (see the developer guide, "How a campaign ends").
 
-### Global limit
-
-When a campaign is submitted, AuCaM checks each dimension of
-`GlobalBudget.spending`:
-
-```
-spent by finished campaigns + limits of running campaigns + new campaign's limit <= global limit
-```
-
-If it does not fit, the campaign is rejected with a reason. A running
-campaign's whole limit counts until it ends; then its actual spending replaces
-it. A campaign that sets no limit for a dimension reserves nothing for it at
-admission, so while it runs, the global limit cannot stop it from spending in
-that dimension. When it ends, its actual spending counts toward the global
-total like any other campaign's.
-
-`GlobalBudget` has four more optional settings, all off unless set:
-
-- `max_concurrent_campaigns` and `max_total_concurrent_workflows`: a campaign
-  that would exceed either is rejected;
-- `n_campaigns`: AuCaM stops accepting campaigns after this many have finished;
-- `max_rejections`: AuCaM stops accepting campaigns after more than this many
-  budget rejections.
-
-![Global spending limit](figures/aucam_global_budget.png)
-
-*A and B reserve their limits (24 of 32 CPU·s), so C is rejected. When A
-finishes, only its actual spending (6) stays counted, so D fits.*
-
 ---
 
 ## 5. What decision logic sees
@@ -250,14 +206,13 @@ finishes, only its actual spending (6) stays counted, so D fits.*
 ### Controller
 
 Every policy cycle (the controller's periodic decision step), the
-controller's observation includes `obs["budget"]` for its own campaign:
+controller's observation includes `obs["budget"]`:
 
 ```python
 {
     "limits": {"cpu_hours": 1.0, "gpu_hours": 0.25},
     "spent": {"cpu_hours": 0.34, "gpu_hours": 0.028},
     "in_flight": {"cpu_hours": 0.10},
-    "global_spent": {"gpu_hours": 0.12},  # finished campaigns, all of AuCaM
     "burn": {
         "cpu_hours": {"remaining": 0.56, "fraction_left": 0.56},
         "gpu_hours": {"remaining": 0.222, "fraction_left": 0.888},
@@ -338,30 +293,25 @@ after the workflow has ended go into the ledger but not into `spent`.)
 
 ## 8. Implementation: the ledger (`src/aucam/budget.py`)
 
-`BudgetAllocator` is shared by `CampaignManager` and all campaigns; every
-public method takes one lock.
+`CampaignManager.run()` creates one `BudgetAllocator` per run and passes it
+to the campaign; every public method takes one lock.
 
-| Kept per campaign | Meaning |
+| Kept | Meaning |
 |---|---|
-| `limits` | `CampaignBudget.spending`, set at admission |
+| `limits` | `CampaignBudget.spending`, set when the campaign starts |
 | `spent` | Actual charges |
 | `in_flight[wf_id]` | Expected remaining cost of each running workflow (§3) |
 
-| Kept globally | Meaning |
-|---|---|
-| `global_spent` | `spent` of closed campaigns |
-| committed | Sum of `limits` of open campaigns |
-
 | Method | Called from | Purpose |
 |---|---|---|
-| `admit()` | `CampaignManager` (submit) | Global check, open the campaign |
+| `open()` | `_CampaignInstance` start | Set the limits |
 | `set_in_flight()` | `_launch()`; `_on_task_event()` (A); `_collect_telemetry()` (B–D) | Set a workflow's in-flight |
 | `record()` | `_on_task_event()` (A); `_on_done()` (B–D) | Add charges to `spent` |
 | `clear_in_flight()` | `_on_done()` | Workflow ended |
 | `limit_reached()` | `_spending_limit_reached()` | Campaign limit check (§4) |
 | `spending_fraction()` | `_drain_queue()` → `SchedulingContext.budget_remaining_fraction`; `[SPEND]` logs | "used" in §5 |
 | `campaign_view()` | Policy cycle | `obs["budget"]` (§5) |
-| `close()` | `CampaignManager` | Move `spent` into `global_spent` |
+| `close()` | `CampaignManager.run()` | Return `spent` for `CampaignOutcome.spent` |
 
 Per-workflow state in `_CampaignInstance` (`src/aucam/campaign.py`):
 `_estimates` (launch estimate), `_task_level` (workflows on method A),

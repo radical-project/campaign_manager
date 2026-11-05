@@ -2,9 +2,9 @@
 
 Running a campaign by hand means watching every workflow, stopping the ones
 that perform poorly and deciding what to launch next. AuCaM does this on its
-own: it follows the results while workflows run, acts on them, and returns each
-campaign's outcome to a driver that plans the next campaign. The demo in
-`campaigns/demo_campaign/figures/run_impact.py` shows four of these capabilities on a
+own: it follows the results while workflows run, acts on them, and returns the
+campaign's outcome to the caller, which can plan the next campaign. The demo in
+`campaigns/hpc_campaign/figures/run_impact.py` shows three of these capabilities on a
 small example that stands in for the long-running campaigns AuCaM is built for:
 
 1. **Science-driven steering** — the controller makes the scientific decisions
@@ -17,12 +17,9 @@ small example that stands in for the long-running campaigns AuCaM is built for:
    that complete most often). As evidence accumulates, it shifts launches
    toward the types with the highest observed completion rate, while still
    sampling the others occasionally.
-3. **Spending accounting** — AuCaM charges what each workflow spends to its
-   campaign, reports it per workflow (`WorkflowResult.spent`) and per campaign
-   (`CampaignOutcome.spent`), and counts each campaign's spending against the
-   global budget.
-4. **Driver feedback** — when a campaign ends, AuCaM returns its outcome to the
-   driver, which uses it to plan the next campaign.
+3. **Spending accounting** — AuCaM charges what each workflow spends to the
+   campaign and reports it per workflow (`WorkflowResult.spent`) and for the
+   campaign (`CampaignOutcome.spent`).
 
 ---
 
@@ -35,14 +32,10 @@ Two workflow types compete for one workflow slot (`max_concurrent_workflows=1`):
 | `fast_good` | 1 CPU | 1.5 s | 0.75–0.95 | completes |
 | `slow_poor` | 4 CPUs | 5 s | 0.30–0.45, falling | cancelled at ~3 s, once its score drops below 0.30 |
 
-One driver runs two campaigns, one after the other. Each campaign ends after 20
-`fast_good` completions.
-
-- **Campaign "explore"** offers both types. Its controller keeps one request of
-  each type queued and has a `CancelRule` for `slow_poor`. Its scheduling policy
-  is a UCB1 bandit that rewards completed runs (1) over cancelled ones (0).
-- **Campaign "follow-up"** is planned by the driver from the outcome of
-  "explore" (section 4).
+The campaign ends after 20 `fast_good` completions. Its controller keeps one
+request of each type queued and has a `CancelRule` for `slow_poor`. Its
+scheduling policy is a UCB1 bandit that rewards completed runs (1) over
+cancelled ones (0).
 
 Spending is measured in CPU-seconds: each workflow declares its expected cost
 (`declared_spending`), and AuCaM charges it for the time it actually ran.
@@ -59,60 +52,44 @@ Numbers below are from one run; timings vary slightly from run to run.
 
 Each `slow_poor` run's score falls below 0.30 by its third report (about 3 s), and the
 `CancelRule` cancels it. A full run would cost 5 s × 4 CPUs = 20 CPU·s; each
-cancelled run cost 12 CPU·s. Over the 4 `slow_poor` runs, cancellation saved
-**32 CPU·s**, and freed the slot for `fast_good` 2 s earlier each time.
+cancelled run cost 12 CPU·s. Over the 5 `slow_poor` runs, cancellation saved
+**40 CPU·s**, and freed the slot for `fast_good` 2 s earlier each time.
 
 ### 2. Learning scheduler (panel 1)
 
 The bandit has to choose between the two queued types each time the slot frees
 up. It tries both, sees that `slow_poor` never completes, and tries it less and
-less often: at launches 2, 6, 11 and 18, with 3, 4 and then 6 `fast_good` runs in
-between. It keeps re-checking `slow_poor` now and then, in case it has improved.
+less often: at launches 2, 4, 8, 13 and 20, with 1, 3, 4 and then 6 `fast_good`
+runs in between. It keeps re-checking `slow_poor` now and then, in case it has improved.
 That is how UCB1 balances exploring against exploiting what it has learned.
 
-Each campaign has its own bandit, so it learns within that campaign only. What
-carries over to the next campaign is the outcome the driver receives (section 4).
-
-### 3. Spending accounting (panels 2 and 3)
+### 3. Spending accounting (panel 2)
 
 AuCaM charges every finished run in its spending ledger and reports the totals:
 per run in `WorkflowResult.spent`, per campaign in `CampaignOutcome.spent`.
-Campaign "explore" spent 78 CPU·s: 30 on `fast_good`, 48 on cancelled `slow_poor`
+The campaign spent 90 CPU·s: 30 on `fast_good`, 60 on cancelled `slow_poor`
 runs. With a spending limit (`CampaignBudget.spending`), AuCaM would also stop
-launching once a campaign reached it; see [budgets and spending](budget.md).
+launching once the campaign reached it; see [budgets and spending](budget.md).
 
-### 4. Driver feedback (panel 3)
+### The outcome
 
-When a campaign ends, AuCaM returns a `CampaignOutcome` to the driver that
-submitted it: completions, cancellations and failures per workflow type, time
-taken, spending, whether the goal was reached, and the controller's own summary
-(`get_summary()`). The driver can evaluate it and propose the next campaign. In
-the demo, the driver keeps only the workflow types that completed at least once:
+When the campaign ends, `run()` returns a `CampaignOutcome`: the exit reason,
+completions, cancellations and failures per workflow type, time taken,
+spending, whether the goal was reached, and the controller's own summary
+(`get_summary()`). The caller — a script or an agent — can evaluate it and run
+the next campaign, for example without `slow_poor`:
 
 ```python
-outcome = await (await cm.submit(explore_spec)).wait()
-
-
-def plan_next(outcome):
-    by_type = outcome.summary["by_type"]  # from the controller's get_summary()
-    return [t for t, s in by_type.items() if s["completed"] > 0]
-
-
-next_types = plan_next(outcome)  # ["fast_good"]
+outcome = await CampaignManager().run(explore_spec)
+by_type = outcome.summary["by_type"]  # from the controller's get_summary()
+next_types = [t for t, s in by_type.items() if s["completed"] > 0]  # ["fast_good"]
 ```
-
-The follow-up campaign reached the same goal in **30 s instead of 42 s** and
-spent **30 CPU·s instead of 78**. A real driver can do much more here, such as
-changing parameters, raising or lowering limits, or proposing a new hypothesis;
-the loop stays the same: submit, wait for the outcome, plan the next campaign.
 
 ---
 
 ## Not shown in this demo
 
-- **Concurrent campaigns** — several campaigns, from one or more drivers, run at
-  the same time; AuCaM admits a campaign only if its limits fit the global budget.
-- **Spending limits and burn-down** — per-campaign and global limits, live
+- **Spending limits and burn-down** — the campaign's spending limit, live
   in-flight estimates, learned cost estimates, and a bandit that explores less as
   the budget runs out; [budgets and spending](budget.md) shows each with a
   figure from a real run.
@@ -133,11 +110,11 @@ each of these.
 ```bash
 cd $WORK_DIR/campaign_manager
 
-# Run the demo (two campaigns, ~75 s)
-python campaigns/demo_campaign/figures/run_impact.py --json-out /tmp/impact_run.json
+# Run the demo (~45 s)
+python campaigns/hpc_campaign/figures/run_impact.py --json-out /tmp/impact_run.json
 
 # Draw the figure from the JSON output (needs matplotlib)
-python -I campaigns/demo_campaign/figures/gen_impact_fig.py \
+python -I campaigns/hpc_campaign/figures/gen_impact_fig.py \
     --json-in /tmp/impact_run.json \
     --out docs/figures/aucam_impact.png
 ```
@@ -146,14 +123,9 @@ Expected output (abridged):
 
 ```
 ── Campaign explore: types=['fast_good', 'slow_poor']
-  elapsed=42.1s  goal_reached=True  cpu_spent=78.2 CPU·s
+  elapsed=45.1s  goal_reached=True  cpu_spent=90.2 CPU·s
     fast_good  runs=20  completed=20  cancelled= 0  cpu=30.0 CPU·s
-    slow_poor  runs= 4  completed= 0  cancelled= 4  cpu=48.1 CPU·s
-  driver: dropping ['slow_poor'] for the next campaign
-
-── Campaign follow-up: types=['fast_good']
-  elapsed=30.1s  goal_reached=True  cpu_spent=30.1 CPU·s
-    fast_good  runs=20  completed=20  cancelled= 0  cpu=30.0 CPU·s
+    slow_poor  runs= 5  completed= 0  cancelled= 5  cpu=60.2 CPU·s
 ```
 
 ---
@@ -162,6 +134,6 @@ Expected output (abridged):
 
 | File | Purpose |
 |---|---|
-| `campaigns/demo_campaign/figures/run_impact.py` | The demo: workflows, controller, driver |
-| `campaigns/demo_campaign/figures/gen_impact_fig.py` | Draws the figure from the demo's JSON output |
+| `campaigns/hpc_campaign/figures/run_impact.py` | The demo: workflows, controller, campaign |
+| `campaigns/hpc_campaign/figures/gen_impact_fig.py` | Draws the figure from the demo's JSON output |
 | `docs/figures/aucam_impact.png` | The figure |

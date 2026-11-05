@@ -14,9 +14,9 @@ ADRSchedulingPolicy     — RADICAL Autonomous Decision Runtime; rule-override h
 LLMSchedulingPolicy     — LLM-guided ranking (model-agnostic)
                           (STUB — falls back to FIFO)
 
-A policy instance belongs to one campaign: CampaignManager rejects a spec
-whose scheduling_policy instance is already used by another campaign, so
-campaigns never share learned state.
+A policy instance keeps what it learned: passing the same instance to the
+next campaign's spec carries that knowledge over; pass a new instance to start
+fresh.
 """
 
 from __future__ import annotations
@@ -263,7 +263,7 @@ class ADRSchedulingPolicy(SchedulingPolicy):
 
     Designed to integrate with the RADICAL-ADR policy engine: it maintains
     a running observation window and supports an optional rule-override hook
-    that fires before the learned policy, letting the driver inject hard
+    that fires before the learned policy, letting the campaign inject hard
     constraints (e.g. "never launch hog_worker while GPU utilisation > 80%").
 
     NOT YET IMPLEMENTED — currently falls back to FIFO with a one-time WARNING.

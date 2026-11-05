@@ -112,7 +112,7 @@ class CampaignBudget:
 
 
 class CampaignSpec(BaseModel):
-    """Full specification for one campaign, submitted by a driver."""
+    """Full specification of a campaign, passed to ``CampaignManager.run()``."""
 
     name: str
     budget: CampaignBudget
@@ -127,9 +127,9 @@ class CampaignSpec(BaseModel):
     data_backend: Any | None = None  # DataBackend
     # Directory to write/read checkpoint files.  None = no checkpointing.
     checkpoint_dir: str | None = None
-    # Scheduling policy for this campaign.  None = BanditSchedulingPolicy().
-    # The instance belongs to this campaign only: CampaignManager rejects a
-    # spec whose policy instance is already used by another campaign.
+    # Scheduling policy for this campaign.  None = a new BanditSchedulingPolicy().
+    # The instance keeps what it learned; reuse it in the next campaign's spec
+    # to carry that knowledge over.
     scheduling_policy: Any | None = None
     # End the campaign after it has been idle this many seconds: queue empty,
     # no workflows running or paused, no requests held by dependencies, and at

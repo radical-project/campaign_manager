@@ -69,8 +69,7 @@ class _SimpleCtrl(CampaignController):
 
 async def _run(spec: CampaignSpec) -> None:
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    await cm.run()
+    await cm.run(spec)
 
 
 # ── 1. Unit: CampaignCheckpoint JSON round-trip ───────────────────────────────

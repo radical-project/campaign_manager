@@ -55,8 +55,7 @@ def _run(workflows: list[WorkflowConfig], requests: list[LaunchRequest]) -> Laun
         shutdown_timeout_s=5.0,
     )
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    asyncio.run(asyncio.wait_for(cm.run(), timeout=60.0))
+    asyncio.run(asyncio.wait_for(cm.run(spec), timeout=60.0))
     return ctl
 
 

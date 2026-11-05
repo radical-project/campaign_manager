@@ -16,24 +16,24 @@ done.
 | B3 | Learned cost estimates | Done, two follow-ups |
 | B4 | `CostCancelRule` | Not started |
 | B5 | Cost-aware bandit | Partial |
+| B6 | Stop gracefully at the spending limit | Not started |
 | R1 | Restart: rejoin running workflows, keep goals and learned costs | Not started |
 | R2 | Restart: dependency state | Partial |
 | P1 | PAUSE timeout; CANCEL through the DataBackend at shutdown | Not started |
 | C1 | Controller fallback when `decide()` fails or is slow | Not started |
 | H1 | On-completion hooks can enqueue requests | Not started |
-| A1 | Per-dimension prices; usage that belongs to no campaign | Not started |
-| A2 | Campaigns without a spending limit are not bounded by the global limit | Open |
+| A1 | Per-dimension prices | Not started |
 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) |
-| D1 | Remote driver submission | Not started |
 | L1 | Launch fewer workflows when the backend is backlogged | Not started |
+| W1 | Concurrency cap per workflow type | Not started |
 | X1 | More accurate task data in AsyncFlow telemetry | Open (external) |
 | X2 | RHAPSODY concurrent backend does not kill cancelled programs | Open (external) |
 
 ---
 
-## Budget burn-down (B0–B5)
+## Budget burn-down (B0–B6)
 
-Goal: the budget becomes a decision input — AuCaM forecasts each campaign's
+Goal: the budget becomes a decision input — AuCaM forecasts the campaign's
 spending, launches only what fits, cancels workflows that spend without
 improving, and favours cost-effective workflow types as the budget runs down.
 Current behaviour: [budgets and spending](budget.md). When an item lands,
@@ -80,6 +80,17 @@ update `budget.md` and the developer guide.
   of workflow spending / campaign limit (`WorkflowResult.spent` is available
   in `on_outcome()`; the limits are not); `cost_aware=False` to keep today's
   completion-only reward.
+- **B6 — stop gracefully at the spending limit.** Today, when spent +
+  in-flight reaches the limit, AuCaM stops launching but lets running
+  workflows finish, so a campaign can end above its limit (e.g. up to
+  27.6 CPU·s against a 24 CPU·s limit in the slides' use case). The limit
+  should hold: when it is reached, cancel the
+  running workflows gracefully (send CANCEL through the DataBackend so they
+  can save their state, then cancel those still running after a grace
+  period, as in P1), charge what they used, and end with `spending_limit`.
+  Make it the default, with an option on `CampaignBudget` (e.g.
+  `on_limit="finish"`) for campaigns that prefer to let running work
+  complete. Today a custom controller can do this in `decide()`.
 
 ## Other planned features
 
@@ -100,14 +111,10 @@ update `budget.md` and the developer guide.
 - **C1 — controller fallback.** `controller.decide()` is not guarded: an
   exception in it ends the campaign's policy loop. Add a try/except and a
   rule-based fallback, also when `decide()` takes too long.
-- **H1 — hooks.** Let `WorkflowConfig.on_completion` hooks enqueue requests on
-  their own campaign.
-- **A1 — accounting.** Per-dimension prices for comparing dimensions; record
-  usage that belongs to no campaign.
+- **H1 — hooks.** Let `WorkflowConfig.on_completion` hooks enqueue requests.
+- **A1 — accounting.** Per-dimension prices for comparing dimensions.
 - **S1 — scheduling.** `ADRSchedulingPolicy` and `LLMSchedulingPolicy` are
   stubs that fall back to FIFO.
-- **D1 — drivers.** A remote submission interface, so drivers can run outside
-  CM's process.
 - **L1 — load-aware launching.** Today the controller sees AsyncFlow task
   counts (`obs["tasks"]`: waiting, submitted, running) and each policy-cycle log
   line shows them, but nothing acts on them. Plan: an opt-in setting for the
@@ -119,17 +126,17 @@ update `budget.md` and the developer guide.
   task counts from Delta runs. Limits: only AsyncFlow tasks are counted, so a
   command-line workflow is one task; a running workflow's own burst of tasks
   is not slowed, only new launches.
+- **W1 — concurrency cap per workflow type.** `CampaignBudget.max_concurrency_per_workflow`
+  is one number applied to every workflow type, so a long, expensive
+  simulation and a short analysis get the same cap. Plan: an optional cap on
+  each type, e.g. `WorkflowConfig(name="precise_sim", ..., max_running=2)`;
+  `max_concurrency_per_workflow` becomes the default for types that set none,
+  and `max_concurrent_workflows` stays the cap for the whole campaign. The
+  scheduler and `SchedulingContext.max_concurrency_per_type` need the
+  per-type values.
 
 ## Known problems
 
-- **A2 — campaigns without a limit.** A campaign that sets no spending limit
-  for a dimension commits 0 for it at admission, so the global limit cannot
-  hold back its spending in that dimension ([budgets and spending](budget.md)
-  §4). Options: (1) reject a campaign without a spending limit when a global
-  limit is set; or (2) also check the global limit before every launch,
-  counting actual spending plus running workflows across all campaigns. (2)
-  lets campaigns run without a limit, but they could then use budget that other
-  campaigns have reserved.
 - **X1 — radical.asyncflow telemetry.** AuCaM needs AsyncFlow's task events
   to carry more accurate data: each task's requested resources or actual
   spending (for per-task charging), and the program's exit code (for

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
 import sys
 from pathlib import Path
 
@@ -187,8 +188,6 @@ def make_miniapps_worker(cfg: dict, arm_label: str = "wf", engine: str = "concur
             n_done,
             len(predictions),
         )
-
-        import socket
 
         await reporter.emit(
             score=score,

@@ -1,6 +1,6 @@
 # Campaign developer guide
 
-How to write a campaign: workflows, decision logic, limits and drivers. For the
+How to write and run a campaign: workflows, decision logic and limits. For the
 ideas behind AuCaM read the [architecture overview](architecture-overview.md)
 first; to run something right away, see the [demo campaign](demo-campaign-guide.md).
 
@@ -13,7 +13,7 @@ first; to run something right away, see the [demo campaign](demo-campaign-guide.
 7. [Dependencies between workflow types](#7-dependencies-between-workflow-types)
 8. [Scheduling](#8-scheduling)
 9. [Budgets and limits](#9-budgets-and-limits)
-10. [Drivers](#10-drivers)
+10. [Running campaigns](#10-running-campaigns)
 11. [Troubleshooting](#11-troubleshooting)
 12. [Reference](#12-reference)
 
@@ -32,10 +32,10 @@ first; to run something right away, see the [demo campaign](demo-campaign-guide.
 - **Queue and scheduler** — the controller's launch requests wait in the
   campaign's queue; the scheduler starts them when a slot is free, choosing
   with the campaign's **scheduling policy**.
-- **Ledger** — records what each campaign spends; limits are checked against
+- **Ledger** — records what the campaign spends; limits are checked against
   it (§9).
-- **Driver** — your code that submits campaigns and receives their outcomes
-  (§10).
+- **Running** — `outcome = await CampaignManager().run(spec)` runs the
+  campaign and returns its outcome (§10).
 
 ---
 
@@ -71,19 +71,8 @@ spec = CampaignSpec(
 
 
 async def main() -> None:
-    cm = CampaignManager()
-    cm.expect_driver()
-
-    async def driver() -> None:
-        try:
-            outcome = await (await cm.submit(spec)).wait()
-            print(outcome.completed, outcome.spent)
-        finally:
-            cm.driver_done()
-
-    task = asyncio.create_task(driver())
-    await cm.run()
-    await task
+    outcome = await CampaignManager().run(spec)
+    print(outcome.exit_reason, outcome.completed, outcome.spent)
 
 
 asyncio.run(main())
@@ -128,7 +117,7 @@ block. AuCaM passes these arguments by name, to any function that declares
 them (in any order):
 
 - `reporter` — the `WorkflowReporter` (§4);
-- `flow` — the shared AsyncFlow engine; submit compute steps as `@flow` tasks
+- `flow` — the AsyncFlow engine; submit compute steps as `@flow` tasks
   so they run on the allocation, are cancelled with the workflow and are
   charged to it;
 - `context` — the `LaunchRequest.context` dict of this launch.
@@ -275,19 +264,19 @@ Subclass `CampaignController` and override what you need:
 | `on_complete(result)` | Each finished run | Counts `completed` / `cancelled` / `failed` per type — call `super()` |
 | `is_goal_reached()` → `bool` | By the default `decide()` | `goal_n` completions of `goal_type` |
 | `goals()` → `list[Goal]` | At start | `[]` |
-| `get_summary()` → `dict` | When the campaign ends | `{}`; goes to the driver in `CampaignOutcome.summary` |
+| `get_summary()` → `dict` | When the campaign ends | `{}`; returned in `CampaignOutcome.summary` |
 
 The observation has these keys (plus any your `observe()` adds):
 
 | Key | Content |
 |---|---|
 | `queue_snapshot` | `QueueSnapshot`: queued counts by priority and type |
-| `budget` | This campaign's ledger entry: `limits`, `spent`, `in_flight`, `global_spent`, `burn` (§9) |
+| `budget` | This campaign's ledger entry: `limits`, `spent`, `in_flight`, `burn` (§9) |
 | `running` | `{workflow_type: number running}` |
 | `live_reports` | `{wf_id: WorkflowReport}` — latest report of each running workflow |
 | `wf_types` | `{wf_id: workflow_type}` |
 | `telemetry` | `TelemetrySnapshot`: run times, node readings, spending, live use estimates |
-| `tasks` | AsyncFlow task counts for this campaign: `waiting` (not yet handed to the backend), `submitted` (waiting in the backend), `running`; `all` has the same counts for all campaigns. `None` without telemetry (`enable_telemetry=True`). |
+| `tasks` | AsyncFlow task counts for this campaign: `waiting` (not yet handed to the backend), `submitted` (waiting in the backend), `running`. `None` without telemetry (`enable_telemetry=True`). |
 
 `decide()` returns:
 
@@ -339,11 +328,11 @@ class BestScore(CampaignController):
 | `controller_terminate` | `decide()` returned `terminate=True` — including the built-in `goal_type` / `goal_n` goal |
 | `spending_limit` | The campaign's spending limit is reached and nothing is running |
 | `campaign_idle` | Idle for `idle_exit_s`: queue empty, nothing running or paused, no requests held by dependencies |
-| `signal` | AuCaM received SIGTERM or SIGINT (all campaigns end) |
+| `signal` | AuCaM received SIGTERM or SIGINT, or `cm.stop()` was called |
 
 Then AuCaM clears the queue, cancels running workflows (waiting up to
-`shutdown_timeout_s`), writes a final checkpoint and returns the outcome to
-the driver.
+`shutdown_timeout_s`), writes a final checkpoint and `run()` returns the
+outcome.
 
 `CampaignSpec.idle_exit_s`:
 
@@ -394,8 +383,8 @@ than `age_threshold_s` become HIGH).
 | `FIFOSchedulingPolicy` | Queue order |
 | `ADRSchedulingPolicy`, `LLMSchedulingPolicy` | Stubs; behave as FIFO |
 
-Each campaign needs its own policy instance (`scheduling_policy=`, or `None`
-for a new bandit); AuCaM rejects an instance already used by another campaign.
+Pass a policy instance as `scheduling_policy=`, or `None` for a new bandit.
+An instance passed to the specs of several runs keeps what it learned.
 
 ![Bandit and budget](figures/aucam_bandit_budget.png)
 
@@ -420,10 +409,8 @@ CampaignBudget(
   already spent and stops launching once that reaches the limit; running
   workflows finish, then the campaign ends (`spending_limit`). Give every
   workflow type a `declared_spending`, or it is not counted in advance.
-- **Global limit.** `CampaignManager(global_budget=GlobalBudget(...))` admits
-  a campaign only if its limits fit (§10).
-- **In the observation:** `obs["budget"]` has `limits`, `spent`, `in_flight`,
-  `global_spent` and `burn[dim] = {remaining, fraction_left}`.
+- **In the observation:** `obs["budget"]` has `limits`, `spent`, `in_flight` and
+  `burn[dim] = {remaining, fraction_left}`.
 
 ![Campaign budget burn-down](figures/aucam_budget_burn.png)
 
@@ -432,55 +419,37 @@ Details — measuring methods, learned cost estimates, log lines:
 
 ---
 
-## 10. Drivers
+## 10. Running campaigns
 
-A driver submits campaigns and gets each campaign's `CampaignOutcome`:
+`CampaignManager.run(spec)` runs one campaign and returns its
+`CampaignOutcome` when it ends. Your code — a script, an agent, a notebook —
+reads the outcome and decides what to run next:
 
 ```python
-async def my_driver(cm: CampaignManager) -> None:
-    try:
-        for spec in plan_campaigns():
-            result = await cm.submit(spec)
-            if not result.accepted:
-                print("rejected:", result.reason)
-                continue
-            outcome = await result.wait()  # when the campaign ends
-            print(outcome.goal_reached, outcome.completed, outcome.spent, outcome.summary)
-    finally:
-        cm.driver_done()  # no more submissions from this driver
-
-
 async def main() -> None:
-    cm = CampaignManager(
-        global_budget=GlobalBudget(max_concurrent_campaigns=2, spending={"gpu_hours": 100.0})
-    )
-    cm.expect_driver()  # before cm.run()
-    task = asyncio.create_task(my_driver(cm))
-    await cm.run()  # until all drivers are done and campaigns end
-    await task
+    cm = CampaignManager()
+    spec = first_spec()
+    while spec is not None:
+        outcome = await cm.run(spec)
+        print(outcome.exit_reason, outcome.goal_reached, outcome.spent, outcome.summary)
+        spec = next_spec(outcome)  # e.g. drop types that never completed
 ```
 
-- To run campaigns side by side, submit several without awaiting `wait()`
-  between them.
-- Several drivers: each calls `expect_driver()` before `run()` and
-  `driver_done()` when finished.
-- **Admission:** a campaign is rejected (with the reason) if it would exceed
-  `max_concurrent_campaigns`, `max_total_concurrent_workflows`, or the global
-  spending limit: spent by finished campaigns + limits of running ones + its
-  own limit. A campaign without a spending limit adds nothing to that sum.
-- AuCaM stops accepting campaigns after `n_campaigns` have finished, after
-  more than `max_rejections` budget rejections, or when the global spending
-  budget is used up.
-- `cm.submit_campaign(spec)` before `cm.run()` also works, for a fixed set of
-  campaigns without outcomes.
+- One `run()` at a time; a second call while one is running raises
+  `RuntimeError`.
+- `cm.stop()` ends the running campaign gracefully, as SIGTERM does
+  (`exit_reason="signal"`).
+- `CampaignManager(backend=...)` reuses a backend you started (e.g. Dragon on
+  HPC) across runs and leaves it running; without one, each run starts and
+  stops a local backend.
 
-`CampaignOutcome`: `campaign_name`, `completed` / `cancelled` / `failed`
-(per type), `elapsed_s`, `goal_reached`, `spent`, `summary`.
+`CampaignOutcome`: `campaign_name`, `exit_reason`, `completed` / `cancelled` /
+`failed` (per type), `elapsed_s`, `goal_reached`, `spent`, `summary`.
 
 ### Config-driven runners
 
-`campaigns/demo_campaign/run_campaign.py` and `campaigns/ddsim_aucam/` build
-specs from YAML files (one for the manager, one per campaign template) with
+`campaigns/hpc_campaign/run_campaign.py` and `campaigns/ddsim_aucam/` build
+specs from YAML files (one for the manager, one for the campaign) with
 command-line overrides. Their keys are specific to each example; see the
 [demo campaign guide](demo-campaign-guide.md) and the files'
 `campaign_configs/`.
@@ -496,9 +465,7 @@ command-line overrides. Their keys are specific to each example; see the
 | A dependency target starts immediately | Set `launch_on_start=False` on it |
 | The campaign ends with `campaign_idle` too early | Raise `idle_exit_s` or set it to `None` |
 | PAUSE has no effect | `supports_pause=True` is needed, and the workflow must `poll()` |
-| Submission rejected | Read `SubmitResult.reason`; check `GlobalBudget` |
 | Spending stays 0 | No `declared_spending` and nothing reported; see [budget.md](budget.md) |
-| A scheduling policy is rejected | The instance is already used by another campaign |
 
 Planned features and known problems: [known gaps](known-gaps.md).
 
@@ -535,10 +502,10 @@ Planned features and known problems: [known gaps](known-gaps.md).
 ### Imports
 
 Everything is in `src.aucam`: `CampaignManager`, `CampaignSpec`,
-`CampaignBudget`, `WorkflowConfig`, `WorkflowDependency`, `GlobalBudget`,
+`CampaignBudget`, `WorkflowConfig`, `WorkflowDependency`,
 `CampaignController`, `CancelRule`, `LaunchRule`, `Goal`, `PolicyResult`,
 `CampaignDecision`, `LaunchRequest`, `LaunchPriority`, `WorkflowReporter`,
-`WorkflowReport`, `WorkflowResult`, `CampaignOutcome`, `SubmitResult`,
+`WorkflowReport`, `WorkflowResult`, `CampaignOutcome`,
 `BanditSchedulingPolicy`, `FIFOSchedulingPolicy`, `SchedulingPolicy`,
 `SchedulingContext`, `LocalDictBackend`, `RhapsodyRedisBackend`,
 `RadexDragonBackend`, `TelemetrySnapshot`, `QueueSnapshot`, `BlockProfiler`,

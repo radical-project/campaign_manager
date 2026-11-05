@@ -157,8 +157,7 @@ def test_shell_workflow_reports_through_cli(redis_endpoint) -> None:
         shutdown_timeout_s=5.0,
     )
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    asyncio.run(asyncio.wait_for(cm.run(), timeout=60.0))
+    asyncio.run(asyncio.wait_for(cm.run(spec), timeout=60.0))
     r = ctl.results[0]
     assert r.returncode == 0
     assert r.final_score == 0.9

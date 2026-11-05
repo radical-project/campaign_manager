@@ -8,8 +8,6 @@ Panels:
   1. Campaign "explore" timeline — every workflow run in launch order; the
      bandit tries slow_poor less and less often; cancelled runs stop early.
   2. Cancellation — CPU used by each cancelled slow_poor run vs. a full run.
-  3. Driver feedback — time to goal and CPU spent, campaign "explore" vs. the
-     "follow-up" campaign the driver planned from the first outcome.
 """
 
 import argparse
@@ -25,16 +23,16 @@ from matplotlib.patches import Patch  # noqa: E402
 _HERE = Path(__file__).parent
 ap = argparse.ArgumentParser()
 ap.add_argument("--json-in", default=str(_HERE / "impact_run.json"))
-ap.add_argument("--out", default=str(_HERE / "../../docs/figures/aucam_impact.png"))
+ap.add_argument("--out", default=str(_HERE / "../../../docs/figures/aucam_impact.png"))
 args = ap.parse_args()
 
 d = json.loads(Path(args.json_in).read_text())
 meta = d["meta"]
-explore, follow = d["campaigns"][0], d["campaigns"][1]
+explore = d["campaign"]
 
 C_FAST, C_SLOW, C_SAVED, C_ANN = "#1a7f37", "#cf222e", "#d0d7de", "#57606a"
 plt.rcParams.update({"font.size": 10, "axes.spines.top": False, "axes.spines.right": False})
-fig, axes = plt.subplots(1, 3, figsize=(16, 4.8), gridspec_kw={"width_ratios": [2.2, 1, 1.2]})
+fig, axes = plt.subplots(1, 2, figsize=(13, 4.8), gridspec_kw={"width_ratios": [2.2, 1]})
 
 # ── Panel 1: timeline of campaign "explore" ──────────────────────────────────
 ax = axes[0]
@@ -104,29 +102,8 @@ ax.legend(loc="upper right", fontsize=8, frameon=False)
 ax.set_xlim(0.4, len(cancelled) + 0.6)
 ax.set_ylim(0, full * 1.45)
 
-# ── Panel 3: driver feedback — explore vs follow-up ──────────────────────────
-ax = axes[2]
-names = [explore["name"], follow["name"]]
-fast_cpu = [c["by_type"].get("fast_good", {}).get("cpu_s", 0.0) for c in (explore, follow)]
-slow_cpu = [c["by_type"].get("slow_poor", {}).get("cpu_s", 0.0) for c in (explore, follow)]
-ax.bar(names, fast_cpu, color=C_FAST, width=0.5, label="fast_good CPU·s")
-ax.bar(names, slow_cpu, bottom=fast_cpu, color=C_SLOW, width=0.5, label="slow_poor CPU·s")
-for i, c in enumerate((explore, follow)):
-    ax.text(
-        i,
-        fast_cpu[i] + slow_cpu[i] + 1.5,
-        f"{c['elapsed_s']:.0f} s to goal",
-        ha="center",
-        fontsize=9,
-    )
-ax.set_ylabel("CPU·s spent (CampaignOutcome.spent)")
-ax.set_ylim(0, max(f + s for f, s in zip(fast_cpu, slow_cpu, strict=True)) * 1.25)
-ax.set_title("3. Driver plans the next campaign", loc="left")
-ax.legend(loc="upper right", fontsize=8, frameon=False)
-
 fig.suptitle(
-    f"AuCaM capability demo — goal: {meta['goal_n']} fast_good completions per campaign, "
-    "one workflow slot",
+    f"AuCaM capability demo — goal: {meta['goal_n']} fast_good completions, one workflow slot",
     fontsize=11,
     x=0.01,
     ha="left",

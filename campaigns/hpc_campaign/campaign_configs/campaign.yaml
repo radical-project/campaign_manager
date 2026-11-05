@@ -1,6 +1,5 @@
 # Campaign template — local / dev defaults.
-# The driver instantiates one CampaignSpec per run from this template,
-# assigning a unique name (demo-campaign-a, demo-campaign-b, …).
+# run_campaign.py builds the CampaignSpec from this file.
 
 controller:
   goal_analyses: 3            # number of analysis_worker completions before terminating
@@ -10,7 +9,7 @@ budget:
   max_concurrent: 4           # max concurrent workflows in this campaign
   max_concurrency_per_workflow: 2
   spending:
-    cpu_hours: 0.004          # declared cost; global cap checks use this for admission
+    cpu_hours: 0.004          # spending limit; remove to disable
     gpu_hours: ~
 
 workflows:

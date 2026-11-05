@@ -1,13 +1,31 @@
 """
-Dummy campaign scheduling policy.
+Scheduling policies for the demo campaign.
 
-Mirrors controller.py: campaign-specific scheduling logic lives here,
-not in the CM or the driver script.
+  bandit        BanditSchedulingPolicy()
+                Throughput reward (1=success, 0=cancel/fail). Learns which arm
+                succeeds more often.
 
-The ADR variant wires in a backpressure rule: when the recent sim
-cancellation rate exceeds 60%, concurrent sim launches are capped at 1
-to stop wasting slots on diverging runs.  DAG-triggered analysis workers
-arrive as CRITICAL priority and bypass this rule entirely.
+  science       BanditSchedulingPolicy(reward_fn=_score_reward)
+                reward = final_score. Learns which arm finds BETTER scores.
+
+  bandit_tight  BanditSchedulingPolicy(exploration=0.5)
+                Low exploration constant — exploits faster, explores less.
+                Useful when arms are well-characterised from a previous campaign.
+
+  adr           ADRSchedulingPolicy(rule_fn=_backpressure)
+                Backpressure rule: throttles sims when cancel rate > 60%.
+
+  llm           LLMSchedulingPolicy(model="llama3:8b")
+                LLM-guided ranking (STUB — falls back to FIFO today).
+
+  custom        _RecencyBiasPolicy — subclass of SchedulingPolicy.
+                Shows how to implement select() + on_outcome() from scratch.
+                Prefers the workflow type that succeeded most recently.
+
+  fifo          FIFOSchedulingPolicy() — queue order, no learning.
+
+Reading order: _score_reward → science_bandit → _backpressure → adr_policy
+               → _RecencyBiasPolicy → recency_policy → make_policy
 """
 
 from __future__ import annotations
@@ -18,74 +36,144 @@ from src.aucam import (
     FIFOSchedulingPolicy,
     LLMSchedulingPolicy,
     SchedulingPolicy,
+    WorkflowResult,
 )
+from src.aucam.scheduler import SchedulingContext
 
-_SIM_THROTTLE_WINDOW = 8  # how many recent sim results to inspect
-_SIM_CANCEL_RATE_THRESHOLD = 0.6  # throttle when >60% of recent sims were cancelled
+# ── Science-adapted bandit reward ──────────────────────────────────────────────
 
 
-def _adr_rule(candidates, ctx):
+def _score_reward(result: WorkflowResult) -> float:
+    """Reward = final score for successful runs; 0 for cancellation or failure.
+
+    Unlike the default reward (1 for any completion), this ties the bandit's
+    arm preference to outcome quality.  Arms that produce higher scores are
+    pulled more often — the bandit acts as a science-driven optimizer, not just
+    a success-rate optimizer.
     """
-    Backpressure rule: throttle concurrent sim launches when the recent
-    sim cancellation rate exceeds a threshold.
+    if result.returncode != 0:
+        return 0.0
+    score = result.final_score
+    return float(score) if score is not None else 0.5  # 0.5 if no score reported
+
+
+def science_bandit() -> BanditSchedulingPolicy:
+    """UCB1 bandit adapted for scientific campaigns.
+
+    Drop-in replacement for BanditSchedulingPolicy(); only the reward changes.
+    """
+    return BanditSchedulingPolicy(reward_fn=_score_reward)
+
+
+# ── ADR backpressure rule ──────────────────────────────────────────────────────
+
+_WINDOW = 8  # inspect the last N sim results
+_CANCEL_THRESHOLD = 0.6  # throttle when >60% of recent sims were cancelled
+
+
+def _backpressure(candidates, ctx) -> list | None:
+    """Throttle concurrent sims when the recent cancel rate is too high.
 
     When >60% of the last 8 sim results were cancelled (score below floor),
-    the campaign is wasting slots on diverging runs.  This rule caps concurrent
-    sims at 1 until the cancellation rate drops, freeing slots for analysis
-    workers and reducing queue buildup.
+    slots are being wasted on diverging runs.  This rule caps concurrent sims
+    at 1 until the rate drops, freeing slots for analysis workers.
 
-    DAG-triggered analysis workers arrive as CRITICAL priority and are
-    drained by the scheduler before this rule is consulted — no slot
-    reservation is needed here.
-
-    Returns a filtered launch list when the rule fires, or None to defer
-    to the bandit.
+    Returns a filtered candidate list when the rule fires; None defers to the
+    bandit's normal selection.
     """
     recent_sims = [
-        r
-        for r in ctx.history[-_SIM_THROTTLE_WINDOW:]
-        if r.workflow_type in ("sim_worker", "sim_worker_b")
+        r for r in ctx.history[-_WINDOW:] if r.workflow_type in ("fast_sim", "precise_sim")
     ]
     if len(recent_sims) < 3:
-        return None  # not enough data — defer to bandit
+        return None  # not enough data — let bandit decide
 
     cancel_rate = sum(1 for r in recent_sims if r.returncode != 0) / len(recent_sims)
-    if cancel_rate <= _SIM_CANCEL_RATE_THRESHOLD:
-        return None  # healthy — defer to bandit
+    if cancel_rate <= _CANCEL_THRESHOLD:
+        return None  # healthy — let bandit decide
 
-    # High cancellation: cap at 1 concurrent sim to reduce slot waste.
-    running_sims = ctx.running_by_type.get("sim_worker", 0) + ctx.running_by_type.get(
-        "sim_worker_b", 0
+    # High cancellation: hold new sims; let analysis workers through.
+    running_sims = ctx.running_by_type.get("fast_sim", 0) + ctx.running_by_type.get(
+        "precise_sim", 0
     )
     if running_sims >= 1:
-        non_sims = [r for r in candidates if r.workflow_type not in ("sim_worker", "sim_worker_b")]
-        return non_sims  # hold all new sims; only launch non-sim types
+        return [c for c in candidates if c.workflow_type not in ("fast_sim", "precise_sim")]
     return None  # one sim slot free — let bandit pick normally
 
 
+def adr_policy() -> ADRSchedulingPolicy:
+    """Bandit + backpressure rule: throttles sims when cancel rate > 60%."""
+    return ADRSchedulingPolicy(rule_fn=_backpressure)
+
+
+# ── Custom SchedulingPolicy subclass ──────────────────────────────────────────
+
+
+class _RecencyBiasPolicy(SchedulingPolicy):
+    """Prefer the workflow type that succeeded most recently.
+
+    Shows how to subclass SchedulingPolicy:
+      select()     — pick from candidates using ctx.history
+      on_outcome() — update local state after each completion
+    """
+
+    def __init__(self) -> None:
+        self._last_success: str | None = None
+
+    def select(
+        self,
+        candidates: list,
+        ctx: SchedulingContext,
+    ) -> list:
+        slots = ctx.max_concurrency - sum(ctx.running_by_type.values())
+        if slots <= 0:
+            return []
+        # Promote the most recently successful type to the front; fall back to FIFO.
+        if self._last_success:
+            preferred = [r for r in candidates if r.workflow_type == self._last_success]
+            others = [r for r in candidates if r.workflow_type != self._last_success]
+            ordered = preferred + others
+        else:
+            ordered = candidates
+        running = dict(ctx.running_by_type)
+        selected = []
+        for req in ordered:
+            if len(selected) >= slots:
+                break
+            if running.get(req.workflow_type, 0) < ctx.max_concurrency_per_type:
+                selected.append(req)
+                running[req.workflow_type] = running.get(req.workflow_type, 0) + 1
+        return selected
+
+    def on_outcome(self, request, result: WorkflowResult) -> None:
+        if result.returncode == 0:
+            self._last_success = request.workflow_type
+
+
+def recency_policy() -> _RecencyBiasPolicy:
+    """Custom policy — prefers the workflow type that succeeded most recently."""
+    return _RecencyBiasPolicy()
+
+
+# ── Factory ────────────────────────────────────────────────────────────────────
+
+
 def make_policy(name: str) -> SchedulingPolicy:
-    """Instantiate the named scheduling policy for this campaign."""
+    """Return a fresh policy instance for the given name.
+
+    Each campaign needs its own instance — AuCaM rejects one already in use.
+    """
     if name == "bandit":
         return BanditSchedulingPolicy()
+    if name == "science":
+        return science_bandit()
     if name == "adr":
-        return ADRSchedulingPolicy(rule_fn=_adr_rule)
+        return adr_policy()
+    if name == "bandit_tight":
+        # Low exploration — exploits faster once arms are characterised.
+        return BanditSchedulingPolicy(exploration=0.5)
     if name == "llm":
-        return LLMSchedulingPolicy(model="claude-haiku-4-5-20251001")
+        # Stub: falls back to FIFO today; shows the LLMSchedulingPolicy API.
+        return LLMSchedulingPolicy(model="llama3:8b")
+    if name == "custom":
+        return recency_policy()
     return FIFOSchedulingPolicy()  # "fifo"
-
-
-def print_policy_summary(policy: SchedulingPolicy, name: str) -> None:
-    """Print a policy-specific summary after the campaign finishes."""
-    print(f"\n  scheduling policy : {name}")
-    if isinstance(policy, BanditSchedulingPolicy):
-        arms = policy.arm_stats()
-        if arms:
-            print(f"  bandit arms ({len(arms)} learned):")
-            for arm_key, stats in sorted(arms.items()):
-                print(f"    {arm_key:<40}  n={int(stats['n']):>3}  mean={float(stats['mean']):.3f}")
-        else:
-            print("  bandit arms: none yet (no completed workflows)")
-    elif isinstance(policy, ADRSchedulingPolicy):
-        print("  adr rule_fn : _adr_rule (throttle sims when cancel rate > 60%)")
-    elif isinstance(policy, LLMSchedulingPolicy):
-        print("  llm model   : stub — fell back to FIFO (not yet implemented)")

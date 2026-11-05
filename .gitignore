@@ -28,6 +28,7 @@ ddict_orc_*
 aucam-tel/
 aucam-tel-*/
 campaigns/*/logs/
+campaigns/*/log
 campaigns/*/checkpoints/
 campaigns/*/*.log
 campaigns/*/*.json
