@@ -26,7 +26,13 @@ import math
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from .types import LaunchRequest, TelemetrySnapshot, WorkflowResult
+from .types import (
+    RESOURCE_KEYS,
+    Allocation,
+    LaunchRequest,
+    TelemetrySnapshot,
+    WorkflowResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +64,26 @@ class SchedulingContext:
     policy_cycles: int
     campaign_name: str
     budget_remaining_fraction: float = 1.0
+
+
+@dataclass
+class SizingContext:
+    """
+    What SchedulingPolicy.size() sees when one request is about to launch.
+
+    proposal     — the request's own amounts, else the workflow type's defaults
+                   (WorkflowConfig.spending_limit / resources).
+    learned_cost — mean actual spending of successful runs of this type, per
+                   dimension, once at least 3 have finished (empty before).
+    remaining    — campaign spending limit − spent − in flight, per limited
+                   dimension (absent: no campaign limit).
+    queued       — requests waiting in the queue, including this one.
+    """
+
+    proposal: Allocation
+    learned_cost: dict[str, float]
+    remaining: dict[str, float]
+    queued: int
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +126,53 @@ class SchedulingPolicy:
     def on_outcome(self, request: LaunchRequest, result: WorkflowResult) -> None:
         """Called after every workflow completes.  Override to update learned state."""
         pass
+
+    # Sizing settings, used by the default size(); set them on an instance.
+    size_margin: float = 0.25  # learned cost × (1 + margin) when a range is given
+    fair_share: bool = False  # cap each run at remaining budget / queued requests
+
+    def size(self, request: LaunchRequest, ctx: SizingContext) -> Allocation | None:
+        """Decide what one run gets: its spending limit and its resources.
+
+        Called when the request is about to launch.  Return None to drop the
+        request because it does not fit the remaining campaign budget.
+
+        Default:
+          - an explicit amount (the request's, else the type's default) is kept;
+          - a key with only a range (LaunchRequest.bounds) gets, for spending,
+            the learned cost × (1 + size_margin), or the range's maximum before
+            costs are learned; for a resource, the range's maximum;
+          - every amount is kept within its range;
+          - spending is capped at what is left in the campaign budget (and at
+            remaining / queued requests with fair_share); a cap below the
+            range's minimum drops the request.
+        """
+        spend = dict(ctx.proposal.spending_limit)
+        res = dict(ctx.proposal.resources)
+        bounds = request.bounds or {}
+        for key, (lo, hi) in bounds.items():
+            target = res if key in RESOURCE_KEYS else spend
+            if key in target:
+                value = target[key]
+            elif key not in RESOURCE_KEYS and key in ctx.learned_cost:
+                value = ctx.learned_cost[key] * (1.0 + self.size_margin)
+            else:
+                value = hi
+            target[key] = min(max(float(value), float(lo)), float(hi))
+        capped = False
+        for key, value in list(spend.items()):
+            if key not in ctx.remaining:
+                continue
+            cap = ctx.remaining[key]
+            if self.fair_share:
+                cap = cap / max(1, ctx.queued)
+            if value > cap:
+                lo = float(bounds[key][0]) if key in bounds else 0.0
+                if cap <= 0.0 or cap < lo:
+                    return None
+                spend[key] = cap
+                capped = True
+        return Allocation(spending_limit=spend, resources=res, capped=capped)
 
 
 class FIFOSchedulingPolicy(SchedulingPolicy):

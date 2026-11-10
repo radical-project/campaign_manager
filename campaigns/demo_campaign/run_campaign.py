@@ -15,6 +15,9 @@ Capabilities shown:
   CampaignBudget       Max concurrent workflows + cpu_hours spending cap
   Custom controller    Tracks best score; ends the campaign after N analyses
   Self-reported budget Workflows report cpu_hours in emit() for accurate charging
+  Per-run budget       Each run gets a spending_limit from AuCaM (context["spending_limit"])
+                       and stops before exceeding it; --overspend makes precise_sim ignore
+                       its limit, and AuCaM cancels it once it spends past it
 
 Scheduling policies (see scheduler.py):
   bandit        — UCB1, reward = 1 for any completion.  Learns which arm succeeds more often.
@@ -28,6 +31,7 @@ Usage:
   python run_campaign.py --policy science   # science-adapted bandit
   python run_campaign.py --policy custom    # custom SchedulingPolicy subclass
   python run_campaign.py -v                 # verbose: every launch and cycle
+  python run_campaign.py --overspend        # precise_sim ignores its budget → cancelled
 """
 
 from __future__ import annotations
@@ -35,6 +39,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import math
 import random
 import sys
 import time
@@ -63,47 +68,68 @@ from src.aucam import (
 )
 
 # ── Workflows ──────────────────────────────────────────────────────────────────
+#
+# Each step of a synthetic sim costs a fixed amount of CPU time, reported as a
+# running cpu_hours total in every emit().  AuCaM passes each run its spending
+# limit in context["spending_limit"]; a well-behaved workflow sizes its work to
+# fit and stops before it would exceed it.  A workflow that ignores its limit is
+# cancelled by AuCaM once its reported spending passes the limit.
+
+FAST_STEP_CPU_H = 0.0002  # CPU-hours per step
+PRECISE_STEP_CPU_H = 0.0003
+ANALYSIS_CPU_H = 0.0001
 
 
-async def fast_sim(reporter: WorkflowReporter) -> None:
-    """Quick simulation — 6 steps, ~70 % convergence rate."""
-    t0 = time.monotonic()
-    score = 0.5
-    converging = random.random() > 0.30
-    for step in range(6):
-        await asyncio.sleep(0.05)
-        score += random.gauss(0.06 if converging else -0.10, 0.04)
-        score = max(0.0, min(1.0, score))
-        await reporter.emit(
-            score=score,
-            metrics={"step": step, "arm": "fast", "cpu_hours": (time.monotonic() - t0) / 3600.0},
-            iteration=step,
-        )
+def _cpu_limit(context: dict | None) -> float:
+    """This run's cpu_hours limit from AuCaM (inf when it has none)."""
+    return float((context or {}).get("spending_limit", {}).get("cpu_hours", math.inf))
 
 
-async def precise_sim(reporter: WorkflowReporter) -> None:
-    """Careful simulation — 10 steps, ~90 % convergence rate.  Bandit should prefer this arm."""
-    t0 = time.monotonic()
-    score = 0.5
-    converging = random.random() > 0.10
-    for step in range(10):
-        await asyncio.sleep(0.05)
-        score += random.gauss(0.04 if converging else -0.08, 0.03)
-        score = max(0.0, min(1.0, score))
-        await reporter.emit(
-            score=score,
-            metrics={"step": step, "arm": "precise", "cpu_hours": (time.monotonic() - t0) / 3600.0},
-            iteration=step,
-        )
+def make_sim(
+    arm: str, steps: int, step_cpu_h: float, p_converge: float, respect_limit: bool = True
+):
+    """A synthetic sim: ``steps`` steps of ``step_cpu_h`` each, ~``p_converge`` convergence."""
+    up, down = (0.06, -0.10) if arm == "fast" else (0.04, -0.08)
+
+    async def sim(reporter: WorkflowReporter, context: dict) -> None:
+        limit = _cpu_limit(context)
+        score = 0.5
+        converging = random.random() < p_converge
+        spent = 0.0
+        for step in range(steps):
+            if respect_limit and spent + step_cpu_h > limit + 1e-12:  # float tolerance
+                logging.info(
+                    "[%s] stopping at step %d to stay within %.4f cpu_hours", arm, step, limit
+                )
+                break
+            await asyncio.sleep(0.05)
+            spent += step_cpu_h
+            score += random.gauss(up if converging else down, 0.04 if arm == "fast" else 0.03)
+            score = max(0.0, min(1.0, score))
+            await reporter.emit(
+                score=score,
+                metrics={"step": step, "arm": arm, "cpu_hours": spent},
+                iteration=step,
+            )
+
+    sim.__name__ = sim.__qualname__ = f"{arm}_sim"
+    return sim
 
 
-async def analysis(reporter: WorkflowReporter) -> None:
+# Quick simulation — 6 steps, ~70 % convergence rate.
+fast_sim = make_sim("fast", steps=6, step_cpu_h=FAST_STEP_CPU_H, p_converge=0.70)
+# Careful simulation — 10 steps, ~90 % convergence rate.  Bandit should prefer this arm.
+precise_sim = make_sim("precise", steps=10, step_cpu_h=PRECISE_STEP_CPU_H, p_converge=0.90)
+# --overspend: a precise_sim that runs 3x longer and ignores its spending limit.
+runaway_sim = make_sim(
+    "precise", steps=30, step_cpu_h=PRECISE_STEP_CPU_H, p_converge=0.90, respect_limit=False
+)
+
+
+async def analysis(reporter: WorkflowReporter, context: dict) -> None:
     """Post-processing step — triggered by WorkflowDependency after each successful sim."""
-    t0 = time.monotonic()
     await asyncio.sleep(0.08)
-    await reporter.emit(
-        score=1.0, metrics={"status": "ok", "cpu_hours": (time.monotonic() - t0) / 3600.0}
-    )
+    await reporter.emit(score=1.0, metrics={"status": "ok", "cpu_hours": ANALYSIS_CPU_H})
 
 
 # ── Controller ─────────────────────────────────────────────────────────────────
@@ -194,7 +220,9 @@ class ShowcaseController(CampaignController):
 
     def on_complete(self, result: WorkflowResult) -> None:
         super().on_complete(result)  # keeps completed/cancelled/failed counters accurate
-        if result.returncode == 0 and result.final_score is not None:
+        # Best simulation score (analysis runs always report 1.0).
+        is_sim = result.workflow_type in ("fast_sim", "precise_sim")
+        if is_sim and result.returncode == 0 and result.final_score is not None:
             if self._best is None or result.final_score > self._best:
                 self._best = result.final_score
 
@@ -222,6 +250,7 @@ def build_spec(
     max_concurrent: int = 4,
     cancel_threshold: float = 0.3,
     policy=None,
+    overspend: bool = False,
 ) -> CampaignSpec:
     """Wire workflows, dependencies, controller, budget, and policy into one spec."""
     return CampaignSpec(
@@ -235,25 +264,31 @@ def build_spec(
             goal_analyses=goal_analyses, cancel_threshold=cancel_threshold
         ),
         workflows=[
+            # spending_limit: the most one run may spend.  AuCaM holds it against
+            # the campaign while the run goes, passes it to the workflow, and
+            # cancels the run if it spends more.
             WorkflowConfig(
                 name="fast_sim",
                 block=fast_sim,
                 launch_on_start=True,
                 stale_timeout_s=30.0,
-                declared_spending={"cpu_hours": 0.001},  # in-flight reservation
+                declared_spending={"cpu_hours": 6 * FAST_STEP_CPU_H},
+                spending_limit={"cpu_hours": round(6 * FAST_STEP_CPU_H, 6)},
             ),
             WorkflowConfig(
                 name="precise_sim",
-                block=precise_sim,
+                block=runaway_sim if overspend else precise_sim,
                 launch_on_start=True,
                 stale_timeout_s=60.0,
-                declared_spending={"cpu_hours": 0.002},  # in-flight reservation
+                declared_spending={"cpu_hours": 10 * PRECISE_STEP_CPU_H},
+                spending_limit={"cpu_hours": round(10 * PRECISE_STEP_CPU_H, 6)},
             ),
             WorkflowConfig(
                 name="analysis",
                 block=analysis,
                 launch_on_start=False,  # only triggered by dependency below
-                declared_spending={"cpu_hours": 0.0005},  # in-flight reservation
+                declared_spending={"cpu_hours": ANALYSIS_CPU_H},
+                spending_limit={"cpu_hours": 2 * ANALYSIS_CPU_H},
             ),
         ],
         dependencies=[
@@ -279,6 +314,7 @@ async def run(args: argparse.Namespace) -> None:
         max_concurrent=args.max_concurrent,
         cancel_threshold=0.3,
         policy=policy,
+        overspend=args.overspend,
     )
 
     t0 = time.monotonic()
@@ -291,6 +327,11 @@ async def run(args: argparse.Namespace) -> None:
         s.get("best_score") or 0.0,
         s.get("analyses_done") or 0,
         (s.get("cancel_rate") or 0.0) * 100,
+    )
+    logging.info(
+        "spent %.4f cpu_hours; runs cancelled for exceeding their own limit: %d",
+        outcome.spent.get("cpu_hours", 0.0),
+        outcome.budget_cancels,
     )
     if isinstance(policy, BanditSchedulingPolicy):
         logging.info("arm stats: %s", policy.arm_stats())
@@ -318,6 +359,11 @@ def main() -> None:
         choices=["bandit", "science", "fifo", "bandit_tight", "custom"],
         default="bandit",
         help="scheduling policy (see scheduler.py)",
+    )
+    p.add_argument(
+        "--overspend",
+        action="store_true",
+        help="precise_sim ignores its spending limit; AuCaM cancels it once it overspends",
     )
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args()

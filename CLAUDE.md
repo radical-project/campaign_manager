@@ -20,11 +20,14 @@ Guidance for Claude Code in this repository.
 
 ## Rules
 
-- Budgets are spending only (resource-hours or any other dimension, one ledger:
-  `BudgetAllocator`). Don't add a "resources in use at once" budget; capacity is
-  limited by the allocation and the workflow-count limits.
+- The campaign budget is spending only (resource-hours or any other dimension,
+  one ledger: `BudgetAllocator`); there is no campaign-wide "resources in use at
+  once" budget. Each run, however, gets an allocation at launch: a spending
+  limit and resources in use at once (`Allocation`), sized by the scheduling
+  policy (`SchedulingPolicy.size()`), passed to the workflow and enforced by
+  AuCaM. Using its resources well is the workflow's job, not RHAPSODY's.
 - Only the `CampaignController` decides to cancel workflows (plus CM's
-  automatic stale-reporter and wall-time cancels).
+  automatic stale-reporter, wall-time and per-run spending-limit cancels).
 - AuCaM runs one campaign at a time: `outcome = await cm.run(spec)`; the
   caller (a script or an agent) plans the next campaign from the outcome.
 - Every workflow runs as one AsyncFlow block (`launch_cmd` = a block with one

@@ -132,6 +132,7 @@ def build_spec(
             launch_on_start=True,
             on_completion=_on_complete,
             declared_spending=ccfg.workflows.sim_worker.declared_spending,
+            spending_limit=ccfg.workflows.sim_worker.spending_limit,
         ),
         WorkflowConfig(
             name="sim_worker_b",
@@ -140,6 +141,7 @@ def build_spec(
             launch_on_start=True,
             on_completion=_on_complete,
             declared_spending=ccfg.workflows.sim_worker_b.declared_spending,
+            spending_limit=ccfg.workflows.sim_worker_b.spending_limit,
         ),
         WorkflowConfig(
             name="analysis_worker",
@@ -147,6 +149,7 @@ def build_spec(
             launch_on_start=False,  # triggered by dependency, not on start
             on_completion=_on_complete,
             declared_spending=ccfg.workflows.analysis_worker.declared_spending,
+            spending_limit=ccfg.workflows.analysis_worker.spending_limit,
         ),
     ]
     dependencies = [
@@ -167,11 +170,13 @@ def build_spec(
                 env={
                     "DEMO_N_ITERS": str(ccfg.workflows.sim_worker.n_iters),
                     "DEMO_SLEEP_S": str(ccfg.workflows.sim_worker.iter_sleep_s),
+                    "DEMO_RESPECT_LIMIT": "1" if ccfg.workflows.sim_worker.respect_limit else "0",
                 },
                 stale_timeout_s=ccfg.workflows.sim_worker.stale_timeout_s,
                 launch_on_start=True,
                 on_completion=_on_complete,
                 declared_spending=ccfg.workflows.sim_worker.declared_spending,
+                spending_limit=ccfg.workflows.sim_worker.spending_limit,
             )
         )
         dependencies.append(
@@ -430,6 +435,11 @@ def main() -> None:
         n_iters=args.n_iters,
         iter_sleep_s=args.iter_sleep,
         analysis_steps=args.analysis_steps,
+        respect_limit={
+            "sim_worker": ccfg.workflows.sim_worker.respect_limit,
+            "sim_worker_b": ccfg.workflows.sim_worker_b.respect_limit,
+            "analysis_worker": ccfg.workflows.analysis_worker.respect_limit,
+        },
     )
 
     level = logging.DEBUG if gcfg.verbose else logging.INFO

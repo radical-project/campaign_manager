@@ -110,6 +110,13 @@ class WorkflowsConfig:
     # fast × slow_step_multiplier when absent.
     fast_spending: dict[str, float] = field(default_factory=dict)
     slow_spending: dict[str, float] = field(default_factory=dict)
+    # Per-run spending limit for each arm (most one run may spend); AuCaM passes
+    # it to the run and cancels a run that spends more.  slow defaults to
+    # fast × slow_step_multiplier.  respect_limit[arm] = False makes that arm
+    # ignore its limit (the overuse use case).
+    fast_spending_limit: dict[str, float] = field(default_factory=dict)
+    slow_spending_limit: dict[str, float] = field(default_factory=dict)
+    respect_limit: dict[str, bool] = field(default_factory=lambda: {"fast": True, "slow": True})
 
     def fast_config(self) -> MiniAppsConfig:
         return self.miniapps
@@ -124,6 +131,12 @@ class WorkflowsConfig:
         if self.slow_spending:
             return self.slow_spending
         return {k: v * self.slow_step_multiplier for k, v in self.fast_spending.items()}
+
+    def resolved_slow_spending_limit(self) -> dict[str, float]:
+        """Slow arm spending limit: explicit YAML values, or fast × multiplier."""
+        if self.slow_spending_limit:
+            return self.slow_spending_limit
+        return {k: v * self.slow_step_multiplier for k, v in self.fast_spending_limit.items()}
 
 
 @dataclass
@@ -181,6 +194,12 @@ def load_campaign(path: str | Path) -> CampaignConfig:
             slow_step_multiplier=int(d.get("slow_step_multiplier", 3)),
             fast_spending=_spending_dict(wf.get("fast_spending")),
             slow_spending=_spending_dict(wf.get("slow_spending")),
+            fast_spending_limit=_spending_dict(wf.get("fast_spending_limit")),
+            slow_spending_limit=_spending_dict(wf.get("slow_spending_limit")),
+            respect_limit={
+                "fast": bool((wf.get("respect_limit") or {}).get("fast", True)),
+                "slow": bool((wf.get("respect_limit") or {}).get("slow", True)),
+            },
             miniapps=MiniAppsConfig(
                 total_num_sim=int(ma.get("total_num_sim", 10)),
                 max_sim_batch=int(ma.get("max_sim_batch", 4)),

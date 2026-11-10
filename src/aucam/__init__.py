@@ -21,9 +21,12 @@ from .scheduler import (
     LLMSchedulingPolicy,
     SchedulingContext,
     SchedulingPolicy,
+    SizingContext,
 )
 from .spec import CampaignBudget, CampaignSpec, WorkflowConfig, WorkflowDependency
 from .types import (
+    RESOURCE_KEYS,
+    Allocation,
     CampaignDecision,
     CampaignOutcome,
     LaunchPriority,
@@ -57,6 +60,9 @@ __all__ = [
     "FIFOSchedulingPolicy",
     "LLMSchedulingPolicy",
     "SchedulingContext",
+    "SizingContext",
+    "Allocation",
+    "RESOURCE_KEYS",
     "RadexDragonBackend",
     "RadexDragonReporter",
     "Goal",

@@ -23,9 +23,11 @@ Adapter design (thin layer):
 from __future__ import annotations
 
 import logging
+import math
 import os
 import socket
 import sys
+import time
 from pathlib import Path
 
 from src.aucam import WorkflowReporter
@@ -116,8 +118,40 @@ def _get_adapted_class():
 # ── Block factory ─────────────────────────────────────────────────────────────
 
 
-def make_miniapps_worker(cfg: dict, arm_label: str = "wf", engine: str = "concurrent"):
+def _cpu_rate(declared: dict) -> float:
+    """CPUs implied by declared_spending (cpu_hours per wall hour); 1 if not declared."""
+    wall = declared.get("wall_hours", 0.0)
+    return declared.get("cpu_hours", wall) / wall if wall > 0 else 1.0
+
+
+def fit_to_limit(cfg: dict, limit_cpu_h: float, declared: dict) -> int:
+    """How many simulations of this arm fit in ``limit_cpu_h``.
+
+    The MiniApps pipeline runs as one call, so a run stays within its limit by
+    sizing its work up front: declared cpu_hours is the cost of total_num_sim
+    simulations, so each simulation costs that / total_num_sim.
+    """
+    total = int(cfg.get("total_num_sim", 1))
+    cost = declared.get("cpu_hours")
+    if not cost or math.isinf(limit_cpu_h):
+        return total
+    per_sim = cost / max(1, total)
+    return max(1, min(total, int(limit_cpu_h // per_sim)))
+
+
+def make_miniapps_worker(
+    cfg: dict,
+    arm_label: str = "wf",
+    engine: str = "concurrent",
+    declared_spending: dict | None = None,
+    respect_limit: bool = True,
+):
     """Return an AuCaM block function bound to the given MiniApps config dict.
+
+    AuCaM passes each run its spending limit (context["spending_limit"]).  A run
+    that respects it runs only as many simulations as fit (fit_to_limit); every
+    report carries the run's cpu_hours so far (wall time × the declared CPU
+    rate), so AuCaM can cancel a run that spends past its limit.
 
     Using a factory (instead of a module-level configure()) ensures that
     concurrent campaigns with different configs each get their own closure
@@ -127,11 +161,38 @@ def make_miniapps_worker(cfg: dict, arm_label: str = "wf", engine: str = "concur
     asyncflow engine.
     """
 
-    async def miniapps_worker(reporter: WorkflowReporter, flow=None) -> None:
+    declared = dict(declared_spending or {})
+    cpus = _cpu_rate(declared)
+
+    async def miniapps_worker(
+        reporter: WorkflowReporter, flow=None, context: dict | None = None
+    ) -> None:
         root = _ddsim_root()
         adapted_cls = _get_adapted_class()
+        t0 = time.monotonic()
+
+        def spent() -> float:
+            return cpus * (time.monotonic() - t0) / 3600.0
 
         worker_cfg = dict(cfg)
+        limit = float((context or {}).get("spending_limit", {}).get("cpu_hours", math.inf))
+        if not math.isinf(limit):
+            if respect_limit:
+                n = fit_to_limit(worker_cfg, limit, declared)
+                logger.info(
+                    "[miniapps_worker] %s: spending limit %.4f cpu_hours → %d of %s simulations",
+                    arm_label,
+                    limit,
+                    n,
+                    worker_cfg.get("total_num_sim"),
+                )
+                worker_cfg["total_num_sim"] = n
+            else:
+                logger.info(
+                    "[miniapps_worker] %s: spending limit %.4f cpu_hours (ignored)",
+                    arm_label,
+                    limit,
+                )
         if not worker_cfg.get("src_dir"):
             worker_cfg["src_dir"] = str(root / "workflows/miniapps_workflow")
         worker_cfg["engine"] = engine
@@ -151,7 +212,12 @@ def make_miniapps_worker(cfg: dict, arm_label: str = "wf", engine: str = "concur
             )
             await reporter.emit(
                 score=score,
-                metrics={"score": score, "n_completed": n_done, "status": "evaluating"},
+                metrics={
+                    "score": score,
+                    "n_completed": n_done,
+                    "status": "evaluating",
+                    "cpu_hours": spent(),
+                },
             )
 
         logger.info(
@@ -196,6 +262,7 @@ def make_miniapps_worker(cfg: dict, arm_label: str = "wf", engine: str = "concur
                 "n_completed": n_done,
                 "status": "complete",
                 "node": socket.gethostname(),
+                "cpu_hours": spent(),
             },
         )
 

@@ -24,9 +24,16 @@ from .checkpoint import (
 )
 from .controller import Goal, PolicyResult
 from .queue import WorkflowQueue
-from .scheduler import BanditSchedulingPolicy, SchedulingContext, SchedulingPolicy
+from .scheduler import (
+    BanditSchedulingPolicy,
+    SchedulingContext,
+    SchedulingPolicy,
+    SizingContext,
+)
 from .spec import CampaignSpec, WorkflowConfig
 from .types import (
+    RESOURCE_KEYS,
+    Allocation,
     CampaignDecision,
     LaunchPriority,
     LaunchRequest,
@@ -172,6 +179,11 @@ class _WorkflowInstance:
         "declared_spending",
         "last_report",
         "request",
+        "spending_limit",
+        "over_budget",
+        "resources",
+        "over_resources",
+        "capped",
     )
 
     def __init__(
@@ -182,6 +194,9 @@ class _WorkflowInstance:
         started_at: float,
         declared_spending: dict[str, float],
         request: LaunchRequest,
+        spending_limit: dict[str, float] | None = None,
+        resources: dict[str, float] | None = None,
+        capped: bool = False,
     ) -> None:
         self.wf_id = wf_id
         self.workflow_type = workflow_type
@@ -190,6 +205,16 @@ class _WorkflowInstance:
         self.declared_spending = declared_spending  # in-flight spending estimate
         self.request = request
         self.last_report: Any = None
+        # Per-run spending limit; over_budget is set when AuCaM cancels the run
+        # for spending past it.
+        self.spending_limit: dict[str, float] = dict(spending_limit or {})
+        self.over_budget = False
+        # Resources the run may use at once; over_resources is set when AuCaM
+        # cancels it for using more.  capped: the scheduler gave it less
+        # spending than requested.
+        self.resources: dict[str, float] = dict(resources or {})
+        self.over_resources = False
+        self.capped = capped
 
 
 class _CampaignInstance:
@@ -244,7 +269,11 @@ class _CampaignInstance:
         self._failed = 0
         self._stale_cancels = 0
         self._walltime_cancels = 0
+        self._budget_cancels = 0  # runs cancelled for exceeding their own spending limit
+        self._resource_cancels = 0  # runs cancelled for using more resources than given
+        self._unfit_dropped = 0  # requests dropped: their minimum did not fit the budget
         self._policy_cancels = 0  # CANCEL from controller (not auto-cancel)
+        self._auto_cancelled: set[str] = set()  # wf_ids auto-cancelled this policy cycle
         self._policy_cycles = 0
         self._exit_reason = "unknown"
 
@@ -642,6 +671,8 @@ class _CampaignInstance:
         wfc: WorkflowConfig,
         wf_id: str,
         context: dict | None = None,
+        spending_limit: dict[str, float] | None = None,
+        resources: dict[str, float] | None = None,
     ) -> asyncio.Future:
         # Every workflow runs as one AsyncFlow block: the block is CM's unit of
         # launch, cancellation (cancelling it cancels every task inside) and
@@ -665,7 +696,12 @@ class _CampaignInstance:
             if _wants_flow(block_fn):
                 call_kwargs["flow"] = self._flow
             if _wants_context(block_fn):
-                call_kwargs["context"] = dict(context or {})
+                ctx = dict(context or {})
+                if spending_limit:
+                    ctx["spending_limit"] = dict(spending_limit)
+                if resources:
+                    ctx["resources"] = dict(resources)
+                call_kwargs["context"] = ctx
 
             async def _body(*a, **kw):
                 return await block_fn(*a, **kw)
@@ -680,7 +716,9 @@ class _CampaignInstance:
         # the command line, so no file has to be visible on the node where the
         # task runs.  The task carries WorkflowConfig.task_description as its
         # resource request.
-        command = self._wrap_cmd(wfc.launch_cmd, self._cmd_env(wfc, wf_id, context))
+        command = self._wrap_cmd(
+            wfc.launch_cmd, self._cmd_env(wfc, wf_id, context, spending_limit, resources)
+        )
         task_description = dict(wfc.task_description)
 
         @self._flow.executable_task(capture_stdio=True)
@@ -701,12 +739,25 @@ class _CampaignInstance:
         _cmd_block.__qualname__ = _cmd_block.__name__
         return self._run_as_block(_cmd_block, wf_id, (), {})
 
-    def _cmd_env(self, wfc: WorkflowConfig, wf_id: str, context: dict | None) -> dict[str, str]:
+    def _cmd_env(
+        self,
+        wfc: WorkflowConfig,
+        wf_id: str,
+        context: dict | None,
+        spending_limit: dict[str, float] | None = None,
+        resources: dict[str, float] | None = None,
+    ) -> dict[str, str]:
         """Environment for a command-line workflow's process (wrapper script)."""
         env = {"CM_WORKFLOW_ID": wf_id, "CM_CAMPAIGN_ID": self.name, **wfc.env}
         # Per-instance context from LaunchRequest is surfaced as CM_CTX_{KEY}.
         for k, v in (context or {}).items():
             env[f"CM_CTX_{k.upper()}"] = str(v)
+        # The run's spending limit, one variable per dimension.
+        for k, v in (spending_limit or {}).items():
+            env[f"CM_SPENDING_LIMIT_{k.upper()}"] = repr(float(v))
+        # The resources it may use at once, one variable per key.
+        for k, v in (resources or {}).items():
+            env[f"CM_RESOURCES_{k.upper()}"] = repr(float(v))
         ep = self.spec.data_backend.endpoint() if self.spec.data_backend is not None else None
         if ep is not None:
             env["CM_DATA_ENDPOINT"] = ep
@@ -780,17 +831,69 @@ class _CampaignInstance:
         lines.append("exec " + " ".join(shlex.quote(str(c)) for c in launch_cmd))
         return "bash -c " + shlex.quote("\n".join(lines))
 
-    def _launch(self, request: LaunchRequest) -> None:
+    @staticmethod
+    def _run_limit(wfc: WorkflowConfig, request: LaunchRequest) -> dict[str, float]:
+        """The run's spending limit: the request's, else the workflow type's."""
+        raw = request.spending_limit if request.spending_limit is not None else wfc.spending_limit
+        limit: dict[str, float] = {}
+        for k, v in (raw or {}).items():
+            if k == "wall_hours" or v is None:  # run time is limited by max_wall_time_s
+                continue
+            if float(v) > 0:
+                limit[k] = float(v)
+        return limit
+
+    def _proposal(self, wfc: WorkflowConfig, request: LaunchRequest) -> Allocation:
+        """The request's own amounts, else the workflow type's defaults."""
+        raw_res = request.resources if request.resources is not None else wfc.resources
+        return Allocation(
+            spending_limit=self._run_limit(wfc, request),
+            resources={k: float(v) for k, v in (raw_res or {}).items() if v is not None},
+        )
+
+    def _size(self, request: LaunchRequest) -> Allocation | None:
+        """Ask the scheduling policy what this run gets (None: drop the request)."""
+        wfc = self._wf_config(request.workflow_type)
+        stats = self._type_cost_stats.get(request.workflow_type, {})
+        learned = {k: s["mean"] for k, s in stats.items() if s["n"] >= 3}
+        burn = self._allocator.campaign_view(self.name)["burn"]
+        ctx = SizingContext(
+            proposal=self._proposal(wfc, request),
+            learned_cost=learned,
+            remaining={k: v["remaining"] for k, v in burn.items()},
+            queued=len(self._queue) + 1,
+        )
+        alloc = self._policy.size(request, ctx)
+        if alloc is None:
+            return None
+        # Keep positive amounts only; run time is limited by max_wall_time_s.
+        alloc.spending_limit = {
+            k: float(v)
+            for k, v in alloc.spending_limit.items()
+            if k != "wall_hours" and v is not None and float(v) > 0
+        }
+        alloc.resources = {
+            k: float(v) for k, v in alloc.resources.items() if v is not None and float(v) > 0
+        }
+        return alloc
+
+    def _launch(self, request: LaunchRequest, alloc: Allocation | None = None) -> None:
         wfc = self._wf_config(request.workflow_type)
         wf_id = f"{self.name}.{request.workflow_type}.{uuid.uuid4().hex[:8]}"
+        if alloc is None:
+            alloc = self._proposal(wfc, request)
+        limit, resources = alloc.spending_limit, alloc.resources
 
         logger.info(
             f"[SCHEDULER-{self.name}] LAUNCH {request.workflow_type} "
             f"id={wf_id} requester={request.requester}"
+            + (f" spending_limit={limit}" if limit else "")
+            + (f" resources={resources}" if resources else "")
+            + (" (capped to the remaining budget)" if alloc.capped else "")
         )
 
         self._wf_tags[wf_id] = wf_id
-        future = self._make_future(wfc, wf_id, request.context)
+        future = self._make_future(wfc, wf_id, request.context, limit, resources)
         inst = _WorkflowInstance(
             wf_id=wf_id,
             workflow_type=request.workflow_type,
@@ -798,11 +901,18 @@ class _CampaignInstance:
             started_at=time.time(),
             declared_spending=dict(wfc.declared_spending),
             request=request,
+            spending_limit=limit,
+            resources=resources,
+            capped=alloc.capped,
         )
         self._active[wf_id] = inst
         # Use learned cost estimate for in-flight tracking once enough completions
         # exist; falls back to declared_spending before min_samples threshold (B3).
+        # A run with its own spending limit holds that limit against the
+        # campaign's (like a reservation): it can never spend more.
         in_flight_est = self._learned_cost(request.workflow_type, inst.declared_spending)
+        if limit:
+            in_flight_est = {**in_flight_est, **limit}
         self._estimates[wf_id] = in_flight_est
         self._allocator.set_in_flight(self.name, wf_id, in_flight_est)
         self._instances_run += 1
@@ -933,6 +1043,11 @@ class _CampaignInstance:
                 resource_profile=resource_profile,
                 final_score=final_score,
                 spent=actual_spent,
+                spending_limit=dict(_inst.spending_limit),
+                over_budget=_inst.over_budget,
+                resources=dict(_inst.resources),
+                over_resources=_inst.over_resources,
+                capped=_inst.capped,
             )
 
             if self.spec.data_backend is not None:
@@ -1038,6 +1153,9 @@ class _CampaignInstance:
             failed=self._failed,
             stale_cancels=self._stale_cancels,
             walltime_cancels=self._walltime_cancels,
+            budget_cancels=self._budget_cancels,
+            resource_cancels=self._resource_cancels,
+            unfit_dropped=self._unfit_dropped,
             policy_cancels=self._policy_cancels,
             policy_cycles=self._policy_cycles,
         )
@@ -1073,6 +1191,9 @@ class _CampaignInstance:
         self._failed = ckpt.failed
         self._stale_cancels = ckpt.stale_cancels
         self._walltime_cancels = ckpt.walltime_cancels
+        self._budget_cancels = ckpt.budget_cancels
+        self._resource_cancels = ckpt.resource_cancels
+        self._unfit_dropped = ckpt.unfit_dropped
         self._policy_cancels = ckpt.policy_cancels
         self._policy_cycles = ckpt.policy_cycles
         self._allocator.restore(self.name, ckpt.spent)
@@ -1243,10 +1364,23 @@ class _CampaignInstance:
                 if not _take(req):
                     break
 
-        # Remove from queue and launch.
+        # Remove from queue, size, and launch.
+        dropped = False
         for req in to_launch:
             self._queue.remove_request(req)
-            self._launch(req)
+            alloc = self._size(req)
+            if alloc is None:
+                self._unfit_dropped += 1
+                dropped = True
+                logger.info(
+                    f"[SCHEDULER-{self.name}] DROP {req.workflow_type}: "
+                    f"its minimum does not fit the remaining budget"
+                )
+                continue
+            self._launch(req, alloc)
+        # Nothing running, and what was asked for no longer fits: the budget is spent.
+        if dropped and not self._active and not self._queue and not self._done:
+            asyncio.ensure_future(self._shutdown(reason="spending_limit"))
 
     # ── Policy loop ──────────────────────────────────────────────────────────
 
@@ -1386,18 +1520,84 @@ class _CampaignInstance:
             wf_node=wf_node,
         )
 
+    def _spent_so_far(self, inst: _WorkflowInstance, now: float) -> dict[str, float]:
+        """A running workflow's spending so far, per dimension of its limit.
+
+        Best source first, as when it is charged: per-task charges from AsyncFlow
+        telemetry (finished tasks plus the elapsed share of running ones), then
+        the running totals the workflow reports, then declared_spending prorated
+        by elapsed / declared wall time.  A dimension with no source is absent.
+        """
+        out: dict[str, float] = {}
+        task_level = inst.wf_id in self._task_level
+        charged = self._task_usage.get(inst.wf_id, {})
+        live: dict[str, float] = {}
+        if task_level:
+            for t in self._active_tasks.values():
+                if t.get("wf_id") != inst.wf_id:
+                    continue
+                start = t.get("start_time")
+                if not isinstance(start, (int, float)) or not 0 < start <= now:
+                    continue
+                hours = (now - start) / 3600.0
+                res = t.get("resources") or {}
+                for key, field_ in (("cpu_hours", "cpus"), ("gpu_hours", "gpus")):
+                    live[key] = live.get(key, 0.0) + float(res.get(field_, 0.0)) * hours
+        metrics = inst.last_report.metrics if inst.last_report is not None else None
+        metrics = metrics or {}
+        decl = inst.declared_spending
+        decl_wall_h = decl.get("wall_hours", 0.0)
+        elapsed_h = (now - inst.started_at) / 3600.0
+        for key in inst.spending_limit:
+            if task_level and key in ("cpu_hours", "gpu_hours"):
+                out[key] = charged.get(key, 0.0) + live.get(key, 0.0)
+            elif metrics.get(key) is not None:
+                try:
+                    out[key] = float(metrics[key])
+                except (TypeError, ValueError):
+                    pass
+            elif decl_wall_h > 0 and key in decl:
+                out[key] = decl[key] * elapsed_h / decl_wall_h
+        return out
+
+    def _in_use(self, inst: _WorkflowInstance) -> dict[str, float]:
+        """Resources a running workflow uses now: its running tasks' requested
+        resources (AsyncFlow telemetry), else what it reports as
+        cpus_in_use / gpus_in_use.  A key with neither is absent."""
+        out: dict[str, float] = {}
+        if inst.wf_id in self._task_level:
+            for t in self._active_tasks.values():
+                if t.get("wf_id") != inst.wf_id:
+                    continue
+                res = t.get("resources") or {}
+                for key in RESOURCE_KEYS:
+                    out[key] = out.get(key, 0.0) + float(res.get(key, 0.0))
+            return out
+        metrics = inst.last_report.metrics if inst.last_report is not None else None
+        for key in RESOURCE_KEYS:
+            val = (metrics or {}).get(f"{key}_in_use")
+            if val is not None:
+                try:
+                    out[key] = float(val)
+                except (TypeError, ValueError):
+                    pass
+        return out
+
     def _apply_auto_cancels(
         self,
         result: PolicyResult,
         live_reports: dict,
         now: float,
     ) -> None:
-        """Inject CANCEL decisions for stale reporters and wall-time overruns.
+        """Inject CANCEL decisions for stale reporters, wall-time overruns, runs
+        that spent past their own spending limit, and runs using more resources
+        at once than they were given.
 
         Runs after the controller decides so the controller still sees the
         workflows in the observation.  Auto-cancels never override an existing
         CANCEL decision — they only fill in workflows the controller left as NOOP.
         """
+        self._auto_cancelled = set()
         for wf_id, inst in list(self._active.items()):
             if result.decisions.get(wf_id) == CampaignDecision.CANCEL:
                 continue
@@ -1413,6 +1613,7 @@ class _CampaignInstance:
                         f"gap={gap:.1f}s > {wfc.stale_timeout_s}s — auto-cancel"
                     )
                     result.decisions[wf_id] = CampaignDecision.CANCEL
+                    self._auto_cancelled.add(wf_id)
                     self._stale_cancels += 1
                     continue
 
@@ -1425,7 +1626,54 @@ class _CampaignInstance:
                         f"wall={wall:.1f}s > {wfc.max_wall_time_s}s — auto-cancel"
                     )
                     result.decisions[wf_id] = CampaignDecision.CANCEL
+                    self._auto_cancelled.add(wf_id)
                     self._walltime_cancels += 1
+                    continue
+
+            # Per-run spending limit.
+            if inst.spending_limit:
+                spent = self._spent_so_far(inst, now)
+                over = next(
+                    (
+                        (k, spent[k], lim)
+                        for k, lim in inst.spending_limit.items()
+                        if spent.get(k) is not None and spent[k] > lim
+                    ),
+                    None,
+                )
+                if over is not None:
+                    key, used, lim = over
+                    logger.warning(
+                        f"[WORKFLOW-{wf_id}] spending limit exceeded "
+                        f"{key}={used:.4g} > {lim:.4g} — auto-cancel"
+                    )
+                    result.decisions[wf_id] = CampaignDecision.CANCEL
+                    self._auto_cancelled.add(wf_id)
+                    inst.over_budget = True
+                    self._budget_cancels += 1
+                    continue
+
+            # Resources in use at once.
+            if inst.resources:
+                used = self._in_use(inst)
+                over = next(
+                    (
+                        (k, used[k], lim)
+                        for k, lim in inst.resources.items()
+                        if used.get(k) is not None and used[k] > lim + 1e-9
+                    ),
+                    None,
+                )
+                if over is not None:
+                    key, val, lim = over
+                    logger.warning(
+                        f"[WORKFLOW-{wf_id}] resources exceeded "
+                        f"{key}={val:.4g} > {lim:.4g} — auto-cancel"
+                    )
+                    result.decisions[wf_id] = CampaignDecision.CANCEL
+                    self._auto_cancelled.add(wf_id)
+                    inst.over_resources = True
+                    self._resource_cancels += 1
 
     async def _run_policy_cycle(self) -> None:
         self._policy_cycles += 1
@@ -1484,9 +1732,12 @@ class _CampaignInstance:
             if inst is None or inst.future.done():
                 continue
             if decision == CampaignDecision.CANCEL:
-                logger.info(f"[WORKFLOW-{wf_id}] CANCEL (policy)")
+                # Auto-cancels (stale, wall time, spending limit) have their own counters.
+                auto = wf_id in self._auto_cancelled
+                logger.info(f"[WORKFLOW-{wf_id}] CANCEL ({'auto' if auto else 'policy'})")
                 inst.future.cancel()
-                self._policy_cancels += 1
+                if not auto:
+                    self._policy_cancels += 1
             elif decision in (CampaignDecision.PAUSE, CampaignDecision.RESUME):
                 wfc = self._wf_config(inst.workflow_type)
                 if not wfc.supports_pause:
@@ -1605,6 +1856,8 @@ class _CampaignInstance:
             f"cancelled={self._cancelled} "
             f"(stale={self._stale_cancels} "
             f"walltime={self._walltime_cancels} "
+            f"budget={self._budget_cancels} "
+            f"resources={self._resource_cancels} "
             f"policy={self._policy_cancels}) "
             f"failed={self._failed} "
             f"cycles={self._policy_cycles} "
@@ -1670,3 +1923,18 @@ class _CampaignInstance:
     def exit_reason(self) -> str:
         """Why the campaign ended (goals_satisfied, controller_terminate, ...)."""
         return self._exit_reason
+
+    @property
+    def budget_cancels(self) -> int:
+        """Runs AuCaM cancelled for spending past their own spending limit."""
+        return self._budget_cancels
+
+    @property
+    def resource_cancels(self) -> int:
+        """Runs AuCaM cancelled for using more resources at once than they were given."""
+        return self._resource_cancels
+
+    @property
+    def unfit_dropped(self) -> int:
+        """Launch requests dropped because their minimum did not fit the budget."""
+        return self._unfit_dropped

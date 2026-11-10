@@ -39,6 +39,12 @@ workflows:
     wall_hours:  0.05    # ~a few seconds locally
     cpu_hours:   0.05
   # slow_spending omitted → fast × slow_step_multiplier
+  # Per-run spending limit: AuCaM passes it to each run and cancels a run that
+  # spends more.  A run that respects it runs only as many simulations as fit.
+  fast_spending_limit:
+    cpu_hours:   0.06
+  # slow_spending_limit omitted → fast × slow_step_multiplier
+  respect_limit: {fast: true, slow: true}
 
 policy_interval_s: 1.0
 shutdown_timeout_s: 30.0

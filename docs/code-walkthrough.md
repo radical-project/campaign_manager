@@ -131,5 +131,5 @@ code changes (the scripts need matplotlib: `pip install matplotlib`):
 | Figure | Script |
 |---|---|
 | `aucam-architecture.png` | `python docs/figures/src/architecture.py` |
-| `aucam_budget_burn.png`, `aucam_bandit_budget.png` | `python campaigns/hpc_campaign/figures/doc_figures.py` (real runs, ~1 min) |
+| `aucam_budget_burn.png`, `aucam_bandit_budget.png`, `aucam_run_limit.png` | `python campaigns/hpc_campaign/figures/doc_figures.py` (real runs, ~1 min) |
 | `aucam_impact.png` | `campaigns/hpc_campaign/figures/run_impact.py --json-out …`, then `figures/gen_impact_fig.py` |

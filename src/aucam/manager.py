@@ -149,6 +149,9 @@ class CampaignManager:
             exit_reason=inst.exit_reason,
             spent=spent,
             summary=ctrl.get_summary() if hasattr(ctrl, "get_summary") else {},
+            budget_cancels=getattr(inst, "budget_cancels", 0),
+            resource_cancels=getattr(inst, "resource_cancels", 0),
+            unfit_dropped=getattr(inst, "unfit_dropped", 0),
         )
 
     def _install_signal_handlers(self) -> list[signal.Signals]:

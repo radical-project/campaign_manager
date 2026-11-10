@@ -20,17 +20,26 @@ workflows:
     declared_spending:
       wall_hours: 0.00025     # ≈ 0.9 s
       cpu_hours:  0.00025
+    spending_limit:           # most one run may spend; AuCaM passes it to the run
+      cpu_hours:  0.0003      # and cancels a run that spends more
+    respect_limit: true       # the run stops before it would pass its limit
   sim_worker_b:
     # n_iters_b is auto-derived as max(3, n_iters // 3) — not set here
     stale_timeout_s: 60.0
     declared_spending:
       wall_hours: 0.0001      # ≈ 0.3 s
       cpu_hours:  0.0001
+    spending_limit:
+      cpu_hours:  0.00015
+    respect_limit: true
   analysis_worker:
     steps: 2                  # post-processing steps
     declared_spending:
       wall_hours: 0.00005     # ≈ 0.16 s
       cpu_hours:  0.00005
+    spending_limit:
+      cpu_hours:  0.0006      # ≈ 2 s; the run's profiler samples once a second
+    respect_limit: true
 
 policy_interval_s: 0.5
 shutdown_timeout_s: 10.0

@@ -8,11 +8,15 @@ Figures for the AuCaM docs, from real (short, synthetic) AuCaM runs.
   bandit   — one campaign, two workflow types; the bandit learns which one
              completes and explores less as the budget is used up.
              → docs/figures/aucam_bandit_budget.png
+  runlimit — per-run spending limits: one workflow type sizes its work to fit
+             its limit, the other ignores it; AuCaM cancels every run of it that
+             spends past the limit.  → docs/figures/aucam_run_limit.png
 
 Run (about 1 minute, needs matplotlib):
     cd $WORK_DIR/campaign_manager
     python campaigns/hpc_campaign/figures/doc_figures.py              # run all, write JSON + PNGs
     python campaigns/hpc_campaign/figures/doc_figures.py --plot-only  # redraw from the JSON
+    python campaigns/hpc_campaign/figures/doc_figures.py --only runlimit  # one experiment
 """
 
 from __future__ import annotations
@@ -178,6 +182,83 @@ async def exp_bandit() -> dict:
     return {"picks": picks, "exploration": 2.0, "exit_reason": o.exit_reason}
 
 
+# ── 3. Per-run spending limit ──────────────────────────────────────────────────
+
+
+async def exp_runlimit() -> dict:
+    """Two workflow types, 2 CPUs each, both with a 3 CPU·s limit per run.
+
+    steady  — plans 1.2 s of work (2.4 CPU·s) and stops before passing its limit.
+    runaway — runs 0.6–3 s (1.2–6 CPU·s) and ignores its limit; AuCaM cancels
+              the runs that pass it.
+    Every run reports its CPU·s so far every 0.1 s.
+    """
+    cpus, step_s, limit = 2.0, 0.1, 3.0
+    t_campaign = time.monotonic()
+    traj: dict[str, list[list[float]]] = {}
+    plans: dict[str, dict] = {}  # wf_id -> {"start": s since campaign start, "plan": s}
+    runs: list[dict] = []
+
+    def make(kind: str):
+        async def wf(reporter: WorkflowReporter, context: dict) -> None:
+            lim = context["spending_limit"]["cpu_hours"] * H  # CPU·s
+            plan = 1.2 if kind == "steady" else random.uniform(0.6, 3.0)
+            t0, used = time.monotonic(), 0.0
+            plans[reporter.wf_id] = {"start": t0 - t_campaign, "plan": plan}
+            pts = traj.setdefault(reporter.wf_id, [[0.0, 0.0]])
+            while time.monotonic() - t0 < plan:
+                if kind == "steady" and used + cpus * step_s > lim + 1e-9:
+                    break  # stay within the limit AuCaM gave this run
+                await asyncio.sleep(step_s)
+                used = cpus * (time.monotonic() - t0)
+                pts.append([time.monotonic() - t0, used])
+                await reporter.emit(score=1.0, metrics={"cpu_hours": used / H})
+
+        wf.__name__ = kind
+        return wf
+
+    class Ctrl(CampaignController):
+        def on_complete(self, result: WorkflowResult) -> None:
+            super().on_complete(result)
+            runs.append(
+                {
+                    "id": result.workflow_id,
+                    "type": result.workflow_type,
+                    "rc": result.returncode,
+                    "over_budget": result.over_budget,
+                    "spent": cpu_s(result.spent.get("cpu_hours", 0.0)),
+                }
+            )
+
+        def decide(self, obs: dict) -> PolicyResult:
+            res = super().decide(obs)
+            res.terminate = res.terminate or len(runs) >= 16
+            return res
+
+    lim = {"cpu_hours": limit / H}
+    spec = CampaignSpec(
+        name="runlimit-demo",
+        budget=CampaignBudget(max_concurrent_workflows=4, max_concurrency_per_workflow=2),
+        controller=Ctrl(launch=["steady", "runaway"]),
+        workflows=[
+            WorkflowConfig(
+                name=k, block=make(k), declared_spending=declared(cpus, 1.2), spending_limit=lim
+            )
+            for k in ("steady", "runaway")
+        ],
+        policy_interval_s=0.1,
+    )
+    o = await CampaignManager().run(spec)
+    return {
+        "limit": limit,
+        "cpus": cpus,
+        "traj": traj,
+        "plans": plans,
+        "runs": runs,
+        "budget_cancels": o.budget_cancels,
+    }
+
+
 # ── Plots ──────────────────────────────────────────────────────────────────────
 
 C_SPENT, C_FLIGHT, C_LIMIT, C_ANN = "#4a6fa5", "#9fc0e6", "#cf222e", "#57606a"
@@ -293,6 +374,80 @@ def plot_bandit(d: dict, plt) -> None:
     fig.savefig(FIG_DIR / "aucam_bandit_budget.png", dpi=150)
 
 
+def plot_runlimit(d: dict, plt) -> None:
+    """Timeline: one bar per run; red bars were cancelled by AuCaM at the run's limit."""
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+
+    by_id = {r["id"]: r for r in d["runs"]}
+    rows = []
+    for wf_id, info in d["plans"].items():
+        r = by_id.get(wf_id)
+        # Skip runs still going, or stopped, when the campaign ended.
+        if r is None or (r["rc"] == -1 and not r["over_budget"]):
+            continue
+        end = d["traj"][wf_id][-1][0]
+        rows.append((info["start"], end, info["plan"], r))
+    rows.sort(key=lambda x: x[0])
+    t_lim = d["limit"] / d["cpus"]  # run time at which a run reaches its limit
+    fig, ax = plt.subplots(figsize=(10, 0.32 * len(rows) + 1.8))
+    n = {"steady": 0, "ok": 0, "cut": 0}
+    for i, (start, dur, plan, r) in enumerate(rows):
+        y = len(rows) - i
+        if r["type"] == "steady":
+            color, key = C_GOOD, "steady"
+        elif r["over_budget"]:
+            color, key = C_LIMIT, "cut"
+            # The work this run still wanted to do when AuCaM cancelled it.
+            ax.barh(
+                y,
+                plan - dur,
+                left=start + dur,
+                height=0.6,
+                color="none",
+                edgecolor=C_LIMIT,
+                hatch="///",
+                lw=0.6,
+            )
+            ax.plot(start + dur, y, marker="x", color=C_LIMIT, ms=8, mew=2)
+        else:
+            color, key = "#e8a33d", "ok"
+        n[key] += 1
+        ax.barh(y, dur, left=start, height=0.6, color=color)
+        ax.plot([start + t_lim] * 2, [y - 0.38, y + 0.38], color=C_ANN, lw=1.2)
+    ax.set_yticks([])
+    ax.set_xlabel("time since the campaign started (s)")
+    ax.set_title(
+        f"Per-run spending limit: {d['limit']:.0f} CPU·s per run (2 CPUs, so {t_lim:.1f} s of run time)",
+        loc="left",
+        fontsize=11,
+    )
+    handles = [
+        Patch(color=C_GOOD, label=f"steady: sizes its work to fit its limit ({n['steady']} runs)"),
+        Patch(color="#e8a33d", label=f"runaway that finished below its limit ({n['ok']})"),
+        Patch(color=C_LIMIT, label=f"runaway cancelled by AuCaM at its limit ({n['cut']})"),
+        Patch(
+            facecolor="none",
+            edgecolor=C_LIMIT,
+            hatch="///",
+            label="work it had left when cancelled",
+        ),
+        Line2D([], [], color=C_ANN, lw=1.2, label="the run's limit"),
+    ]
+    ax.legend(
+        handles=handles,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.1),
+        ncol=2,
+        fontsize=8.5,
+        frameon=False,
+    )
+    for sp in ("top", "right", "left"):
+        ax.spines[sp].set_visible(False)
+    fig.tight_layout()
+    fig.savefig(FIG_DIR / "aucam_run_limit.png", dpi=150, bbox_inches="tight")
+
+
 def plot_all(data: dict) -> None:
     import matplotlib
 
@@ -300,15 +455,21 @@ def plot_all(data: dict) -> None:
     import matplotlib.pyplot as plt
 
     plt.rcParams.update({"font.size": 10})
-    plot_budget(data["budget"], plt)
-    plot_bandit(data["bandit"], plt)
+    for name, fn in (("budget", plot_budget), ("bandit", plot_bandit), ("runlimit", plot_runlimit)):
+        if name in data:
+            fn(data[name], plt)
     print(f"figures → {FIG_DIR}")
 
 
-async def run_all() -> dict:
+EXPERIMENTS = {"budget": exp_budget, "bandit": exp_bandit, "runlimit": exp_runlimit}
+
+
+async def run_all(only: list[str] | None = None) -> dict:
     random.seed(11)
     out = {}
-    for name, fn in (("budget", exp_budget), ("bandit", exp_bandit)):
+    for name, fn in EXPERIMENTS.items():
+        if only and name not in only:
+            continue
         print(f"── {name}")
         out[name] = await fn()
     return out
@@ -317,10 +478,14 @@ async def run_all() -> dict:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Generate the AuCaM doc figures")
     ap.add_argument("--plot-only", action="store_true", help=f"redraw from {DATA.name}")
+    ap.add_argument(
+        "--only", nargs="+", choices=list(EXPERIMENTS), help="run only these experiments"
+    )
     args = ap.parse_args()
     logging.basicConfig(level=logging.CRITICAL)  # the 'poor' workflows fail on purpose
     if not args.plot_only:
-        data = asyncio.run(run_all())
+        data = json.loads(DATA.read_text()) if args.only and DATA.exists() else {}
+        data.update(asyncio.run(run_all(args.only)))
         DATA.write_text(json.dumps(data, indent=1))
         print(f"data → {DATA}")
     plot_all(json.loads(DATA.read_text()))

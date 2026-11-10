@@ -1,0 +1,55 @@
+# Per-run spending limits — use case: one workflow type overspends.
+#
+# Every run gets a spending limit from AuCaM (spending_limit below), passed in
+# context["spending_limit"] / CM_SPENDING_LIMIT_CPU_HOURS.  sim_worker respects
+# it.  sim_worker_b is configured to ignore it (respect_limit: false) and its
+# work costs more than its limit, so AuCaM cancels every sim_worker_b run once
+# its reported spending passes the limit.  Look for
+#   [WORKFLOW-…sim_worker_b…] spending limit exceeded cpu_hours=… > … — auto-cancel
+# and "budget=N" in the campaign SUMMARY line.
+#
+# Run:
+#   python run_campaign.py --campaign-config campaign_configs/campaign_overuse.yaml --n-iters 30
+
+controller:
+  goal_analyses: 3
+  score_floor: 0.4
+
+budget:
+  max_concurrent: 4
+  max_concurrency_per_workflow: 2
+  spending:
+    cpu_hours: 0.01
+
+workflows:
+  sim_worker:
+    n_iters: 30               # 30 × 0.08 s ≈ 2.4 s per run
+    iter_sleep_s: 0.08
+    stale_timeout_s: 120.0
+    declared_spending:
+      wall_hours: 0.0007
+      cpu_hours:  0.0007
+    spending_limit:
+      cpu_hours:  0.0008      # ≈ 2.9 s: fits, and the run stays within it
+    respect_limit: true
+  sim_worker_b:
+    # n_iters_b = n_iters // 3 = 10 → ≈ 0.8 s per run
+    stale_timeout_s: 60.0
+    declared_spending:
+      wall_hours: 0.00025
+      cpu_hours:  0.00025
+    spending_limit:
+      cpu_hours:  0.0001      # ≈ 0.36 s: less than the run needs
+    respect_limit: false      # ignores its limit → AuCaM cancels it
+  analysis_worker:
+    steps: 2
+    declared_spending:
+      wall_hours: 0.00005
+      cpu_hours:  0.00005
+    spending_limit:
+      cpu_hours:  0.0006      # ≈ 2 s; the run's profiler samples once a second
+    respect_limit: true
+
+policy_interval_s: 0.1        # check spending often, so the cancel lands close to the limit
+shutdown_timeout_s: 10.0
+checkpoint_dir: ~

@@ -46,6 +46,12 @@ workflows:
     cpu_hours:   0.5     # 16 CPUs × 0.5 h but most time is GPU-bound sims
     gpu_hours:   0.05    # GPU used only for training (~few min out of 30)
   # slow_spending omitted → fast_spending × slow_step_multiplier (× 3)
+  # Per-run spending limit: AuCaM passes it to each run and cancels a run that
+  # spends more; a run that respects it runs only as many simulations as fit.
+  fast_spending_limit:
+    cpu_hours:   0.6
+  # slow_spending_limit omitted → fast × slow_step_multiplier
+  respect_limit: {fast: true, slow: true}
 
 policy_interval_s: 10.0
 shutdown_timeout_s: 300.0

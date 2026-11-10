@@ -98,6 +98,7 @@ WorkflowConfig(
     block=my_async_fn,  # a Python workflow ── or ──
     launch_cmd=["./sim", "--fast"],  # a command-line program (any language)
     declared_spending={"wall_hours": 0.5, "cpu_hours": 4.0},  # expected cost of one run (§9)
+    spending_limit={"cpu_hours": 6.0},  # cancel a run that spends more (§9)
     task_description={"ranks": 4, "cores_per_rank": 8},  # launch_cmd: resource request
     env={"OMP_NUM_THREADS": "8"},  # launch_cmd: extra environment variables
     launch_on_start=True,  # queue one request when the campaign starts
@@ -386,6 +387,26 @@ than `age_threshold_s` become HIGH).
 Pass a policy instance as `scheduling_policy=`, or `None` for a new bandit.
 An instance passed to the specs of several runs keeps what it learned.
 
+### How much each run gets
+
+When a request is about to start, the policy's `size(request, ctx)` decides
+its allocation: a spending limit and the resources it may use at once.
+
+- **The controller states the intent** on the `LaunchRequest`: exact amounts
+  (`spending_limit=`, `resources=`), or ranges (`bounds={"cpu_hours": (0.5, 4),
+  "cpus": (2, 8)}`). Without either, the workflow type's
+  `WorkflowConfig.spending_limit` and `resources` apply.
+- **The policy decides the amount.** By default: exact amounts are kept; a
+  spending range gets the type's learned cost × (1 + `size_margin`, 0.25), or
+  the range's maximum before 3 runs have finished; a resource range gets its
+  maximum; spending is capped at what is left in the campaign budget
+  (`capped=True` in the result), or at remaining ÷ queued requests with
+  `fair_share = True`. If even a range's minimum does not fit, the request is
+  dropped (`CampaignOutcome.unfit_dropped`).
+- **Override `size()`** in your own `SchedulingPolicy` to decide differently;
+  `ctx` (`SizingContext`) has the proposal, learned costs, remaining budget
+  and queue length.
+
 ![Bandit and budget](figures/aucam_bandit_budget.png)
 
 ---
@@ -409,6 +430,19 @@ CampaignBudget(
   already spent and stops launching once that reaches the limit; running
   workflows finish, then the campaign ends (`spending_limit`). Give every
   workflow type a `declared_spending`, or it is not counted in advance.
+- **Resources per run.** `WorkflowConfig.resources={"cpus": 8, "gpus": 1}`
+  (or `LaunchRequest.resources`) is what one run may use at once. The workflow
+  gets it (`context["resources"]`, `CM_RESOURCES_<KEY>`) and must size its tasks
+  to it; AuCaM cancels a run that uses more — measured from its running tasks
+  with telemetry, or from the `cpus_in_use` / `gpus_in_use` it reports
+  (`over_resources=True` in the result).
+- **Per-run limit.** `WorkflowConfig.spending_limit` caps what one run of the
+  type may spend; `LaunchRequest.make(..., spending_limit={...})` sets a
+  different limit for one run. The limit is held against the campaign while
+  the run goes, passed to the workflow (`context["spending_limit"]`, or
+  `CM_SPENDING_LIMIT_<DIM>` for a command-line program), and enforced: AuCaM
+  cancels a run once its spending so far exceeds it (`over_budget=True` in its
+  result).
 - **In the observation:** `obs["budget"]` has `limits`, `spent`, `in_flight` and
   `burn[dim] = {remaining, fraction_left}`.
 
@@ -444,7 +478,10 @@ async def main() -> None:
   stops a local backend.
 
 `CampaignOutcome`: `campaign_name`, `exit_reason`, `completed` / `cancelled` /
-`failed` (per type), `elapsed_s`, `goal_reached`, `spent`, `summary`.
+`failed` (per type), `elapsed_s`, `goal_reached`, `spent`, `summary`,
+`budget_cancels` / `resource_cancels` (runs cancelled for exceeding their own
+spending limit or resources), `unfit_dropped` (requests that did not fit the
+remaining budget).
 
 ### Config-driven runners
 
@@ -497,6 +534,9 @@ Planned features and known problems: [known gaps](known-gaps.md).
 | `wall_time_s` | Run time |
 | `final_score`, `final_metrics` | From the last report |
 | `spent` | What the run was charged |
+| `spending_limit`, `over_budget` | The run's own spending limit (empty: none), and whether AuCaM cancelled it for exceeding it |
+| `resources`, `over_resources` | What the run could use at once, and whether AuCaM cancelled it for using more |
+| `capped` | The scheduler gave it less spending than requested, to fit the remaining budget |
 | `resource_profile` | Measured CPU/memory use, when available |
 
 ### Imports

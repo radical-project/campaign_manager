@@ -586,8 +586,8 @@ def test_task_level_workflow_without_charges_finishes() -> None:
 
     orig_launch = _CampaignInstance._launch
 
-    def launch_and_mark(self, request):
-        orig_launch(self, request)
+    def launch_and_mark(self, request, alloc=None):
+        orig_launch(self, request, alloc)
         for wf_id in self._active:
             self._task_level.add(wf_id)  # as a TaskCreated with resources would
 

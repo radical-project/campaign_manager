@@ -79,6 +79,9 @@ class CampaignCheckpoint:
     failed: int = 0
     stale_cancels: int = 0
     walltime_cancels: int = 0
+    budget_cancels: int = 0
+    resource_cancels: int = 0
+    unfit_dropped: int = 0
     policy_cancels: int = 0
     policy_cycles: int = 0
 
@@ -115,6 +118,9 @@ def _from_json(d: dict[str, Any]) -> CampaignCheckpoint:
         failed=d.get("failed", 0),
         stale_cancels=d.get("stale_cancels", 0),
         walltime_cancels=d.get("walltime_cancels", 0),
+        budget_cancels=d.get("budget_cancels", 0),
+        resource_cancels=d.get("resource_cancels", 0),
+        unfit_dropped=d.get("unfit_dropped", 0),
         policy_cancels=d.get("policy_cancels", 0),
         policy_cycles=d.get("policy_cycles", 0),
     )

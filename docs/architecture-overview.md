@@ -162,12 +162,18 @@ See [budgets and spending](budget.md) for how spending is measured.
   outcome; a second `run()` while one is running raises an error. *Why:* the
   caller decides what to run next from each outcome. A scheduling policy
   instance passed to several specs keeps what it learned across runs.
-- **No limit on resources in use at once.** AuCaM limits what a campaign spends
-  and how many workflows run, not how many CPUs or GPUs are busy. *Why:* AuCaM
-  cannot know which nodes or GPUs a workflow's tasks hold at a given moment,
-  and the HPC allocation itself already bounds what can run at the same time.
+- **Resources are given per run, not per campaign.** The campaign limits what
+  it spends and how many workflows run; it has no limit on CPUs or GPUs busy at
+  once. Each run, though, is given an allocation when it starts — a spending
+  limit and the CPUs and GPUs it may use at once — sized by the scheduler from
+  the controller's request, the type's learned cost and the remaining budget.
+  The workflow must size its own tasks to it; AuCaM cancels a run that spends
+  past its limit or uses more than it was given. *Why:* AuCaM cannot know which
+  nodes a workflow's tasks hold, so the workflow, which does know, is told its
+  share and held to it.
 - **The controller makes the scientific decisions.** AuCaM itself cancels a
-  workflow only when it stops reporting or runs past its wall-time limit; every
+  workflow only when it stops reporting, runs past its wall-time limit, or
+  spends past its own spending limit; every
   other launch and cancel comes from the controller. *Why:* what counts as a
   poor result depends on the science. AuCaM ships default rules, and a campaign
   can replace them.

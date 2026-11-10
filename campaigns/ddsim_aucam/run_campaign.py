@@ -97,8 +97,21 @@ def build_spec(
     # Each arm gets its own closure-bound worker — no shared mutable state.
     fast_cfg = ccfg.workflows.fast_config()
     slow_cfg = ccfg.workflows.slow_config()
-    fast_worker = _wf_mod.make_miniapps_worker(fast_cfg.to_dict(), arm_label="fast", engine=engine)
-    slow_worker = _wf_mod.make_miniapps_worker(slow_cfg.to_dict(), arm_label="slow", engine=engine)
+    wcfg = ccfg.workflows
+    fast_worker = _wf_mod.make_miniapps_worker(
+        fast_cfg.to_dict(),
+        arm_label="fast",
+        engine=engine,
+        declared_spending=wcfg.fast_spending,
+        respect_limit=wcfg.respect_limit["fast"],
+    )
+    slow_worker = _wf_mod.make_miniapps_worker(
+        slow_cfg.to_dict(),
+        arm_label="slow",
+        engine=engine,
+        declared_spending=wcfg.resolved_slow_spending(),
+        respect_limit=wcfg.respect_limit["slow"],
+    )
 
     stale = ccfg.workflows.miniapps.stale_timeout_s
 
@@ -118,6 +131,7 @@ def build_spec(
                 launch_on_start=True,
                 on_completion=_on_complete,
                 declared_spending=ccfg.workflows.fast_spending,
+                spending_limit=ccfg.workflows.fast_spending_limit,
             ),
             WorkflowConfig(
                 name="miniapps_slow",
@@ -127,6 +141,7 @@ def build_spec(
                 launch_on_start=True,
                 on_completion=_on_complete,
                 declared_spending=ccfg.workflows.resolved_slow_spending(),
+                spending_limit=ccfg.workflows.resolved_slow_spending_limit(),
             ),
         ],
         policy_interval_s=ccfg.policy_interval_s,

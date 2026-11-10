@@ -71,6 +71,8 @@ class SimWorkerConfig:
     iter_sleep_s: float = 0.08
     stale_timeout_s: float = 120.0
     declared_spending: dict = field(default_factory=dict)
+    spending_limit: dict = field(default_factory=dict)  # most one run may spend
+    respect_limit: bool = True  # False: the run ignores its limit (AuCaM cancels it)
 
 
 @dataclass
@@ -78,12 +80,16 @@ class SimWorkerBConfig:
     # n_iters_b is auto-derived as max(3, n_iters // 3) — not stored here
     stale_timeout_s: float = 60.0
     declared_spending: dict = field(default_factory=dict)
+    spending_limit: dict = field(default_factory=dict)
+    respect_limit: bool = True
 
 
 @dataclass
 class AnalysisWorkerConfig:
     steps: int = 2
     declared_spending: dict = field(default_factory=dict)
+    spending_limit: dict = field(default_factory=dict)
+    respect_limit: bool = True
 
 
 @dataclass
@@ -155,18 +161,24 @@ def load_campaign(path: str | Path) -> CampaignConfig:
                 declared_spending={
                     k: float(v) for k, v in (sim.get("declared_spending") or {}).items()
                 },
+                spending_limit={k: float(v) for k, v in (sim.get("spending_limit") or {}).items()},
+                respect_limit=bool(sim.get("respect_limit", True)),
             ),
             sim_worker_b=SimWorkerBConfig(
                 stale_timeout_s=float(simb.get("stale_timeout_s", 60.0)),
                 declared_spending={
                     k: float(v) for k, v in (simb.get("declared_spending") or {}).items()
                 },
+                spending_limit={k: float(v) for k, v in (simb.get("spending_limit") or {}).items()},
+                respect_limit=bool(simb.get("respect_limit", True)),
             ),
             analysis_worker=AnalysisWorkerConfig(
                 steps=int(ana.get("steps", 2)),
                 declared_spending={
                     k: float(v) for k, v in (ana.get("declared_spending") or {}).items()
                 },
+                spending_limit={k: float(v) for k, v in (ana.get("spending_limit") or {}).items()},
+                respect_limit=bool(ana.get("respect_limit", True)),
             ),
         ),
         policy_interval_s=float(d.get("policy_interval_s", 0.5)),
