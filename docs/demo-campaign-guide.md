@@ -84,7 +84,7 @@ async def sim(reporter: WorkflowReporter, context: dict) -> None:
     for step in range(steps):
         if spent + step_cpu_h > limit:  # stop before passing the limit
             break
-        await asyncio.sleep(0.05)       # one step of work
+        await asyncio.sleep(0.05)  # one step of work
         spent += step_cpu_h
         score += ...
         await reporter.emit(
@@ -115,7 +115,7 @@ WorkflowConfig(
     name="fast_sim",
     block=fast_sim,
     declared_spending={"cpu_hours": 6 * FAST_STEP_CPU_H},  # expected cost of one workflow
-    spending_limit={"cpu_hours": 6 * FAST_STEP_CPU_H},     # most one workflow may spend
+    spending_limit={"cpu_hours": 6 * FAST_STEP_CPU_H},  # most one workflow may spend
 )
 ```
 
@@ -157,7 +157,8 @@ Override `condition` to gate on score, metrics, or any field of `WorkflowResult`
 CampaignBudget(
     max_concurrent_workflows=4,
     max_concurrency_per_workflow=2,  # per-type cap enforced by the CM
-    spending={"cpu_hours": 0.05},  # campaign limit: no new workflows once spent + in flight reaches it
+    # Campaign limit: no new workflows once spent + in flight reaches it.
+    spending={"cpu_hours": 0.05},
 )
 ```
 
