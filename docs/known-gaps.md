@@ -26,6 +26,7 @@ that must land first.
 | 1 | B0 | Any budget dimension (e.g. `llm_tokens`) | Partial | |
 | 2 | B1 | Burn-down in the controller's observation | Partial | |
 | 2 | U2 | Value-based sizing and cost-aware bandit; learned resource sizes | Partial | |
+| 2 | U6 | Default controller sets limits from learned cost | Not started | |
 | 2 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) | C1 |
 | 2 | B6 | Stop at the campaign spending limit | Not started | P1 |
 | 2 | U4 | Graceful cancel for per-workflow limits | Not started | P1 |
@@ -104,7 +105,7 @@ update `budget.md` and the developer guide.
   `on_limit="finish"`) for campaigns that prefer to let running work
   complete. Today a custom controller can do this in `decide()`.
 
-## Per-workflow allocations (U1–U5)
+## Per-workflow allocations (U1–U6)
 
 Each workflow gets an allocation when it starts — a spending limit and the CPUs and
 GPUs it may use at once (`Allocation`) — sized by `SchedulingPolicy.size()`
@@ -144,6 +145,18 @@ from the controller's intent (`LaunchRequest.spending_limit` / `resources` /
   per prediction cycle). Resources in use come from task telemetry only with
   X1; otherwise only from what the workflow reports, and a workflow that
   reports nothing is not checked.
+- **U6 — the default controller sets limits from learned cost.** Today a
+  workflow's limit is the type's static `WorkflowConfig.spending_limit` unless
+  a custom controller sends a range (`LaunchRequest.bounds`); only then does
+  `size()` apply learned cost × (1 + `size_margin`). The default controller
+  (`launch=[...]`, `LaunchRule`) cannot send a range. Plan: let
+  `WorkflowConfig` (or `LaunchRule`) give a range, e.g.
+  `spending_bounds={"cpu_hours": (min, max)}`, so every launch of the type is
+  sized from learned cost, with the max used until 3 workflows of the type have
+  finished; expose the learned cost per type in the controller's observation
+  (`obs["learned_cost"]`), so a custom controller can choose an exact value
+  from the same data; and use this in one example campaign (the demo) and its
+  figure.
 
 ## Other planned features
 
