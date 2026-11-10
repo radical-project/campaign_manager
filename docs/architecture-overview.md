@@ -6,9 +6,9 @@
 
 ## The problem
 
-Adaptive HPC science means stopping poor runs early, launching more of what
+Adaptive HPC science means stopping poor workflows early, launching more of what
 works and staying within the allocation. Today most projects handle this with
-their own scripts, and a person still watches the runs and decides what to do
+their own scripts, and a person still watches the workflows and decides what to do
 next. AuCaM takes over that work: a campaign describes what success looks like
 and how to react to results, and AuCaM launches the workflows, watches their
 progress, cancels the ones that fall behind and ends the campaign when it is
@@ -63,10 +63,10 @@ Each of the following works out of the box; a campaign can replace the
 controller or the scheduling policy with its own.
 
 - **Controller** — the campaign's decision logic. Out of the box it keeps
-  launching new runs of the workflow types in its `launch` list (set in the
+  launching new workflows of the types in its `launch` list (set in the
   campaign spec), up to the campaign's concurrency limits (`LaunchRule`);
-  cancels runs whose latest report meets a condition, such as a score below a
-  threshold (`CancelRule`); and ends the campaign after N successful runs or
+  cancels workflows whose latest report meets a condition, such as a score below a
+  threshold (`CancelRule`); and ends the campaign after N successful workflows or
   when its goals are met — no code needed. A subclass can extend or replace
   this with any logic, including an LLM or ADR.
 - **Queue** — waiting launch requests, ordered by priority (CRITICAL, HIGH,
@@ -82,12 +82,12 @@ controller or the scheduling policy with its own.
 **What a campaign gets without writing any code**, compared with launching
 workflows by hand:
 
-- poor runs are cancelled early (`CancelRule`), and so are runs that stop
-  reporting or overrun their wall time;
+- poor workflows are cancelled early (`CancelRule`), and so are workflows
+  that stop reporting or overrun their wall time;
 - the bandit shifts launches toward workflow types that complete;
-- AuCaM records what each run costs (CPU-hours, GPU-hours or another unit
+- AuCaM records what each workflow costs (CPU-hours, GPU-hours or another unit
   such as LLM tokens), based on the resources its tasks requested and how long
-  they ran, or on what the workflow reports, and stops launching new runs once
+  they ran, or on what the workflow reports, and stops launching new workflows once
   the campaign reaches its spending limit;
 - a workflow type can wait for another to succeed (dependencies);
 - state is checkpointed, and a restarted campaign continues;
@@ -119,7 +119,7 @@ accounting on one run.
    campaign's workflow-count and spending limits.
 
 A custom controller could decide anything else in step 3, such as launching
-several runs or changing goals.
+several workflows at once or changing goals.
 
 ---
 
@@ -161,13 +161,13 @@ See [budgets and spending](budget.md) for how spending is measured.
 - **One campaign at a time.** `run()` runs one campaign and returns its
   outcome; a second `run()` while one is running raises an error. *Why:* the
   caller decides what to run next from each outcome. A scheduling policy
-  instance passed to several specs keeps what it learned across runs.
-- **Resources are given per run, not per campaign.** The campaign limits what
+  instance passed to several specs keeps what it learned across campaigns.
+- **Resources are given per workflow, not per campaign.** The campaign limits what
   it spends and how many workflows run; it has no limit on CPUs or GPUs busy at
-  once. Each run, though, is given an allocation when it starts — a spending
+  once. Each workflow, though, is given an allocation when it starts — a spending
   limit and the CPUs and GPUs it may use at once — sized by the scheduler from
   the controller's request, the type's learned cost and the remaining budget.
-  The workflow must size its own tasks to it; AuCaM cancels a run that spends
+  The workflow must size its own tasks to it; AuCaM cancels a workflow that spends
   past its limit or uses more than it was given. *Why:* AuCaM cannot know which
   nodes a workflow's tasks hold, so the workflow, which does know, is told its
   share and held to it.

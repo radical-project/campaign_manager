@@ -329,7 +329,7 @@ async def run(args: argparse.Namespace) -> None:
         (s.get("cancel_rate") or 0.0) * 100,
     )
     logging.info(
-        "spent %.4f cpu_hours; runs cancelled for exceeding their own limit: %d",
+        "spent %.4f cpu_hours; workflows cancelled for exceeding their own limit: %d",
         outcome.spent.get("cpu_hours", 0.0),
         outcome.budget_cancels,
     )

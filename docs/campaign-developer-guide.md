@@ -79,14 +79,14 @@ asyncio.run(main())
 ```
 
 The controller keeps one `sim` request queued (`launch=`) and ends the
-campaign after 10 successful runs (`goal_type`, `goal_n`). The log ends with a
+campaign after 10 successful workflows (`goal_type`, `goal_n`). The log ends with a
 line like:
 
 ```
 [CM] Campaign my_campaign SUMMARY — exit=controller_terminate run=13 ok=10 cancelled=3 ...
 ```
 
-(`cancelled` counts the runs still going when the goal was reached.)
+(`cancelled` counts the workflows still going when the goal was reached.)
 
 ---
 
@@ -97,15 +97,15 @@ WorkflowConfig(
     name="sim_worker",  # unique within the campaign
     block=my_async_fn,  # a Python workflow ── or ──
     launch_cmd=["./sim", "--fast"],  # a command-line program (any language)
-    declared_spending={"wall_hours": 0.5, "cpu_hours": 4.0},  # expected cost of one run (§9)
-    spending_limit={"cpu_hours": 6.0},  # cancel a run that spends more (§9)
+    declared_spending={"wall_hours": 0.5, "cpu_hours": 4.0},  # expected cost of one workflow (§9)
+    spending_limit={"cpu_hours": 6.0},  # cancel a workflow that spends more (§9)
     task_description={"ranks": 4, "cores_per_rank": 8},  # launch_cmd: resource request
     env={"OMP_NUM_THREADS": "8"},  # launch_cmd: extra environment variables
     launch_on_start=True,  # queue one request when the campaign starts
-    max_wall_time_s=3600.0,  # cancel a run that takes longer
-    stale_timeout_s=120.0,  # cancel a run that stops reporting (after its first report)
+    max_wall_time_s=3600.0,  # cancel a workflow that takes longer
+    stale_timeout_s=120.0,  # cancel a workflow that stops reporting (after its first report)
     supports_pause=False,  # True only if the workflow handles PAUSE/RESUME
-    on_completion=callback,  # called with the WorkflowResult of every run
+    on_completion=callback,  # called with the WorkflowResult of every workflow
 )
 ```
 
@@ -153,7 +153,7 @@ Its exit code becomes `WorkflowResult.returncode` (§12).
 
 ### `on_completion`
 
-A plain function called once per finished run, after
+A plain function called once per finished workflow, after
 `controller.on_complete()` — for side effects such as saving results. Don't
 call `controller.on_complete()` from it, and don't `await` in it. To start
 follow-on work, use a dependency (§7) or the controller.
@@ -262,7 +262,7 @@ Subclass `CampaignController` and override what you need:
 |---|---|---|
 | `observe(queue_snapshot, budget, running, **kw)` → `dict` | Each policy cycle | Passes the inputs through |
 | `decide(obs)` → `PolicyResult` | Each policy cycle, after `observe` | Applies the rules |
-| `on_complete(result)` | Each finished run | Counts `completed` / `cancelled` / `failed` per type — call `super()` |
+| `on_complete(result)` | Each finished workflow | Counts `completed` / `cancelled` / `failed` per type — call `super()` |
 | `is_goal_reached()` → `bool` | By the default `decide()` | `goal_n` completions of `goal_type` |
 | `goals()` → `list[Goal]` | At start | `[]` |
 | `get_summary()` → `dict` | When the campaign ends | `{}`; returned in `CampaignOutcome.summary` |
@@ -365,9 +365,9 @@ CampaignSpec(
 ```
 
 The target must have `launch_on_start=False`; otherwise it starts right away.
-Requests for the target wait outside the queue until a `sim_worker` run
-finishes and passes the condition. The first such run releases them (or adds
-one request); each later passing run adds one more. For anything more complex
+Requests for the target wait outside the queue until a `sim_worker` workflow
+finishes and passes the condition. The first such workflow releases them (or adds
+one request); each later passing workflow adds one more. For anything more complex
 (all of several sources, a count, a score), launch from `decide()`.
 
 ---
@@ -380,14 +380,16 @@ than `age_threshold_s` become HIGH).
 
 | Policy | Behaviour |
 |---|---|
-| `BanditSchedulingPolicy` (default) | UCB1 over workflow types. Reward 1 for a completed run, 0 for cancelled or failed (`reward_fn=` to change). Explores less as the campaign's budget is used up. |
+| `BanditSchedulingPolicy` (default) | UCB1 over workflow types. Reward 1 for a completed workflow, 0 for cancelled or failed (`reward_fn=` to change). Explores less as the campaign's budget is used up. |
 | `FIFOSchedulingPolicy` | Queue order |
 | `ADRSchedulingPolicy`, `LLMSchedulingPolicy` | Stubs; behave as FIFO |
 
 Pass a policy instance as `scheduling_policy=`, or `None` for a new bandit.
-An instance passed to the specs of several runs keeps what it learned.
+An instance passed to the specs of several campaigns keeps what it learned.
 
-### How much each run gets
+![Bandit and budget](figures/aucam_bandit_budget.png)
+
+### How much each workflow gets
 
 When a request is about to start, the policy's `size(request, ctx)` decides
 its allocation: a spending limit and the resources it may use at once.
@@ -396,18 +398,21 @@ its allocation: a spending limit and the resources it may use at once.
   (`spending_limit=`, `resources=`), or ranges (`bounds={"cpu_hours": (0.5, 4),
   "cpus": (2, 8)}`). Without either, the workflow type's
   `WorkflowConfig.spending_limit` and `resources` apply.
-- **The policy decides the amount.** By default: exact amounts are kept; a
-  spending range gets the type's learned cost × (1 + `size_margin`, 0.25), or
-  the range's maximum before 3 runs have finished; a resource range gets its
-  maximum; spending is capped at what is left in the campaign budget
-  (`capped=True` in the result), or at remaining ÷ queued requests with
-  `fair_share = True`. If even a range's minimum does not fit, the request is
-  dropped (`CampaignOutcome.unfit_dropped`).
+- **The scheduling policy decides the amount.** When the scheduler is about to
+  start a request, it calls the policy's `size()`, which every built-in policy
+  inherits from `SchedulingPolicy`. By default `size()`:
+  - keeps exact amounts as they are;
+  - for a spending range, uses the type's learned cost + 25% (`size_margin`),
+    or the range's maximum until 3 workflows of the type have finished;
+  - for a resource range, uses its maximum;
+  - caps spending at what is left in the campaign budget (the workflow's
+    result then has `capped=True`), or, with `fair_share = True`, at what is left ÷
+    the number of queued requests;
+  - returns nothing when even the range's minimum does not fit, and the
+    scheduler then drops the request (`CampaignOutcome.unfit_dropped`).
 - **Override `size()`** in your own `SchedulingPolicy` to decide differently;
   `ctx` (`SizingContext`) has the proposal, learned costs, remaining budget
   and queue length.
-
-![Bandit and budget](figures/aucam_bandit_budget.png)
 
 ---
 
@@ -421,7 +426,7 @@ CampaignBudget(
 )
 ```
 
-- **Charging.** Each run is charged per task from AsyncFlow telemetry (with
+- **Charging.** Each workflow is charged per task from AsyncFlow telemetry (with
   `CampaignManager(enable_telemetry=True)` and resource keys in the task
   descriptions), or from the spending it reports (cumulative `cpu_hours`,
   `gpu_hours`, …), or by prorating its `declared_spending` by its actual run
@@ -430,18 +435,18 @@ CampaignBudget(
   already spent and stops launching once that reaches the limit; running
   workflows finish, then the campaign ends (`spending_limit`). Give every
   workflow type a `declared_spending`, or it is not counted in advance.
-- **Resources per run.** `WorkflowConfig.resources={"cpus": 8, "gpus": 1}`
-  (or `LaunchRequest.resources`) is what one run may use at once. The workflow
+- **Resources per workflow.** `WorkflowConfig.resources={"cpus": 8, "gpus": 1}`
+  (or `LaunchRequest.resources`) is what one workflow may use at once. The workflow
   gets it (`context["resources"]`, `CM_RESOURCES_<KEY>`) and must size its tasks
-  to it; AuCaM cancels a run that uses more — measured from its running tasks
+  to it; AuCaM cancels a workflow that uses more — measured from its running tasks
   with telemetry, or from the `cpus_in_use` / `gpus_in_use` it reports
   (`over_resources=True` in the result).
-- **Per-run limit.** `WorkflowConfig.spending_limit` caps what one run of the
+- **Per-workflow limit.** `WorkflowConfig.spending_limit` caps what one workflow of the
   type may spend; `LaunchRequest.make(..., spending_limit={...})` sets a
-  different limit for one run. The limit is held against the campaign while
-  the run goes, passed to the workflow (`context["spending_limit"]`, or
+  different limit for one workflow. The limit is held against the campaign
+  while the workflow runs, passed to the workflow (`context["spending_limit"]`, or
   `CM_SPENDING_LIMIT_<DIM>` for a command-line program), and enforced: AuCaM
-  cancels a run once its spending so far exceeds it (`over_budget=True` in its
+  cancels a workflow once its spending so far exceeds it (`over_budget=True` in its
   result).
 - **In the observation:** `obs["budget"]` has `limits`, `spent`, `in_flight` and
   `burn[dim] = {remaining, fraction_left}`.
@@ -474,12 +479,12 @@ async def main() -> None:
 - `cm.stop()` ends the running campaign gracefully, as SIGTERM does
   (`exit_reason="signal"`).
 - `CampaignManager(backend=...)` reuses a backend you started (e.g. Dragon on
-  HPC) across runs and leaves it running; without one, each run starts and
+  HPC) across campaigns and leaves it running; without one, each campaign starts and
   stops a local backend.
 
 `CampaignOutcome`: `campaign_name`, `exit_reason`, `completed` / `cancelled` /
 `failed` (per type), `elapsed_s`, `goal_reached`, `spent`, `summary`,
-`budget_cancels` / `resource_cancels` (runs cancelled for exceeding their own
+`budget_cancels` / `resource_cancels` (workflows cancelled for exceeding their own
 spending limit or resources), `unfit_dropped` (requests that did not fit the
 remaining budget).
 
@@ -529,13 +534,13 @@ Planned features and known problems: [known gaps](known-gaps.md).
 
 | Field | Meaning |
 |---|---|
-| `workflow_id`, `workflow_type` | Which run |
+| `workflow_id`, `workflow_type` | Which workflow |
 | `returncode` | 0 completed; −1 cancelled; otherwise failed: the program's exit code (128 + N if killed by signal N), or 1 |
 | `wall_time_s` | Run time |
 | `final_score`, `final_metrics` | From the last report |
-| `spent` | What the run was charged |
-| `spending_limit`, `over_budget` | The run's own spending limit (empty: none), and whether AuCaM cancelled it for exceeding it |
-| `resources`, `over_resources` | What the run could use at once, and whether AuCaM cancelled it for using more |
+| `spent` | What the workflow was charged |
+| `spending_limit`, `over_budget` | The workflow's own spending limit (empty: none), and whether AuCaM cancelled it for exceeding it |
+| `resources`, `over_resources` | What the workflow could use at once, and whether AuCaM cancelled it for using more |
 | `capped` | The scheduler gave it less spending than requested, to fit the remaining budget |
 | `resource_profile` | Measured CPU/memory use, when available |
 

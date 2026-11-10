@@ -34,7 +34,7 @@ Two workflow types compete for one workflow slot (`max_concurrent_workflows=1`):
 
 The campaign ends after 20 `fast_good` completions. Its controller keeps one
 request of each type queued and has a `CancelRule` for `slow_poor`. Its
-scheduling policy is a UCB1 bandit that rewards completed runs (1) over
+scheduling policy is a UCB1 bandit that rewards completed workflows (1) over
 cancelled ones (0).
 
 Spending is measured in CPU-seconds: each workflow declares its expected cost
@@ -50,9 +50,9 @@ Numbers below are from one run; timings vary slightly from run to run.
 
 ### 1. Science-driven steering: cancellation (panel 2)
 
-Each `slow_poor` run's score falls below 0.30 by its third report (about 3 s), and the
-`CancelRule` cancels it. A full run would cost 5 s × 4 CPUs = 20 CPU·s; each
-cancelled run cost 12 CPU·s. Over the 5 `slow_poor` runs, cancellation saved
+Each `slow_poor` workflow's score falls below 0.30 by its third report (about 3 s), and the
+`CancelRule` cancels it. A full workflow would cost 5 s × 4 CPUs = 20 CPU·s; each
+cancelled workflow cost 12 CPU·s. Over the 5 `slow_poor` workflows, cancellation saved
 **40 CPU·s**, and freed the slot for `fast_good` 2 s earlier each time.
 
 ### 2. Learning scheduler (panel 1)
@@ -60,15 +60,15 @@ cancelled run cost 12 CPU·s. Over the 5 `slow_poor` runs, cancellation saved
 The bandit has to choose between the two queued types each time the slot frees
 up. It tries both, sees that `slow_poor` never completes, and tries it less and
 less often: at launches 2, 4, 8, 13 and 20, with 1, 3, 4 and then 6 `fast_good`
-runs in between. It keeps re-checking `slow_poor` now and then, in case it has improved.
+workflows in between. It keeps re-checking `slow_poor` now and then, in case it has improved.
 That is how UCB1 balances exploring against exploiting what it has learned.
 
 ### 3. Spending accounting (panel 2)
 
-AuCaM charges every finished run in its spending ledger and reports the totals:
-per run in `WorkflowResult.spent`, per campaign in `CampaignOutcome.spent`.
+AuCaM charges every finished workflow in its spending ledger and reports the totals:
+per workflow in `WorkflowResult.spent`, per campaign in `CampaignOutcome.spent`.
 The campaign spent 90 CPU·s: 30 on `fast_good`, 60 on cancelled `slow_poor`
-runs. With a spending limit (`CampaignBudget.spending`), AuCaM would also stop
+workflows. With a spending limit (`CampaignBudget.spending`), AuCaM would also stop
 launching once the campaign reached it; see [budgets and spending](budget.md).
 
 ### The outcome

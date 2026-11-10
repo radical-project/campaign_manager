@@ -28,44 +28,20 @@ that must land first.
 | 2 | U2 | Value-based sizing and cost-aware bandit; learned resource sizes | Partial | |
 | 2 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) | C1 |
 | 2 | B6 | Stop at the campaign spending limit | Not started | P1 |
-| 2 | U4 | Graceful cancel for per-run limits | Not started | P1 |
+| 2 | U4 | Graceful cancel for per-workflow limits | Not started | P1 |
 | 2 | B4 | `CostCancelRule` | Not started | B1 helps |
 | 3 | R1 | Restart: rejoin running workflows, keep goals | Not started | |
 | 3 | R2 | Restart: dependency state | Partial | |
 | 3 | B3 | Learned cost estimates (follow-ups: setting, checkpoint) | Done, two follow-ups | with R1 |
 | 3 | W1 | Concurrency cap per workflow type | Not started | |
 | 3 | U3 | Example campaigns use their resource allocation | Not started | |
-| 3 | U5 | Per-run enforcement lags by one check | Open | revisit after P1 |
-| 4 | U1 | Change a running run's allocation | Not started (decided: not for now) | |
+| 3 | U5 | Per-workflow enforcement lags by one check | Open | revisit after P1 |
+| 4 | U1 | Change a running workflow's allocation | Not started (decided: not for now) | |
 | 4 | L1 | Launch fewer workflows when the backend is backlogged | Not started | task counts from Delta runs |
 | 4 | H1 | On-completion hooks can enqueue requests | Not started | |
 | 4 | A1 | Per-dimension prices | Not started | |
 | External | X1 | More accurate task data in AsyncFlow telemetry | Open | |
 | External | X2 | RHAPSODY concurrent backend does not kill cancelled programs | Open | |
-
----|---|---|
-| B0 | Any budget dimension (e.g. `llm_tokens`) | Partial |
-| B1 | Burn-down in the controller's observation | Partial |
-| B2 | Launch only requests that fit the remaining budget | Partial |
-| B3 | Learned cost estimates | Done, two follow-ups |
-| B4 | `CostCancelRule` | Not started |
-| B6 | Stop at the campaign spending limit (uses P1) | Not started |
-| U1 | Change a running run's allocation | Not started (decided: not for now) |
-| U2 | Value-based sizing and cost-aware bandit; learned resource sizes | Partial |
-| U3 | Example campaigns use their resource allocation | Not started |
-| U4 | Graceful cancel for per-run limits (uses P1) | Not started |
-| U5 | Per-run enforcement lags by one check | Open |
-| R1 | Restart: rejoin running workflows, keep goals | Not started |
-| R2 | Restart: dependency state | Partial |
-| P1 | Graceful cancel through the DataBackend; PAUSE timeout | Not started |
-| C1 | Controller fallback when `decide()` fails or is slow | Not started |
-| H1 | On-completion hooks can enqueue requests | Not started |
-| A1 | Per-dimension prices | Not started |
-| S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) |
-| L1 | Launch fewer workflows when the backend is backlogged | Not started |
-| W1 | Concurrency cap per workflow type | Not started |
-| X1 | More accurate task data in AsyncFlow telemetry | Open (external) |
-| X2 | RHAPSODY concurrent backend does not kill cancelled programs | Open (external) |
 
 ---
 
@@ -91,7 +67,7 @@ update `budget.md` and the developer guide.
   over recent policy cycles; needs spending timestamps in the ledger),
   `projected` (spent + in-flight + estimated cost of queued requests),
   `hours_to_limit`, and `burn["by_type"]` (completions, average cost, cost per
-  successful run, mean final score).
+  completed workflow, mean final score).
 - **B2 — launch only what fits.** Today a request starts whenever spent +
   in-flight is still below the limit, whatever the request costs, so the last
   launch can overshoot the limit, and once the limit is reached even a cheap
@@ -102,13 +78,13 @@ update `budget.md` and the developer guide.
   queued request fits and nothing is running" (`_spending_limit_reached()`,
   `_scheduler_loop()`). A request with a spending limit
   (`WorkflowConfig.spending_limit` or `LaunchRequest.spending_limit`) can use
-  that limit as its cost here, since the run can never spend more.
-  Done so far: `SchedulingPolicy.size()` caps each run's spending limit at the
+  that limit as its cost here, since the workflow can never spend more.
+  Done so far: `SchedulingPolicy.size()` caps each workflow's spending limit at the
   remaining budget and drops a request whose minimum (`LaunchRequest.bounds`)
   does not fit; a request is still started whenever spent + in-flight is below
   the limit, before sizing.
 - **B3 — learned costs, follow-ups.** Implemented (`_learned_cost()`,
-  `_update_type_cost()`, `_estimates`). Missing: make the threshold (3 runs)
+  `_update_type_cost()`, `_estimates`). Missing: make the threshold (3 workflows)
   a `CampaignSpec.min_cost_samples` setting; save `_type_cost_stats` in the
   checkpoint.
 - **B4 — cost-based cancel rule.** A new built-in rule in `controller.py`,
@@ -128,19 +104,18 @@ update `budget.md` and the developer guide.
   `on_limit="finish"`) for campaigns that prefer to let running work
   complete. Today a custom controller can do this in `decide()`.
 
-## Per-run allocations (U1–U5)
+## Per-workflow allocations (U1–U5)
 
-Each run gets an allocation when it starts — a spending limit and the CPUs and
+Each workflow gets an allocation when it starts — a spending limit and the CPUs and
 GPUs it may use at once (`Allocation`) — sized by `SchedulingPolicy.size()`
 from the controller's intent (`LaunchRequest.spending_limit` / `resources` /
 `bounds`), passed to the workflow and enforced by AuCaM. Current behaviour:
-[budgets and spending](budget.md) §4 and the developer guide, "How much each
-run gets".
+[budgets and spending](budget.md) §4 and the developer guide, "How much each workflow gets".
 
-- **U1 — change a running run's allocation.** An allocation is fixed at
+- **U1 — change a running workflow's allocation.** An allocation is fixed at
   launch. Plan: a controller decision, e.g.
   `PolicyResult.extend_allocations={wf_id: {"cpu_hours": 2.0}}`, that raises
-  (or lowers) a running run's limit, with the in-flight amount updated in the
+  (or lowers) a running workflow's limit, with the in-flight amount updated in the
   ledger and the new limit sent to the workflow through the DataBackend.
   Enables "start small, give more to the promising" (successive halving).
 - **U2 — smarter sizing, cost-aware bandit.** The default `size()` uses the
@@ -148,7 +123,7 @@ run gets".
   explores less as the budget is used (exploration × `√(1 − spending_fraction)`
   in `BanditSchedulingPolicy.select()`). Missing: value-based decisions — a
   bandit reward of success × 1 / (1 + k × cost), with cost = Σ over dimensions
-  of the run's spending / the campaign limit (`WorkflowResult.spent` is in
+  of the workflow's spending / the campaign limit (`WorkflowResult.spent` is in
   `on_outcome()`; the limits are not), `cost_aware=False` to keep today's
   completion-only reward, and more budget in `size()` for types with a better
   result per unit spent; and
@@ -160,10 +135,10 @@ run gets".
   `context["resources"]` / `CM_RESOURCES_<KEY>`, size their tasks to them, and
   report `cpus_in_use` / `gpus_in_use`, with an overuse configuration like the
   spending ones (`campaign_overuse.yaml`, `--overspend`).
-- **U4 — graceful per-run cancel.** A run over its spending limit or resources
+- **U4 — graceful per-workflow cancel.** A workflow over its spending limit or resources
   is cancelled at once. Plan: cancel it gracefully (P1).
 - **U5 — enforcement lag.** Spending and resources in use are checked once
-  per policy cycle, from the workflow's last report or its tasks, so a run can
+  per policy cycle, from the workflow's last report or its tasks, so a workflow can
   go past its limit by what it uses in one `policy_interval_s` — more for a
   workflow that reports rarely (the DeepDriveSim MiniApps worker reports once
   per prediction cycle). Resources in use come from task telemetry only with
@@ -186,7 +161,7 @@ run gets".
   that can wait a moment: send CANCEL through the DataBackend so the workflow
   can save its state and exit, and cancel it for real only if it is still
   running after a grace period. Used at shutdown, at the campaign spending
-  limit (B6) and for runs over their own limits (U4). Also: cancel a workflow
+  limit (B6) and for workflows over their own limits (U4). Also: cancel a workflow
   that does not acknowledge PAUSE within a timeout.
 - **C1 — controller fallback.** `controller.decide()` is not guarded: an
   exception in it ends the campaign's policy loop. Add a try/except and a
@@ -223,7 +198,7 @@ run gets".
   `returncode`). Today this comes from a local, temporary change to
   radical.asyncflow, which is being reworked. With a released version,
   workflows are charged only when they finish, a failed command-line workflow
-  gets `returncode` 1, the CPUs and GPUs a run uses at once can only come from
+  gets `returncode` 1, the CPUs and GPUs a workflow uses at once can only come from
   its own reports (U5), and the tests that need this data skip.
 - **X2 — RHAPSODY concurrent backend.** Checked with rhapsody-py 0.5.0:
   `ConcurrentExecutionBackend.cancel_task()` cancels the asyncio task waiting

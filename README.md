@@ -13,7 +13,7 @@ What AuCaM does:
   every policy cycle and whenever a workflow finishes.
 - **Learns what to run** — the scheduler (a UCB1 bandit) favours
   workflow types that complete and explores less as the budget runs down.
-- **Keeps spending within limits** — every run is charged (CPU-hours,
+- **Keeps spending within limits** — every workflow is charged (CPU-hours,
   GPU-hours or any other dimension) in one ledger, and the campaign stops
   launching at its limit.
 - **Runs any workflow** — Python functions or command-line programs in any
@@ -25,7 +25,7 @@ What AuCaM does:
 
 ![AuCaM capability demo](docs/figures/aucam_impact.png)
 
-*The campaign cancels poor runs and learns to avoid them (see
+*The campaign cancels poor workflows and learns to avoid them (see
 [the capability demo](docs/cm-advantages.md)).*
 
 ---

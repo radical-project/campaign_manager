@@ -15,8 +15,12 @@ Two simulation arms compete; a dependency triggers analysis after each successfu
 | `precise_sim` | 10 steps, ~90% convergence. Launched by `decide()` with dynamic priority. |
 | `analysis` | Post-processing; fires after every successful sim via `WorkflowDependency`. |
 
-The campaign ends after `goal_analyses` analyses complete **or** a perfect score (≥ 0.99)
-is found — whichever comes first.
+Every workflow has a spending limit. AuCaM passes it to the workflow, the
+workflow reports what it has spent and stops before it would pass the limit,
+and AuCaM cancels a workflow that spends more (§2, "Spending").
+
+The campaign ends after `goal_analyses` analyses complete **or** a simulation
+reaches a perfect score (≥ 0.99) — whichever comes first.
 
 ---
 
@@ -46,32 +50,88 @@ python run_campaign.py --policy fifo          # no learning; queue order
 python run_campaign.py -v                     # verbose: every launch and policy cycle
 ```
 
+See AuCaM enforce a workflow's spending limit:
+
+```bash
+python run_campaign.py --overspend            # precise_sim ignores its limit
+```
+
+`precise_sim` now runs 3× longer and ignores its limit, so AuCaM cancels it once
+its reported spending passes the limit:
+
+```
+[WORKFLOW-demo.precise_sim.…] spending limit exceeded cpu_hours=0.0033 > 0.003 — auto-cancel
+[CM] Campaign demo SUMMARY — … (stale=0 walltime=0 budget=2 resources=0 policy=…) …
+spent 0.0179 cpu_hours; workflows cancelled for exceeding their own limit: 2
+```
+
 ---
 
 ## 2. API tour
 
 ### Workflows (`run_campaign.py`)
 
-Each workflow is an `async def` that receives a `WorkflowReporter`.  It calls
-`reporter.emit()` every step to push a score snapshot to the CM.  The CM reads
-it on each policy cycle and evaluates `CancelRule` against the latest score.
+Each workflow is an `async def`. AuCaM passes it the arguments it declares:
+`reporter` (a `WorkflowReporter`) and `context` (a dict, here with the spending
+limit). The workflow calls `reporter.emit()` every step to send AuCaM a score
+and metrics; AuCaM reads them every policy cycle and evaluates `CancelRule`
+against the latest score.
 
 ```python
-async def fast_sim(reporter: WorkflowReporter) -> None:
-    t0 = time.monotonic()
-    score = 0.5
-    for step in range(6):
-        await asyncio.sleep(0.05)
-        score += random.gauss(0.06 if converging else -0.10, 0.04)
+async def sim(reporter: WorkflowReporter, context: dict) -> None:
+    limit = context["spending_limit"]["cpu_hours"]  # given by AuCaM
+    spent = 0.0
+    for step in range(steps):
+        if spent + step_cpu_h > limit:  # stop before passing the limit
+            break
+        await asyncio.sleep(0.05)       # one step of work
+        spent += step_cpu_h
+        score += ...
         await reporter.emit(
             score=score,
-            metrics={"step": step, "cpu_hours": (time.monotonic() - t0) / 3600.0},
+            metrics={"step": step, "cpu_hours": spent},  # spending so far
             iteration=step,
         )
 ```
 
-Each emit includes the cumulative `cpu_hours` elapsed so far.  The CM uses the
-last reported value to track actual budget consumption as the workflow runs.
+In the demo each step costs a fixed amount (`FAST_STEP_CPU_H`,
+`PRECISE_STEP_CPU_H`); one factory, `make_sim()`, builds both sims.
+
+---
+
+### Spending: the workflow–AuCaM interface (`run_campaign.py → build_spec`)
+
+Spending goes both ways between AuCaM and a workflow:
+
+| Direction | How | In the demo |
+|---|---|---|
+| AuCaM → workflow | the workflow's spending limit, in `context["spending_limit"]` (a command-line program gets `CM_SPENDING_LIMIT_CPU_HOURS`) | `limit = context["spending_limit"]["cpu_hours"]` |
+| workflow → AuCaM | its spending so far, as a running total in every `emit()` (`metrics={"cpu_hours": …}`) | `metrics={"cpu_hours": spent}` |
+
+Each workflow type declares two amounts:
+
+```python
+WorkflowConfig(
+    name="fast_sim",
+    block=fast_sim,
+    declared_spending={"cpu_hours": 6 * FAST_STEP_CPU_H},  # expected cost of one workflow
+    spending_limit={"cpu_hours": 6 * FAST_STEP_CPU_H},     # most one workflow may spend
+)
+```
+
+- **`declared_spending`** is the estimate AuCaM uses before a workflow reports
+  (and to prorate when it reports nothing).
+- **`spending_limit`** is what one workflow may spend. AuCaM holds it against
+  the campaign's limit while the workflow runs, passes it to the workflow, and
+  cancels the workflow if its reported spending goes past it. The
+  `WorkflowResult` then has `over_budget=True`, and
+  `CampaignOutcome.budget_cancels` counts such workflows.
+
+The controller can give one workflow a different limit than its type's:
+`LaunchRequest.make("precise_sim", spending_limit={"cpu_hours": 0.006})`.
+Each workflow can also be given resources (CPUs, GPUs) to use at once, and the
+scheduler can size both from the remaining budget; see the
+[developer guide](campaign-developer-guide.md), "How much each workflow gets".
 
 ---
 
@@ -97,9 +157,13 @@ Override `condition` to gate on score, metrics, or any field of `WorkflowResult`
 CampaignBudget(
     max_concurrent_workflows=4,
     max_concurrency_per_workflow=2,  # per-type cap enforced by the CM
-    spending={"cpu_hours": 0.05},  # hard cap; workflows self-report actual usage
+    spending={"cpu_hours": 0.05},  # campaign limit: no new workflows once spent + in flight reaches it
 )
 ```
+
+The campaign limit and each workflow's own limit work together: a workflow
+holds its limit against the campaign's while it runs, so the campaign stops
+launching before running workflows could take it past its limit.
 
 ---
 
@@ -193,7 +257,8 @@ def goals(self) -> list[Goal]:
 ```python
 def on_complete(self, result: WorkflowResult) -> None:
     super().on_complete(result)  # keeps completed/cancelled/failed counters accurate
-    if result.returncode == 0 and result.final_score is not None:
+    is_sim = result.workflow_type in ("fast_sim", "precise_sim")  # analysis always scores 1.0
+    if is_sim and result.returncode == 0 and result.final_score is not None:
         if self._best is None or result.final_score > self._best:
             self._best = result.final_score
 ```
@@ -249,7 +314,7 @@ if isinstance(policy, BanditSchedulingPolicy):
 ```python
 outcome = await CampaignManager().run(spec)  # returns when the campaign ends
 s = outcome.summary  # the controller's get_summary()
-print(outcome.exit_reason, outcome.spent)
+print(outcome.exit_reason, outcome.spent, outcome.budget_cancels)
 ```
 
 `run()` sets up the AsyncFlow engine, runs the campaign, shuts the engine down
