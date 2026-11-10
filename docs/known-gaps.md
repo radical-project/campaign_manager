@@ -8,8 +8,42 @@ done.
 
 ## Status
 
-| ID | Item | Status |
-|---|---|---|
+Work in priority order; within a level, top to bottom. "Needs" names an item
+that must land first.
+
+- **1 — first:** problems that can break a campaign or let it overspend, and
+  items that unblock others.
+- **2 — the vision:** AI steering a campaign and the budget as a decision input.
+- **3 — robustness:** long campaigns on HPC.
+- **4 — later:** when a real campaign needs it.
+- **External:** raise with the AsyncFlow / RHAPSODY teams; not scheduled here.
+
+| Priority | ID | Item | Status | Needs |
+|---|---|---|---|---|
+| 1 | C1 | Controller fallback when `decide()` fails or is slow | Not started | |
+| 1 | P1 | Graceful cancel through the DataBackend; PAUSE timeout | Not started | |
+| 1 | B2 | Launch only requests that fit the remaining budget | Partial | |
+| 1 | B0 | Any budget dimension (e.g. `llm_tokens`) | Partial | |
+| 2 | B1 | Burn-down in the controller's observation | Partial | |
+| 2 | U2 | Value-based sizing and cost-aware bandit; learned resource sizes | Partial | |
+| 2 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) | C1 |
+| 2 | B6 | Stop at the campaign spending limit | Not started | P1 |
+| 2 | U4 | Graceful cancel for per-run limits | Not started | P1 |
+| 2 | B4 | `CostCancelRule` | Not started | B1 helps |
+| 3 | R1 | Restart: rejoin running workflows, keep goals | Not started | |
+| 3 | R2 | Restart: dependency state | Partial | |
+| 3 | B3 | Learned cost estimates (follow-ups: setting, checkpoint) | Done, two follow-ups | with R1 |
+| 3 | W1 | Concurrency cap per workflow type | Not started | |
+| 3 | U3 | Example campaigns use their resource allocation | Not started | |
+| 3 | U5 | Per-run enforcement lags by one check | Open | revisit after P1 |
+| 4 | U1 | Change a running run's allocation | Not started (decided: not for now) | |
+| 4 | L1 | Launch fewer workflows when the backend is backlogged | Not started | task counts from Delta runs |
+| 4 | H1 | On-completion hooks can enqueue requests | Not started | |
+| 4 | A1 | Per-dimension prices | Not started | |
+| External | X1 | More accurate task data in AsyncFlow telemetry | Open | |
+| External | X2 | RHAPSODY concurrent backend does not kill cancelled programs | Open | |
+
+---|---|---|
 | B0 | Any budget dimension (e.g. `llm_tokens`) | Partial |
 | B1 | Burn-down in the controller's observation | Partial |
 | B2 | Launch only requests that fit the remaining budget | Partial |
