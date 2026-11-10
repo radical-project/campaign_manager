@@ -75,8 +75,11 @@ from src.aucam import (
 # fit and stops before it would exceed it.  A workflow that ignores its limit is
 # cancelled by AuCaM once its reported spending passes the limit.
 
+H = 3600.0  # seconds per hour
+STEP_S = 0.05  # wall time of one sim step, seconds
 FAST_STEP_CPU_H = 0.0002  # CPU-hours per step
 PRECISE_STEP_CPU_H = 0.0003
+ANALYSIS_S = 0.08
 ANALYSIS_CPU_H = 0.0001
 
 
@@ -102,7 +105,7 @@ def make_sim(
                     "[%s] stopping at step %d to stay within %.4f cpu_hours", arm, step, limit
                 )
                 break
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(STEP_S)
             spent += step_cpu_h
             score += random.gauss(up if converging else down, 0.04 if arm == "fast" else 0.03)
             score = max(0.0, min(1.0, score))
@@ -128,7 +131,7 @@ runaway_sim = make_sim(
 
 async def analysis(reporter: WorkflowReporter, context: dict) -> None:
     """Post-processing step — triggered by WorkflowDependency after each successful sim."""
-    await asyncio.sleep(0.08)
+    await asyncio.sleep(ANALYSIS_S)
     await reporter.emit(score=1.0, metrics={"status": "ok", "cpu_hours": ANALYSIS_CPU_H})
 
 
@@ -264,30 +267,37 @@ def build_spec(
             goal_analyses=goal_analyses, cancel_threshold=cancel_threshold
         ),
         workflows=[
-            # spending_limit: the most one run may spend.  AuCaM holds it against
-            # the campaign while the run goes, passes it to the workflow, and
-            # cancels the run if it spends more.
+            # declared_spending: what one workflow is expected to cost, with its
+            #   expected wall time.  AuCaM uses it only when the workflow reports
+            #   no spending (it then charges it prorated by actual wall time) or
+            #   has no spending_limit.  These sims report cpu_hours, so it is a fallback.
+            # spending_limit: the most one workflow may spend, here 1.5x expected.
+            #   AuCaM holds it against the campaign while the workflow runs,
+            #   passes it to the workflow, and cancels the workflow if it spends more.
             WorkflowConfig(
                 name="fast_sim",
                 block=fast_sim,
                 launch_on_start=True,
                 stale_timeout_s=30.0,
-                declared_spending={"cpu_hours": 6 * FAST_STEP_CPU_H},
-                spending_limit={"cpu_hours": round(6 * FAST_STEP_CPU_H, 6)},
+                declared_spending={"wall_hours": 6 * STEP_S / H, "cpu_hours": 6 * FAST_STEP_CPU_H},
+                spending_limit={"cpu_hours": round(9 * FAST_STEP_CPU_H, 6)},
             ),
             WorkflowConfig(
                 name="precise_sim",
                 block=runaway_sim if overspend else precise_sim,
                 launch_on_start=True,
                 stale_timeout_s=60.0,
-                declared_spending={"cpu_hours": 10 * PRECISE_STEP_CPU_H},
-                spending_limit={"cpu_hours": round(10 * PRECISE_STEP_CPU_H, 6)},
+                declared_spending={
+                    "wall_hours": 10 * STEP_S / H,
+                    "cpu_hours": 10 * PRECISE_STEP_CPU_H,
+                },
+                spending_limit={"cpu_hours": round(15 * PRECISE_STEP_CPU_H, 6)},
             ),
             WorkflowConfig(
                 name="analysis",
                 block=analysis,
                 launch_on_start=False,  # only triggered by dependency below
-                declared_spending={"cpu_hours": ANALYSIS_CPU_H},
+                declared_spending={"wall_hours": ANALYSIS_S / H, "cpu_hours": ANALYSIS_CPU_H},
                 spending_limit={"cpu_hours": 2 * ANALYSIS_CPU_H},
             ),
         ],

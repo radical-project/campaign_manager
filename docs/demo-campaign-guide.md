@@ -60,9 +60,9 @@ python run_campaign.py --overspend            # precise_sim ignores its limit
 its reported spending passes the limit:
 
 ```
-[WORKFLOW-demo.precise_sim.…] spending limit exceeded cpu_hours=0.0033 > 0.003 — auto-cancel
-[CM] Campaign demo SUMMARY — … (stale=0 walltime=0 budget=2 resources=0 policy=…) …
-spent 0.0179 cpu_hours; workflows cancelled for exceeding their own limit: 2
+[WORKFLOW-demo.precise_sim.…] spending limit exceeded cpu_hours=0.0057 > 0.0045 — auto-cancel
+[CM] Campaign demo SUMMARY — … (stale=0 walltime=0 budget=1 resources=0 policy=…) …
+spent 0.0169 cpu_hours; workflows cancelled for exceeding their own limit: 1
 ```
 
 ---
@@ -114,13 +114,21 @@ Each workflow type declares two amounts:
 WorkflowConfig(
     name="fast_sim",
     block=fast_sim,
-    declared_spending={"cpu_hours": 6 * FAST_STEP_CPU_H},  # expected cost of one workflow
-    spending_limit={"cpu_hours": 6 * FAST_STEP_CPU_H},  # most one workflow may spend
+    # Expected: what one workflow usually costs (6 steps) and how long it takes.
+    # AuCaM charges it, prorated by actual wall time, if the workflow reports
+    # no spending. fast_sim reports cpu_hours, so here it is only a fallback.
+    declared_spending={"wall_hours": 6 * STEP_S / H, "cpu_hours": 6 * FAST_STEP_CPU_H},
+    # Allowed: the most one workflow may spend (9 steps, 1.5x expected).
+    # Passed to the workflow; AuCaM cancels the workflow if it spends more.
+    spending_limit={"cpu_hours": 9 * FAST_STEP_CPU_H},
 )
 ```
 
-- **`declared_spending`** is the estimate AuCaM uses before a workflow reports
-  (and to prorate when it reports nothing).
+- **`declared_spending`** is what one workflow is expected to cost, with its
+  expected wall time (`wall_hours`). AuCaM uses it when a workflow reports no
+  spending: it charges the declared amount prorated by actual wall time (half
+  the declared time, half the cost). For a type without a `spending_limit`, it
+  is also what AuCaM holds against the campaign's limit while the workflow runs.
 - **`spending_limit`** is what one workflow may spend. AuCaM holds it against
   the campaign's limit while the workflow runs, passes it to the workflow, and
   cancels the workflow if its reported spending goes past it. The
