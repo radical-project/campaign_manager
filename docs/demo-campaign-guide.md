@@ -135,6 +135,23 @@ WorkflowConfig(
   `WorkflowResult` then has `over_budget=True`, and
   `CampaignOutcome.budget_cancels` counts such workflows.
 
+`precise_sim` gives a range instead of a fixed limit, so the scheduler sets
+each workflow's limit from what earlier ones spent:
+
+```python
+WorkflowConfig(
+    name="precise_sim",
+    # Up to 15 steps until 3 precise_sims have finished, then their
+    # average spending + 25 %, never below 10 steps.
+    bounds={"cpu_hours": (10 * PRECISE_STEP_CPU_H, 15 * PRECISE_STEP_CPU_H)},
+    ...
+)
+```
+
+With `--goal-analyses 12` the run is long enough to see it: the first
+`precise_sim` workflows are launched with `spending_limit={'cpu_hours': 0.0045}`,
+later ones with `0.00375` (12.5 steps).
+
 The controller can give one workflow a different limit than its type's:
 `LaunchRequest.make("precise_sim", spending_limit={"cpu_hours": 0.006})`.
 Each workflow can also be given resources (CPUs, GPUs) to use at once, and the

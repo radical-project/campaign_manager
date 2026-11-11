@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import inspect
 import json
 import logging
@@ -910,6 +911,11 @@ class _CampaignInstance:
             remaining={k: v["remaining"] for k, v in burn.items()},
             queued=len(self._queue) + 1,
         )
+        # The type's ranges (WorkflowConfig.bounds) apply unless the request
+        # gives its own for the same key.
+        bounds = {**wfc.bounds, **(request.bounds or {})}
+        if bounds != (request.bounds or {}):
+            request = dataclasses.replace(request, bounds=bounds)
         alloc = self._policy.size(request, ctx)
         if alloc is None:
             return None
@@ -1945,6 +1951,13 @@ class _CampaignInstance:
             # wf_types: wf_id → workflow_type; lets controllers identify
             # which workflow type each live report belongs to.
             wf_types={wf_id: inst.workflow_type for wf_id, inst in self._active.items()},
+            # learned_cost: workflow_type → mean spending of its successful
+            # workflows, per dimension, once 3 have finished (B3).
+            learned_cost={
+                wt: {k: s["mean"] for k, s in st.items() if s["n"] >= 3}
+                for wt, st in self._type_cost_stats.items()
+                if any(s["n"] >= 3 for s in st.values())
+            },
             # wf_spend: wf_id → spending so far per dimension (best source
             # available); used by CostCancelRule.
             wf_spend=self._wf_spend(now),

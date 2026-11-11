@@ -292,6 +292,7 @@ The observation has these keys (plus any your `observe()` adds):
 | `live_reports` | `{wf_id: WorkflowReport}` — latest report of each running workflow |
 | `wf_types` | `{wf_id: workflow_type}` |
 | `wf_spend` | `{wf_id: {dim: spending so far}}` — CPU/GPU hours, the campaign's limited dimensions and the workflow's own; a dimension with no source is absent |
+| `learned_cost` | `{workflow_type: {dim: mean spending of its successful workflows}}`, for types with 3 or more |
 | `telemetry` | `TelemetrySnapshot`: run times, node readings, spending, live use estimates |
 | `tasks` | AsyncFlow task counts for this campaign: `waiting` (not yet handed to the backend), `submitted` (waiting in the backend), `running`. `None` without telemetry (`enable_telemetry=True`). |
 
@@ -421,10 +422,19 @@ An instance passed to the specs of several campaigns keeps what it learned.
 When a request is about to start, the policy's `size(request, ctx)` decides
 its allocation: a spending limit and the resources it may use at once.
 
-- **The controller states the intent** on the `LaunchRequest`: exact amounts
-  (`spending_limit=`, `resources=`), or ranges (`bounds={"cpu_hours": (0.5, 4),
-  "cpus": (2, 8)}`). Without either, the workflow type's
-  `WorkflowConfig.spending_limit` and `resources` apply.
+- **The intent** comes from the workflow type or from the controller:
+  - the type: `WorkflowConfig.spending_limit` / `resources` (exact amounts) or
+    `WorkflowConfig.bounds` (ranges, e.g. `{"cpu_hours": (0.5, 4), "cpus": (2, 8)}`),
+    used for every launch of the type, including `launch=[...]`, `LaunchRule`
+    and dependency launches;
+  - the controller, for one launch: `LaunchRequest.spending_limit` /
+    `resources`, or `LaunchRequest.bounds`, which override the type's per key.
+
+  For the policy to size an amount from learned cost, give a range, not an
+  exact amount, for that key. A custom controller that wants to choose an
+  exact amount itself can read the learned costs in `obs["learned_cost"]`
+  (`{workflow_type: {dim: mean spending of its successful workflows}}`, once 3
+  have finished).
 - **The scheduling policy decides the amount.** When the scheduler is about to
   start a request, it calls the policy's `size()`, which every built-in policy
   inherits from `SchedulingPolicy`. By default `size()`:

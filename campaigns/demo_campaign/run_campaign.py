@@ -274,6 +274,9 @@ def build_spec(
             # spending_limit: the most one workflow may spend, here 1.5x expected.
             #   AuCaM holds it against the campaign while the workflow runs,
             #   passes it to the workflow, and cancels the workflow if it spends more.
+            # bounds (precise_sim): a range instead of a fixed limit; the scheduler
+            #   sets each workflow's limit, from the range's max (15 steps) until 3
+            #   precise_sims have finished, then their learned cost + 25 %.
             WorkflowConfig(
                 name="fast_sim",
                 block=fast_sim,
@@ -291,7 +294,7 @@ def build_spec(
                     "wall_hours": 10 * STEP_S / H,
                     "cpu_hours": 10 * PRECISE_STEP_CPU_H,
                 },
-                spending_limit={"cpu_hours": round(15 * PRECISE_STEP_CPU_H, 6)},
+                bounds={"cpu_hours": (10 * PRECISE_STEP_CPU_H, round(15 * PRECISE_STEP_CPU_H, 6))},
             ),
             WorkflowConfig(
                 name="analysis",

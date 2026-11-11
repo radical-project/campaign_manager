@@ -238,9 +238,9 @@ what it spends in one `policy_interval_s`.
 ### Sizing each workflow
 
 How much a workflow gets is decided when it starts, by the scheduling policy's
-`size()`: the controller states an intent on the `LaunchRequest` (exact
-amounts, or ranges in `bounds`), and the policy turns it into the workflow's
-allocation — from the type's learned cost (§6) plus a margin, kept within the
+`size()`: the workflow type (`WorkflowConfig`) or the controller (`LaunchRequest`)
+states an intent — exact amounts, or ranges in `bounds` — and the policy turns
+it into the workflow's allocation — from the type's learned cost (§6) plus a margin, kept within the
 range, and capped at what is left in the campaign budget. A request whose
 range minimum does not fit is dropped. The same allocation carries the
 resources the workflow may use at once (`cpus`, `gpus`), which AuCaM enforces

@@ -69,6 +69,14 @@ class WorkflowConfig(BaseModel):
     # and must size its tasks to it; AuCaM cancels a run that uses more (measured
     # from its running tasks, or reported as cpus_in_use / gpus_in_use).
     resources: dict[str, float] = {}
+    # Ranges, key -> (min, max), for a spending dimension or a resource, used for
+    # every launch of this type (a LaunchRequest's own bounds override them per
+    # key).  The scheduling policy's size() picks the amount: for spending, the
+    # type's learned cost x (1 + size_margin) once 3 workflows of the type have
+    # finished, the range's max before that; for a resource, the max.  Use it
+    # instead of spending_limit / resources for that key: an exact amount is
+    # kept as is.  See docs/budget.md, "Sizing each workflow".
+    bounds: dict[str, tuple[float, float]] = {}
     # Set True only for workflows that handle PAUSE/RESUME: Python workflows via
     # reporter.poll() + wait_for_resume(); launch_cmd programs via
     # aucam_client.Reporter.poll_signal() (needs a remote DataBackend).
@@ -101,6 +109,15 @@ class WorkflowConfig(BaseModel):
             raise ValueError(
                 f"WorkflowConfig '{self.name}': block and launch_cmd are mutually exclusive"
             )
+
+    @field_validator("bounds")
+    @classmethod
+    def _check_bounds(cls, v):
+        for key, rng in v.items():
+            lo, hi = rng
+            if lo < 0 or hi < lo:
+                raise ValueError(f"bounds[{key!r}] must be (min, max) with 0 <= min <= max")
+        return v
 
 
 @dataclass
