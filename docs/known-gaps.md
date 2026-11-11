@@ -20,7 +20,6 @@ that must land first.
 
 | Priority | ID | Item | Status | Needs |
 |---|---|---|---|---|
-| 2 | U2 | Value-based sizing and cost-aware bandit; learned resource sizes | Partial | |
 | 3 | B0 | Any budget dimension (e.g. `llm_tokens`) | Partial | with X1 |
 | 3 | P1 | Graceful cancel through the DataBackend; PAUSE timeout | Not started | |
 | 3 | B6 | Stop at the campaign spending limit | Not started | P1 |
@@ -72,7 +71,7 @@ update `budget.md` and the developer guide.
   `on_limit="finish"`) for campaigns that prefer to let running work
   complete. Today a custom controller can do this in `decide()`.
 
-## Per-workflow allocations (U1–U5)
+## Per-workflow allocations (U1, U3–U5)
 
 Each workflow gets an allocation when it starts — a spending limit and the CPUs and
 GPUs it may use at once (`Allocation`) — sized by `SchedulingPolicy.size()`
@@ -86,18 +85,6 @@ from the controller's intent (`LaunchRequest.spending_limit` / `resources` /
   (or lowers) a running workflow's limit, with the in-flight amount updated in the
   ledger and the new limit sent to the workflow through the DataBackend.
   Enables "start small, give more to the promising" (successive halving).
-- **U2 — smarter sizing, cost-aware bandit.** The default `size()` uses the
-  type's learned cost plus a margin, or fair share, and the bandit already
-  explores less as the budget is used (exploration × `√(1 − spending_fraction)`
-  in `BanditSchedulingPolicy.select()`). Missing: value-based decisions — a
-  bandit reward of success × 1 / (1 + k × cost), with cost = Σ over dimensions
-  of the workflow's spending / the campaign limit (`WorkflowResult.spent` is in
-  `on_outcome()`; the limits are not), `cost_aware=False` to keep today's
-  completion-only reward, and more budget in `size()` for types with a better
-  result per unit spent; and
-  learned resource sizes — a resource range always gets its maximum, since
-  AuCaM does not learn how many CPUs/GPUs a type actually uses (it could, from
-  `cpus_in_use` reports or task telemetry).
 - **U3 — example campaigns and resources.** The example campaigns pass and
   respect spending limits but not resources: their workflows should read
   `context["resources"]` / `CM_RESOURCES_<KEY>`, size their tasks to them, and

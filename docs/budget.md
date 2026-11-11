@@ -334,6 +334,12 @@ exploration = default_exploration × √(1 − used)
 With no budget used it explores normally; with the budget used up it only
 picks the types that have done best so far.
 
+With `BanditSchedulingPolicy(cost_aware=True)` the reward also accounts for
+cost: reward × 1 / (1 + `cost_weight` × relative cost), where relative cost is
+the workflow's spending ÷ the average spending of the campaign's finished
+workflows (averaged over dimensions). A type that completes as often as another
+but costs twice the average earns a third of the reward instead of a half.
+
 ![Bandit and budget](figures/aucam_bandit_budget.png)
 
 ---
@@ -386,7 +392,6 @@ after the workflow has ended go into the ledger but not into `spent`.)
 |---|---|---|
 | B0 | Any budget dimension | Partial: limits, in-flight and methods B/C accept any dimension; method A charges only CPU/GPU hours; `[SPEND]` logs show only CPU/GPU |
 | B3 | Learned cost estimates | Done (§6); count not configurable, not checkpointed |
-| U2 | Cost-aware bandit and sizing | Partial: exploration shrinks with the budget (§5); reward not yet cost-weighted; `size()` not yet value-based |
 
 ---
 

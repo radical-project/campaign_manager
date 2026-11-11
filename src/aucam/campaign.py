@@ -223,6 +223,7 @@ class _WorkflowInstance:
         "resources",
         "over_resources",
         "capped",
+        "peak_use",
     )
 
     def __init__(
@@ -254,6 +255,8 @@ class _WorkflowInstance:
         self.resources: dict[str, float] = dict(resources or {})
         self.over_resources = False
         self.capped = capped
+        # Most CPUs / GPUs seen in use at once (task telemetry or reports), U2.
+        self.peak_use: dict[str, float] = {}
 
 
 class _CampaignInstance:
@@ -330,6 +333,9 @@ class _CampaignInstance:
         # {workflow_type: {"completed", "cancelled", "failed": int,
         #                  "spent": {dim: float}, "score_sum": float, "score_n": int}}
         self._type_totals: dict[str, dict] = {}
+        # Per-type peak CPUs / GPUs in use at once, successful workflows (U2):
+        # {workflow_type: {key: {"n": int, "mean": float}}}
+        self._type_resource_stats: dict[str, dict[str, dict]] = {}
         # (monotonic time, spent) at recent policy cycles, for the spending rate (B1).
         self._spent_samples: deque[tuple[float, dict[str, float]]] = deque(maxlen=20)
 
@@ -904,12 +910,15 @@ class _CampaignInstance:
         wfc = self._wf_config(request.workflow_type)
         stats = self._type_cost_stats.get(request.workflow_type, {})
         learned = {k: s["mean"] for k, s in stats.items() if s["n"] >= 3}
+        rstats = self._type_resource_stats.get(request.workflow_type, {})
         burn = self._allocator.campaign_view(self.name)["burn"]
         ctx = SizingContext(
             proposal=self._proposal(wfc, request),
             learned_cost=learned,
             remaining={k: v["remaining"] for k, v in burn.items()},
             queued=len(self._queue) + 1,
+            learned_resources={k: s["mean"] for k, s in rstats.items() if s["n"] >= 3},
+            by_type=self._by_type(),
         )
         # The type's ranges (WorkflowConfig.bounds) apply unless the request
         # gives its own for the same key.
@@ -984,6 +993,11 @@ class _CampaignInstance:
                 spent.get(key, 0.0) + view["in_flight"].get(key, 0.0) + queued.get(key, 0.0)
             )
             b["hours_to_limit"] = b["remaining"] / rate if rate > 0 else None
+        view["by_type"] = self._by_type()
+        return view
+
+    def _by_type(self) -> dict[str, dict]:
+        """Per workflow type: finished-workflow counts, spending and mean score (B1)."""
         by_type: dict[str, dict] = {}
         for wt, t in self._type_totals.items():
             n = t["completed"] + t["cancelled"] + t["failed"]
@@ -998,8 +1012,7 @@ class _CampaignInstance:
                 ),
                 "mean_score": t["score_sum"] / t["score_n"] if t["score_n"] else None,
             }
-        view["by_type"] = by_type
-        return view
+        return by_type
 
     def _held_estimate(self, request: LaunchRequest, limit: dict[str, float]) -> dict[str, float]:
         """What a workflow is held at against the campaign while it runs.
@@ -1112,6 +1125,8 @@ class _CampaignInstance:
                 last_report = backend.sync_get_report(_inst.wf_id) or last_report
             final_metrics: dict = dict(last_report.metrics or {}) if last_report is not None else {}
             final_score = last_report.score if last_report is not None else None
+            if last_report is not None:
+                _inst.last_report = last_report  # so the final report counts for peak use
 
             self._completion_event.set()
 
@@ -1156,6 +1171,13 @@ class _CampaignInstance:
             # cancelled and failed runs are partial and would bias the mean.
             if rc == 0 and actual_spent:
                 self._update_type_cost(_inst.workflow_type, actual_spent)
+            self._note_peak_use(_inst)
+            if rc == 0 and _inst.peak_use:
+                rstats = self._type_resource_stats.setdefault(_inst.workflow_type, {})
+                for key, val in _inst.peak_use.items():
+                    s_ = rstats.setdefault(key, {"n": 0, "mean": 0.0})
+                    s_["mean"] = (s_["mean"] * s_["n"] + val) / (s_["n"] + 1)
+                    s_["n"] += 1
             logger.info(
                 "[SPEND] wf_done  wf=%s  method=%s  source=%s  cpu_h=%.4f  gpu_h=%.4f  wall_s=%.1f  rc=%s",
                 _inst.wf_id,
@@ -1739,6 +1761,12 @@ class _CampaignInstance:
             out[wf_id] = self._spent_so_far(inst, now, keys)
         return out
 
+    def _note_peak_use(self, inst: _WorkflowInstance) -> None:
+        """Remember the most CPUs / GPUs the workflow has used at once."""
+        for key, val in self._in_use(inst).items():
+            if val > inst.peak_use.get(key, 0.0):
+                inst.peak_use[key] = val
+
     def _in_use(self, inst: _WorkflowInstance) -> dict[str, float]:
         """Resources a running workflow uses now: its running tasks' requested
         resources (AsyncFlow telemetry), else what it reports as
@@ -1940,6 +1968,8 @@ class _CampaignInstance:
         self._policy_cycles += 1
         now = time.time()
         live_reports = await self._collect_live_reports()
+        for inst in self._active.values():
+            self._note_peak_use(inst)
         telemetry = self._collect_telemetry()
         self._last_telemetry = telemetry  # cache for _drain_queue
         obs = self._observe(

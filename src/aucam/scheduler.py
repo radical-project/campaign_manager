@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .types import (
     RESOURCE_KEYS,
@@ -78,12 +78,18 @@ class SizingContext:
     remaining    — campaign spending limit − spent − in flight, per limited
                    dimension (absent: no campaign limit).
     queued       — requests waiting in the queue, including this one.
+    learned_resources — mean peak CPUs / GPUs in use at once of successful runs
+                   of this type, once at least 3 have finished (empty before).
+    by_type      — per workflow type: finished counts, spending, cost per
+                   completed workflow, mean score (as obs["budget"]["by_type"]).
     """
 
     proposal: Allocation
     learned_cost: dict[str, float]
     remaining: dict[str, float]
     queued: int
+    learned_resources: dict[str, float] = field(default_factory=dict)
+    by_type: dict[str, dict] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +137,17 @@ class SchedulingPolicy:
     size_margin: float = 0.25  # learned cost × (1 + margin) when a range is given
     fair_share: bool = False  # cap each run at remaining budget / queued requests
 
+    def value(self, workflow_type: str, ctx: SizingContext) -> float:
+        """How much budget to give this type relative to its learned cost (default 1.0).
+
+        Placeholder for value-based sizing (U2): size() multiplies a spending
+        range's learned-cost amount by this factor, then keeps it within the
+        range and the remaining budget.  Override it to give more budget to
+        types with a better result per unit spent, e.g. from
+        ``ctx.by_type[workflow_type]["cost_per_completed"]`` and ``["mean_score"]``.
+        """
+        return 1.0
+
     def size(self, request: LaunchRequest, ctx: SizingContext) -> Allocation | None:
         """Decide what one run gets: its spending limit and its resources.
 
@@ -139,9 +156,11 @@ class SchedulingPolicy:
 
         Default:
           - an explicit amount (the request's, else the type's default) is kept;
-          - a key with only a range (LaunchRequest.bounds) gets, for spending,
-            the learned cost × (1 + size_margin), or the range's maximum before
-            costs are learned; for a resource, the range's maximum;
+          - a key with only a range (LaunchRequest.bounds or WorkflowConfig.bounds)
+            gets, for spending, the learned cost × (1 + size_margin) × value(),
+            or the range's maximum before costs are learned; for a resource, the
+            learned peak use × (1 + size_margin) rounded up, or the range's
+            maximum before it is learned;
           - every amount is kept within its range;
           - spending is capped at what is left in the campaign budget (and at
             remaining / queued requests with fair_share); a cap below the
@@ -155,7 +174,13 @@ class SchedulingPolicy:
             if key in target:
                 value = target[key]
             elif key not in RESOURCE_KEYS and key in ctx.learned_cost:
-                value = ctx.learned_cost[key] * (1.0 + self.size_margin)
+                value = (
+                    ctx.learned_cost[key]
+                    * (1.0 + self.size_margin)
+                    * self.value(request.workflow_type, ctx)
+                )
+            elif key in RESOURCE_KEYS and key in ctx.learned_resources:
+                value = math.ceil(ctx.learned_resources[key] * (1.0 + self.size_margin) - 1e-9)
             else:
                 value = hi
             target[key] = min(max(float(value), float(lo)), float(hi))
@@ -218,6 +243,14 @@ class BanditSchedulingPolicy(SchedulingPolicy):
         rewards in [0, 1].
     reward_fn : Callable[[WorkflowResult], float] | None
         Override the default throughput reward.  Must return a value in [0, 1].
+    cost_aware : bool
+        Weigh the reward by cost (U2): reward × 1 / (1 + cost_weight × relative
+        cost), where relative cost is the workflow's spending ÷ the mean spending
+        of all finished workflows of the campaign, averaged over its dimensions.
+        A type that succeeds as often but costs twice the average then earns a
+        third of the reward with cost_weight=1.  Default False: today's reward.
+    cost_weight : float
+        How strongly cost lowers the reward when cost_aware (default 1.0).
     """
 
     def __init__(
@@ -225,9 +258,15 @@ class BanditSchedulingPolicy(SchedulingPolicy):
         *,
         exploration: float = math.sqrt(2),
         reward_fn: Callable[[WorkflowResult], float] | None = None,
+        cost_aware: bool = False,
+        cost_weight: float = 1.0,
     ) -> None:
         self._exploration = exploration
         self._reward_fn = reward_fn or _default_reward
+        self.cost_aware = cost_aware
+        self.cost_weight = cost_weight
+        # Mean spending per dimension over all finished workflows (cost_aware).
+        self._cost_mean: dict[str, dict[str, float]] = {}
         # arm_key → {"n": int, "mean": float}
         self._arms: dict[str, dict[str, float | int]] = {}
         self._total_pulls: int = 0
@@ -245,6 +284,22 @@ class BanditSchedulingPolicy(SchedulingPolicy):
         mean = float(stats["mean"])
         c_eff = self._exploration if c is None else c
         return mean + c_eff * math.sqrt(math.log(self._total_pulls) / n)
+
+    def _relative_cost(self, spent: dict[str, float]) -> float:
+        """The workflow's spending ÷ the campaign's mean so far, averaged over dimensions.
+
+        Updates the means with this workflow first; 1.0 when it reports no spending.
+        """
+        ratios = []
+        for key, val in (spent or {}).items():
+            if key == "wall_hours":
+                continue
+            m = self._cost_mean.setdefault(key, {"n": 0, "mean": 0.0})
+            m["mean"] = (m["mean"] * m["n"] + float(val)) / (m["n"] + 1)
+            m["n"] += 1
+            if m["mean"] > 0:
+                ratios.append(float(val) / m["mean"])
+        return sum(ratios) / len(ratios) if ratios else 1.0
 
     def arm_stats(self) -> dict[str, dict]:
         """Return a copy of the current arm belief table (for inspection / logging)."""
@@ -311,6 +366,8 @@ class BanditSchedulingPolicy(SchedulingPolicy):
     def on_outcome(self, request: LaunchRequest, result: WorkflowResult) -> None:
         arm = self._arm_key(request)
         reward = self._reward_fn(result)
+        if self.cost_aware:
+            reward *= 1.0 / (1.0 + self.cost_weight * self._relative_cost(result.spent))
         stats = self._arms.setdefault(arm, {"n": 0, "mean": 0.0})
         n = int(stats["n"])
         stats["mean"] = (float(stats["mean"]) * n + reward) / (n + 1)

@@ -408,7 +408,7 @@ than `age_threshold_s` become HIGH).
 
 | Policy | Behaviour |
 |---|---|
-| `BanditSchedulingPolicy` (default) | UCB1 over workflow types. Reward 1 for a completed workflow, 0 for cancelled or failed (`reward_fn=` to change). Explores less as the campaign's budget is used up. |
+| `BanditSchedulingPolicy` (default) | UCB1 over workflow types. Reward 1 for a completed workflow, 0 for cancelled or failed (`reward_fn=` to change). Explores less as the campaign's budget is used up. With `cost_aware=True`, the reward is divided by 1 + `cost_weight` × the workflow's cost relative to the campaign's average, so cheaper types that succeed as often are preferred. |
 | `FIFOSchedulingPolicy` | Queue order |
 | `ADRSchedulingPolicy`, `LLMSchedulingPolicy` | Stubs; behave as FIFO |
 
@@ -441,15 +441,23 @@ its allocation: a spending limit and the resources it may use at once.
   - keeps exact amounts as they are;
   - for a spending range, uses the type's learned cost + 25% (`size_margin`),
     or the range's maximum until 3 workflows of the type have finished;
-  - for a resource range, uses its maximum;
+  - for a resource range, uses the type's peak use + 25% rounded up (the most
+    CPUs / GPUs its successful workflows used at once, from task telemetry or
+    `cpus_in_use` / `gpus_in_use` reports), or the range's maximum until 3
+    workflows of the type have finished;
   - caps spending at what is left in the campaign budget (the workflow's
     result then has `capped=True`), or, with `fair_share = True`, at what is left ÷
     the number of queued requests;
   - returns nothing when even the range's minimum does not fit, and the
     scheduler then drops the request (`CampaignOutcome.unfit_dropped`).
+- **Give more to better types** by overriding the policy's `value(workflow_type,
+  ctx)`: `size()` multiplies the learned-cost amount of a spending range by it
+  (default 1.0), then keeps it within the range and the remaining budget. What
+  "better" means is up to the campaign; `ctx.by_type` has each type's cost per
+  completed workflow and mean score.
 - **Override `size()`** in your own `SchedulingPolicy` to decide differently;
-  `ctx` (`SizingContext`) has the proposal, learned costs, remaining budget
-  and queue length.
+  `ctx` (`SizingContext`) has the proposal, learned costs and resource use,
+  remaining budget, queue length and per-type results (`by_type`).
 
 ---
 
