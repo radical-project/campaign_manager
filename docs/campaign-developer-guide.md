@@ -295,6 +295,17 @@ PolicyResult(
 When scaling a type down, cancel running workflows **and** drop queued
 requests (`cancel_queued`), or the freed slots are refilled from the queue.
 
+If `decide()` raises or returns something other than a `PolicyResult`, the
+campaign keeps going: AuCaM uses the built-in rules for that cycle (the
+controller's `launch`, `LaunchRule`, `CancelRule` and goal, as the base
+`decide()` applies them). Set `decide_timeout_s` in the spec to also cover a
+`decide()` that is too slow, for example one that waits for an LLM: it then runs
+in a thread, and cycles where it has not returned in time use the built-in rules
+until it does. Each policy-cycle log line says which decide was used —
+`decide=controller`, or `decide=fallback(error|timeout|busy)` — and
+`CampaignOutcome.controller_errors` counts the cycles that failed. The same
+applies to `observe()`: if it raises, the base `observe()` is used.
+
 Example — a controller that tracks the best score and stops on a target:
 
 ```python
@@ -432,9 +443,11 @@ CampaignBudget(
   `gpu_hours`, …), or by prorating its `declared_spending` by its actual run
   time.
 - **Limit.** AuCaM adds the expected cost of running workflows to what is
-  already spent and stops launching once that reaches the limit; running
-  workflows finish, then the campaign ends (`spending_limit`). Give every
-  workflow type a `declared_spending`, or it is not counted in advance.
+  already spent and launches a request only if its own cost still fits; one
+  that does not fit stays queued, and a cheaper one may start. Running
+  workflows finish; the campaign ends (`spending_limit`) when nothing is
+  running and nothing queued fits. Give every workflow type a
+  `declared_spending` or a `spending_limit`, or it is not counted in advance.
 - **Resources per workflow.** `WorkflowConfig.resources={"cpus": 8, "gpus": 1}`
   (or `LaunchRequest.resources`) is what one workflow may use at once. The workflow
   gets it (`context["resources"]`, `CM_RESOURCES_<KEY>`) and must size its tasks
@@ -486,7 +499,8 @@ async def main() -> None:
 `failed` (per type), `elapsed_s`, `goal_reached`, `spent`, `summary`,
 `budget_cancels` / `resource_cancels` (workflows cancelled for exceeding their own
 spending limit or resources), `unfit_dropped` (requests that did not fit the
-remaining budget).
+remaining budget), `controller_errors` (policy cycles where `decide()` or
+`observe()` failed or timed out, §5).
 
 ### Config-driven runners
 
@@ -523,6 +537,7 @@ Planned features and known problems: [known gaps](known-gaps.md).
 | `dependencies` | `[]` | `WorkflowDependency` list (§7) |
 | `policy_interval_s` | 60.0 | Seconds between policy cycles (also runs on every completion) |
 | `shutdown_timeout_s` | 120.0 | Grace period for running workflows at shutdown |
+| `decide_timeout_s` | `None` | Longest `decide()` may take; slower cycles use the built-in rules (§5) |
 | `idle_exit_s` | `"auto"` | §6 |
 | `max_queue_depth` | 50 | Above this, a warning is logged (requests are still queued) |
 | `age_threshold_s` | 300.0 | NORMAL requests waiting longer become HIGH |

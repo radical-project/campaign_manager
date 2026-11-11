@@ -132,6 +132,27 @@ class BudgetAllocator:
                     return key, done, inflight, limit
             return None
 
+    def shortfall(self, campaign: str, cost: dict[str, float]) -> tuple[str, float, float] | None:
+        """Return (key, cost, remaining) for the first limit ``cost`` does not fit, else None.
+
+        A cost fits when spent + in-flight + cost stays within the limit; only
+        dimensions the campaign limits are checked.
+        """
+        with self._lock:
+            limits = self._limits.get(campaign, {})
+            if not limits:
+                return None
+            spent = self._spent.get(campaign, {})
+            live: dict[str, float] = {}
+            for est in self._in_flight.get(campaign, {}).values():
+                _add(live, est)
+            for key, limit in limits.items():
+                need = float(cost.get(key, 0.0) or 0.0)
+                remaining = limit - spent.get(key, 0.0) - live.get(key, 0.0)
+                if need > remaining + 1e-12:
+                    return key, need, remaining
+            return None
+
     def spending_fraction(self, campaign: str) -> float:
         """Fraction of budget consumed: max over all limit dimensions of
         (spent + in_flight) / limit.  Returns 0.0 when no limits are set,

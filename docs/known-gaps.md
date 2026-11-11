@@ -20,17 +20,15 @@ that must land first.
 
 | Priority | ID | Item | Status | Needs |
 |---|---|---|---|---|
-| 1 | C1 | Controller fallback when `decide()` fails or is slow | Not started | |
-| 1 | P1 | Graceful cancel through the DataBackend; PAUSE timeout | Not started | |
-| 1 | B2 | Launch only requests that fit the remaining budget | Partial | |
-| 1 | B0 | Any budget dimension (e.g. `llm_tokens`) | Partial | |
+| 2 | P1 | Graceful cancel through the DataBackend; PAUSE timeout | Not started | |
 | 2 | B1 | Burn-down in the controller's observation | Partial | |
 | 2 | U2 | Value-based sizing and cost-aware bandit; learned resource sizes | Partial | |
 | 2 | U6 | Default controller sets limits from learned cost | Not started | |
-| 2 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) | C1 |
+| 2 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) | |
 | 2 | B6 | Stop at the campaign spending limit | Not started | P1 |
 | 2 | U4 | Graceful cancel for per-workflow limits | Not started | P1 |
 | 2 | B4 | `CostCancelRule` | Not started | B1 helps |
+| 3 | B0 | Any budget dimension (e.g. `llm_tokens`) | Partial | with X1 |
 | 3 | R1 | Restart: rejoin running workflows, keep goals | Not started | |
 | 3 | R2 | Restart: dependency state | Partial | |
 | 3 | B3 | Learned cost estimates (follow-ups: setting, checkpoint) | Done, two follow-ups | with R1 |
@@ -69,21 +67,6 @@ update `budget.md` and the developer guide.
   `projected` (spent + in-flight + estimated cost of queued requests),
   `hours_to_limit`, and `burn["by_type"]` (completions, average cost, cost per
   completed workflow, mean final score).
-- **B2 — launch only what fits.** Today a request starts whenever spent +
-  in-flight is still below the limit, whatever the request costs, so the last
-  launch can overshoot the limit, and once the limit is reached even a cheap
-  request that would fit is not started. Change: in `_drain_queue()` /
-  `_take()`, start a request only if spent + in-flight + its estimated cost
-  (`_learned_cost()`) ≤ limit in every dimension, CRITICAL included; a request
-  that does not fit stays queued and a cheaper one may start. The spending exit becomes "no
-  queued request fits and nothing is running" (`_spending_limit_reached()`,
-  `_scheduler_loop()`). A request with a spending limit
-  (`WorkflowConfig.spending_limit` or `LaunchRequest.spending_limit`) can use
-  that limit as its cost here, since the workflow can never spend more.
-  Done so far: `SchedulingPolicy.size()` caps each workflow's spending limit at the
-  remaining budget and drops a request whose minimum (`LaunchRequest.bounds`)
-  does not fit; a request is still started whenever spent + in-flight is below
-  the limit, before sizing.
 - **B3 — learned costs, follow-ups.** Implemented (`_learned_cost()`,
   `_update_type_cost()`, `_estimates`). Missing: make the threshold (3 workflows)
   a `CampaignSpec.min_cost_samples` setting; save `_type_cost_stats` in the
@@ -95,8 +78,8 @@ update `budget.md` and the developer guide.
   Needs per running workflow: spending so far (per-task charges are in
   `_task_usage`), best score, spending at the best score — tracked on
   `_WorkflowInstance` and passed in the observation (e.g. `obs["wf_spend"]`).
-- **B6 — stop at the campaign spending limit.** Today, when spent +
-  in-flight reaches the limit, AuCaM stops launching but lets running
+- **B6 — stop at the campaign spending limit.** Today, once no queued
+  request fits the remaining budget, AuCaM stops launching but lets running
   workflows finish, so a campaign can end above its limit (e.g. up to
   27.6 CPU·s against a 24 CPU·s limit in the slides' use case). The limit
   should hold: when it is reached, cancel the running workflows gracefully
@@ -176,9 +159,6 @@ from the controller's intent (`LaunchRequest.spending_limit` / `resources` /
   running after a grace period. Used at shutdown, at the campaign spending
   limit (B6) and for workflows over their own limits (U4). Also: cancel a workflow
   that does not acknowledge PAUSE within a timeout.
-- **C1 — controller fallback.** `controller.decide()` is not guarded: an
-  exception in it ends the campaign's policy loop. Add a try/except and a
-  rule-based fallback, also when `decide()` takes too long.
 - **H1 — hooks.** Let `WorkflowConfig.on_completion` hooks enqueue requests.
 - **A1 — accounting.** Per-dimension prices for comparing dimensions.
 - **S1 — scheduling.** `ADRSchedulingPolicy` and `LLMSchedulingPolicy` are
@@ -208,12 +188,14 @@ from the controller's intent (`LaunchRequest.spending_limit` / `resources` /
 - **X1 — radical.asyncflow telemetry.** AuCaM needs AsyncFlow's task events
   to carry more accurate data: each task's requested resources or actual
   spending (for per-task charging), and the program's exit code (for
-  `returncode`). Today this comes from a local, temporary change to
+  `returncode`). Still missing in radical.asyncflow 0.7.0 (checked
+  2026-11-11); today it comes from a local, temporary change to
   radical.asyncflow, which is being reworked. With a released version,
   workflows are charged only when they finish, a failed command-line workflow
   gets `returncode` 1, the CPUs and GPUs a workflow uses at once can only come from
   its own reports (U5), and the tests that need this data skip.
-- **X2 — RHAPSODY concurrent backend.** Checked with rhapsody-py 0.5.0:
+- **X2 — RHAPSODY concurrent backend.** Still open in rhapsody-py 0.7.0
+  (checked 2026-11-11, first seen in 0.5.0):
   `ConcurrentExecutionBackend.cancel_task()` cancels the asyncio task waiting
   on the subprocess but never kills the subprocess, so a cancelled `sleep`
   keeps running, even after `shutdown()`. On this backend (the default for

@@ -53,7 +53,7 @@ Guidance for Claude Code in this repository.
 ## Commands
 
 ```bash
-pip install -e ".[dev]"      # Python ≥ 3.11 (3.10 works without [dragon]); [redis] for Redis + aucam-report
+pip install -e ".[dev]"      # Python ≥ 3.11; [redis] for Redis + aucam-report
 pytest                       # tests needing unreleased radical.asyncflow features skip (known-gaps X1)
 pytest -m "not slow"
 ruff check --no-fix . && ruff format --check .   # lint (plain `ruff check .` edits files)

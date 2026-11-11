@@ -87,8 +87,8 @@ workflows by hand:
 - the bandit shifts launches toward workflow types that complete;
 - AuCaM records what each workflow costs (CPU-hours, GPU-hours or another unit
   such as LLM tokens), based on the resources its tasks requested and how long
-  they ran, or on what the workflow reports, and stops launching new workflows once
-  the campaign reaches its spending limit;
+  they ran, or on what the workflow reports, and launches a workflow only if its
+  expected cost still fits the campaign's spending limit;
 - a workflow type can wait for another to succeed (dependencies);
 - state is checkpointed, and a restarted campaign continues;
 - the outcome — counts, spending, the controller's summary — goes back to the

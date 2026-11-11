@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class WorkflowStatus(str, Enum):
+class WorkflowStatus(StrEnum):
     PENDING = "PENDING"
     RUNNING = "RUNNING"
     PAUSED = "PAUSED"
@@ -17,14 +17,14 @@ class WorkflowStatus(str, Enum):
     CANCELLED = "CANCELLED"
 
 
-class CampaignDecision(str, Enum):
+class CampaignDecision(StrEnum):
     CANCEL = "CANCEL"
     PAUSE = "PAUSE"
     RESUME = "RESUME"
     NOOP = "NOOP"
 
 
-class LaunchPriority(str, Enum):
+class LaunchPriority(StrEnum):
     CRITICAL = "CRITICAL"
     HIGH = "HIGH"
     NORMAL = "NORMAL"
@@ -211,3 +211,6 @@ class CampaignOutcome:
     # Launch requests dropped because even their minimum did not fit the
     # remaining campaign budget.
     unfit_dropped: int = 0
+    # Policy cycles where the controller's decide() or observe() failed or
+    # timed out; AuCaM used its built-in rules for those cycles.
+    controller_errors: int = 0

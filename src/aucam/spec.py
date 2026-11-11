@@ -136,6 +136,11 @@ class CampaignSpec(BaseModel):
     max_queue_depth: int = 50
     age_threshold_s: float = 300.0
     shutdown_timeout_s: float = 120.0
+    # Longest the controller's decide() may take.  None (default): decide() runs
+    # in the event loop with no limit.  A number: decide() runs in a thread, and
+    # a cycle where it does not finish in time uses the built-in rules instead
+    # (CampaignController.decide()), as does a cycle where decide() raises.
+    decide_timeout_s: float | None = None
     # Optional live-telemetry channel; defaults to LocalDictBackend when None.
     data_backend: Any | None = None  # DataBackend
     # Directory to write/read checkpoint files.  None = no checkpointing.

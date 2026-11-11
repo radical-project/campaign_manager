@@ -227,20 +227,20 @@ def test_three_tier_budget_control() -> None:
             WorkflowConfig(
                 name="good_worker",
                 block=good_worker,
-                declared_spending={"wall_hours": 1.0 / 3600, "gpu_hours": 4.0 / 3600},
+                declared_spending={"wall_hours": 0.1 / 3600, "gpu_hours": 0.4 / 3600},
                 launch_on_start=False,
                 on_completion=_on_good_complete,
             ),
             WorkflowConfig(
                 name="bad_worker",
                 block=bad_worker,
-                declared_spending={"wall_hours": 1.0 / 3600, "gpu_hours": 2.0 / 3600},
+                declared_spending={"wall_hours": 0.1 / 3600, "gpu_hours": 0.2 / 3600},
                 launch_on_start=False,
             ),
             WorkflowConfig(
                 name="hog_worker",
                 block=hog_worker,
-                declared_spending={"wall_hours": 1.0 / 3600, "gpu_hours": 8.0 / 3600},
+                declared_spending={"wall_hours": 0.1 / 3600, "gpu_hours": 0.8 / 3600},
                 launch_on_start=False,
             ),
         ],
@@ -249,7 +249,7 @@ def test_three_tier_budget_control() -> None:
     )
 
     cm = CampaignManager()
-    asyncio.run(asyncio.wait_for(cm.run(spec), timeout=30.0))
+    out = asyncio.run(asyncio.wait_for(cm.run(spec), timeout=30.0))
 
     _print_summary(ctrl)
 
@@ -260,8 +260,10 @@ def test_three_tier_budget_control() -> None:
     assert len(ctrl.cancel_resource) >= 1, (
         f"Expected ≥1 resource-based cancellation; got {ctrl.cancel_resource}"
     )
-    assert ctrl.terminated_by_budget, (
-        "Expected campaign to terminate due to hard GPU budget; it did not"
+    # Either the controller sees spent >= limit, or AuCaM ends the campaign
+    # first because the next request no longer fits the budget (B2).
+    assert ctrl.terminated_by_budget or out.exit_reason == "spending_limit", (
+        f"Expected campaign to terminate due to hard GPU budget; exit={out.exit_reason}"
     )
 
 

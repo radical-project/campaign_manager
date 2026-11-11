@@ -57,15 +57,21 @@ run()
 - **`_policy_loop()`** wakes every `policy_interval_s` or when a workflow
   finishes and calls `_run_policy_cycle()`:
   `_collect_live_reports()` → `_collect_telemetry()` → `controller.observe()`
-  → `controller.decide()` → `_apply_auto_cancels()` (stale reporter, wall time)
+  → `_decide()` (the controller's `decide()`, or the built-in rules if it
+  raises or exceeds `decide_timeout_s`) → `_apply_auto_cancels()` (stale
+  reporter, wall time, per-workflow limits)
   → apply decisions (CANCEL / PAUSE / RESUME, `cancel_queued`, new requests,
   goal changes) → write checkpoint → end if `terminate` (`controller_terminate`)
   or all goals met (`goals_satisfied`).
 - **`_scheduler_loop()`** calls `_drain_queue()` whenever a slot frees up or a
   request arrives (at least every 2 s): stop if the spending limit is reached;
   otherwise launch CRITICAL requests, then the requests the `SchedulingPolicy`
-  selects, within the workflow-count limits. It also ends the campaign on
-  `spending_limit` (nothing running) and `campaign_idle` (`idle_exit_s`).
+  selects, within the workflow-count limits. Each request is sized
+  (`_size()`) and launched only if its cost fits what is left of the budget
+  (`BudgetAllocator.shortfall()`); if a pick does not fit, the policy is asked
+  again without it. It also ends the campaign on `spending_limit` (nothing
+  running, and the limit reached or nothing queued fits) and `campaign_idle`
+  (`idle_exit_s`).
 
 ### Launching a workflow — `_launch()`
 

@@ -7,6 +7,7 @@ import inspect
 import json
 import logging
 import shlex
+import threading
 import time
 import uuid
 from contextlib import suppress
@@ -22,7 +23,7 @@ from .checkpoint import (
     read_checkpoint,
     write_checkpoint,
 )
-from .controller import Goal, PolicyResult
+from .controller import CampaignController, Goal, PolicyResult
 from .queue import WorkflowQueue
 from .scheduler import (
     BanditSchedulingPolicy,
@@ -44,6 +45,41 @@ from .types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _DecideTimeoutError(Exception):
+    """decide() did not return within spec.decide_timeout_s."""
+
+
+def _call_in_thread(fn, *args) -> asyncio.Future:
+    """Run fn(*args) in a daemon thread; return an asyncio future for its result.
+
+    A daemon thread, not the loop's executor, so a decide() that never returns
+    cannot keep the campaign (or the interpreter) from exiting.
+    """
+    loop = asyncio.get_running_loop()
+    fut: asyncio.Future = loop.create_future()
+
+    def _set(value, exc) -> None:
+        if fut.done():
+            return
+        if exc is not None:
+            fut.set_exception(exc)
+        else:
+            fut.set_result(value)
+
+    def _run() -> None:
+        try:
+            value, exc = fn(*args), None
+        except BaseException as e:  # noqa: BLE001 — handed to the awaiting coroutine
+            value, exc = None, e
+        with suppress(RuntimeError):  # the loop may already be closed
+            loop.call_soon_threadsafe(_set, value, exc)
+
+    # A result nobody awaits (the call timed out) must not log "never retrieved".
+    fut.add_done_callback(lambda f: f.cancelled() or f.exception())
+    threading.Thread(target=_run, daemon=True, name="aucam-decide").start()
+    return fut
 
 
 def _correlate_events(
@@ -272,6 +308,9 @@ class _CampaignInstance:
         self._budget_cancels = 0  # runs cancelled for exceeding their own spending limit
         self._resource_cancels = 0  # runs cancelled for using more resources than given
         self._unfit_dropped = 0  # requests dropped: their minimum did not fit the budget
+        self._unfit_logged: set[int] = set()  # id() of queued requests logged as not fitting
+        self._controller_errors = 0  # cycles where decide()/observe() failed or timed out
+        self._slow_decide: asyncio.Future | None = None  # decide() still running past its timeout
         self._policy_cancels = 0  # CANCEL from controller (not auto-cancel)
         self._auto_cancelled: set[str] = set()  # wf_ids auto-cancelled this policy cycle
         self._policy_cycles = 0
@@ -877,6 +916,16 @@ class _CampaignInstance:
         }
         return alloc
 
+    def _held_estimate(self, request: LaunchRequest, limit: dict[str, float]) -> dict[str, float]:
+        """What a workflow is held at against the campaign while it runs.
+
+        Its own spending limit where it has one (it can never spend more), else
+        the learned cost of its type, else the type's declared_spending.
+        """
+        wfc = self._wf_config(request.workflow_type)
+        est = self._learned_cost(request.workflow_type, dict(wfc.declared_spending))
+        return {**est, **limit} if limit else est
+
     def _launch(self, request: LaunchRequest, alloc: Allocation | None = None) -> None:
         wfc = self._wf_config(request.workflow_type)
         wf_id = f"{self.name}.{request.workflow_type}.{uuid.uuid4().hex[:8]}"
@@ -910,9 +959,7 @@ class _CampaignInstance:
         # exist; falls back to declared_spending before min_samples threshold (B3).
         # A run with its own spending limit holds that limit against the
         # campaign's (like a reservation): it can never spend more.
-        in_flight_est = self._learned_cost(request.workflow_type, inst.declared_spending)
-        if limit:
-            in_flight_est = {**in_flight_est, **limit}
+        in_flight_est = self._held_estimate(request, limit)
         self._estimates[wf_id] = in_flight_est
         self._allocator.set_in_flight(self.name, wf_id, in_flight_est)
         self._instances_run += 1
@@ -1156,6 +1203,7 @@ class _CampaignInstance:
             budget_cancels=self._budget_cancels,
             resource_cancels=self._resource_cancels,
             unfit_dropped=self._unfit_dropped,
+            controller_errors=self._controller_errors,
             policy_cancels=self._policy_cancels,
             policy_cycles=self._policy_cycles,
         )
@@ -1194,6 +1242,7 @@ class _CampaignInstance:
         self._budget_cancels = ckpt.budget_cancels
         self._resource_cancels = ckpt.resource_cancels
         self._unfit_dropped = ckpt.unfit_dropped
+        self._controller_errors = ckpt.controller_errors
         self._policy_cancels = ckpt.policy_cancels
         self._policy_cycles = ckpt.policy_cycles
         self._allocator.restore(self.name, ckpt.spent)
@@ -1268,7 +1317,7 @@ class _CampaignInstance:
                 _idle_since = None
             try:
                 await asyncio.wait_for(self._slot_event.wait(), timeout=2.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     def _spending_limit_reached(self) -> bool:
@@ -1319,38 +1368,68 @@ class _CampaignInstance:
         critical = [r for r in all_candidates if r.priority == LaunchPriority.CRITICAL]
         normal = [r for r in all_candidates if r.priority != LaunchPriority.CRITICAL]
 
-        to_launch: list[LaunchRequest] = []
-
-        # Running instances per type, including requests picked this round;
+        # Running instances per type, updated as requests launch this round;
         # the per-type limit is enforced here for every request, whatever the
         # policy returns.
         per_type_cap = self.spec.budget.max_concurrency_per_workflow
         counts = self._running_by_type()
+        launched = dropped = 0
+        unfit: set[int] = set()  # id() of requests that did not fit the budget this round
 
-        def _take(req: LaunchRequest) -> bool:
-            if len(self._active) + len(to_launch) >= max_concurrent:
-                return False
+        def _try(req: LaunchRequest) -> str:
+            """Launch one request if it fits: "full", "skip", "launched", "unfit" or "dropped".
+
+            B2: a request starts only if spent + in-flight + its cost fits the
+            campaign's limit in every dimension; one that does not fit stays
+            queued, and a cheaper request may start instead.
+            """
+            nonlocal launched, dropped
+            if len(self._active) >= max_concurrent:
+                return "full"
             if counts.get(req.workflow_type, 0) >= per_type_cap:
-                return True  # this type is full; others may still fit
-            to_launch.append(req)
+                return "skip"  # this type is full; others may still fit
+            alloc = self._size(req)
+            if alloc is None:
+                self._queue.remove_request(req)
+                self._unfit_logged.discard(id(req))
+                self._unfit_dropped += 1
+                dropped += 1
+                logger.info(
+                    f"[SCHEDULER-{self.name}] DROP {req.workflow_type}: "
+                    f"its minimum does not fit the remaining budget"
+                )
+                return "dropped"
+            cost = self._held_estimate(req, alloc.spending_limit)
+            short = self._allocator.shortfall(self.name, cost)
+            if short is not None:
+                unfit.add(id(req))
+                if id(req) not in self._unfit_logged:
+                    self._unfit_logged.add(id(req))
+                    key, need, left = short
+                    logger.info(
+                        f"[SCHEDULER-{self.name}] WAIT {req.workflow_type}: "
+                        f"{key} cost {need:.4g} > remaining {left:.4g}; stays queued"
+                    )
+                return "unfit"
+            self._queue.remove_request(req)
+            self._unfit_logged.discard(id(req))
+            self._launch(req, alloc)
             counts[req.workflow_type] = counts.get(req.workflow_type, 0) + 1
-            return True
+            launched += 1
+            return "launched"
 
         # CRITICAL requests always go first, no policy consultation.
         for req in critical:
-            if not _take(req):
+            if _try(req) == "full":
                 break
 
-        # Policy selects from normal candidates for remaining slots.
-        if normal and len(self._active) + len(to_launch) < max_concurrent:
-            running = self._running_by_type()
-            # Add slots already committed to CRITICAL launches so the policy
-            # sees accurate counts.
-            for r in to_launch:
-                running[r.workflow_type] = running.get(r.workflow_type, 0) + 1
-
+        # The policy selects from normal candidates for the remaining slots.  If
+        # some of its picks did not fit the budget, it is asked again without
+        # them, so a cheaper request can take the slot.
+        pending = list(normal)
+        while pending and len(self._active) < max_concurrent:
             ctx = SchedulingContext(
-                running_by_type=running,
+                running_by_type=self._running_by_type(),
                 max_concurrency=max_concurrent,
                 max_concurrency_per_type=self.spec.budget.max_concurrency_per_workflow,
                 telemetry=self._last_telemetry,
@@ -1359,28 +1438,26 @@ class _CampaignInstance:
                 campaign_name=self.name,
                 budget_remaining_fraction=1.0 - self._allocator.spending_fraction(self.name),
             )
-            selected = self._policy.select(normal, ctx)
+            selected = self._policy.select(pending, ctx)
+            if not selected:
+                break
+            outcomes = []
             for req in selected:
-                if not _take(req):
+                r = _try(req)
+                if r == "full":
                     break
+                outcomes.append(r)
+            picked = {id(r) for r in selected}
+            pending = [r for r in pending if id(r) not in picked]
+            if not any(r in ("unfit", "dropped") for r in outcomes):
+                break
 
-        # Remove from queue, size, and launch.
-        dropped = False
-        for req in to_launch:
-            self._queue.remove_request(req)
-            alloc = self._size(req)
-            if alloc is None:
-                self._unfit_dropped += 1
-                dropped = True
-                logger.info(
-                    f"[SCHEDULER-{self.name}] DROP {req.workflow_type}: "
-                    f"its minimum does not fit the remaining budget"
-                )
-                continue
-            self._launch(req, alloc)
-        # Nothing running, and what was asked for no longer fits: the budget is spent.
-        if dropped and not self._active and not self._queue and not self._done:
-            asyncio.ensure_future(self._shutdown(reason="spending_limit"))
+        # Nothing running, and what was asked for no longer fits (dropped this
+        # round, or every queued request too costly): the budget is spent.
+        if not self._active and not launched and not self._done:
+            queued = self._queue.candidates()
+            if (queued and all(id(r) in unfit for r in queued)) or (not queued and dropped):
+                asyncio.ensure_future(self._shutdown(reason="spending_limit"))
 
     # ── Policy loop ──────────────────────────────────────────────────────────
 
@@ -1394,7 +1471,7 @@ class _CampaignInstance:
                     self._completion_event.wait(),
                     timeout=self.spec.policy_interval_s,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
             if self._done:
                 break
@@ -1675,13 +1752,95 @@ class _CampaignInstance:
                     inst.over_resources = True
                     self._resource_cancels += 1
 
+    def _observe(self, **kwargs) -> dict:
+        """Call the controller's observe(); on an error use the base observe()."""
+        ctrl = self.spec.controller
+        try:
+            return ctrl.observe(**kwargs)
+        except Exception as exc:
+            self._controller_errors += 1
+            logger.warning(
+                "[POLICY-%s] observe() raised %s: %s — using the built-in observe this cycle",
+                self.name,
+                type(exc).__name__,
+                exc,
+                exc_info=self._controller_errors == 1,
+            )
+            return CampaignController.observe(ctrl, **kwargs)
+
+    async def _decide(self, obs: dict) -> tuple[PolicyResult, str]:
+        """Call the controller's decide(); on an error or timeout use the built-in rules.
+
+        C1: an exception in decide() must not end the policy loop.  With
+        ``spec.decide_timeout_s`` set, decide() runs in a thread; if it is not done
+        in time, this cycle uses the built-in rules (the controller's own
+        ``launch`` / ``LaunchRule`` / ``CancelRule`` and goal, as the base
+        ``CampaignController.decide()`` applies them), and later cycles do too
+        until the slow call returns.  Returns the result and which decide made it,
+        for the [POLICY] log line: "controller" or "fallback(<why>)".
+        """
+        ctrl = self.spec.controller
+        timeout = self.spec.decide_timeout_s
+        if self._slow_decide is not None and not self._slow_decide.done():
+            why = "busy"
+            logger.warning(
+                "[POLICY-%s] decide() from an earlier cycle is still running"
+                " — using the built-in rules this cycle",
+                self.name,
+            )
+        else:
+            self._slow_decide = None
+            try:
+                if timeout is None:
+                    result = ctrl.decide(obs)
+                else:
+                    fut = _call_in_thread(ctrl.decide, obs)
+                    done, _ = await asyncio.wait({fut}, timeout=timeout)
+                    if not done:
+                        self._slow_decide = fut
+                        raise _DecideTimeoutError
+                    result = fut.result()
+                if not isinstance(result, PolicyResult):
+                    raise TypeError(f"decide() returned {type(result).__name__}, not PolicyResult")
+                return result, "controller"
+            except _DecideTimeoutError:
+                why = "timeout"
+                self._controller_errors += 1
+                logger.warning(
+                    "[POLICY-%s] decide() took longer than %g s — using the built-in rules"
+                    " until it returns",
+                    self.name,
+                    timeout,
+                )
+            except Exception as exc:
+                why = "error"
+                self._controller_errors += 1
+                logger.warning(
+                    "[POLICY-%s] decide() raised %s: %s — using the built-in rules this cycle",
+                    self.name,
+                    type(exc).__name__,
+                    exc,
+                    exc_info=self._controller_errors == 1,  # traceback once
+                )
+        try:
+            return CampaignController.decide(ctrl, obs), f"fallback({why})"
+        except Exception as exc:
+            # e.g. a controller that never called CampaignController.__init__().
+            logger.warning(
+                "[POLICY-%s] built-in rules failed too (%s: %s) — no decisions this cycle",
+                self.name,
+                type(exc).__name__,
+                exc,
+            )
+            return PolicyResult(), f"fallback({why}, none)"
+
     async def _run_policy_cycle(self) -> None:
         self._policy_cycles += 1
         now = time.time()
         live_reports = await self._collect_live_reports()
         telemetry = self._collect_telemetry()
         self._last_telemetry = telemetry  # cache for _drain_queue
-        obs = self.spec.controller.observe(
+        obs = self._observe(
             queue_snapshot=self._queue.snapshot(),
             budget=self._allocator.campaign_view(self.name),
             running=self._running_by_type(),
@@ -1694,7 +1853,7 @@ class _CampaignInstance:
             # None without telemetry.
             tasks=self._task_observation(),
         )
-        result: PolicyResult = self.spec.controller.decide(obs)
+        result, decided_by = await self._decide(obs)
         self._apply_auto_cancels(result, live_reports, now)
 
         active_count = len(self._active)
@@ -1703,7 +1862,8 @@ class _CampaignInstance:
             f"active={active_count} queued={len(self._queue)} "
             f"decisions={len(result.decisions)} "
             f"launches={len(result.launch_requests)} "
-            f"terminate={result.terminate}"
+            f"terminate={result.terminate} "
+            f"decide={decided_by}"
             + (
                 f" tasks: waiting={obs['tasks']['waiting']} "
                 f"submitted={obs['tasks']['submitted']} running={obs['tasks']['running']}"
@@ -1833,7 +1993,7 @@ class _CampaignInstance:
                     asyncio.gather(*futs, return_exceptions=True),
                     timeout=timeout,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(f"[CM] {self.name}: instances did not exit within {timeout}s")
             # asyncio schedules done-callbacks via call_soon; yield once so they
             # fire before _save_checkpoint() reads the counters they update.
@@ -1861,6 +2021,7 @@ class _CampaignInstance:
             f"policy={self._policy_cancels}) "
             f"failed={self._failed} "
             f"cycles={self._policy_cycles} "
+            f"controller_errors={self._controller_errors} "
             f"spent={self._allocator.spent(self.name)}"
         )
 
@@ -1933,6 +2094,11 @@ class _CampaignInstance:
     def resource_cancels(self) -> int:
         """Runs AuCaM cancelled for using more resources at once than they were given."""
         return self._resource_cancels
+
+    @property
+    def controller_errors(self) -> int:
+        """Policy cycles where decide() or observe() failed or timed out."""
+        return self._controller_errors
 
     @property
     def unfit_dropped(self) -> int:

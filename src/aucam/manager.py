@@ -152,6 +152,7 @@ class CampaignManager:
             budget_cancels=getattr(inst, "budget_cancels", 0),
             resource_cancels=getattr(inst, "resource_cancels", 0),
             unfit_dropped=getattr(inst, "unfit_dropped", 0),
+            controller_errors=getattr(inst, "controller_errors", 0),
         )
 
     def _install_signal_handlers(self) -> list[signal.Signals]:

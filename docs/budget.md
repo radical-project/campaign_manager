@@ -170,24 +170,29 @@ charged.
 
 ## 4. How limits are enforced
 
-Before launching, AuCaM checks every limited dimension:
+Before launching a request, AuCaM checks every limited dimension:
 
 ```
-spent + in_flight >= limit   →   launch nothing more
+spent + in_flight + cost of the request <= limit   →   launch it
 ```
+
+The request's cost is what it would be held at while it runs: its own spending
+limit if it has one, else the learned cost of its type (§6), else its
+`declared_spending`. A request that does not fit stays queued, and a cheaper one
+may start instead, even one of lower priority; CRITICAL requests are checked
+too. The log shows `[SCHEDULER-<campaign>] WAIT <type>: <dim> cost … > remaining …;
+stays queued` once per request.
 
 AuCaM does not stop running workflows when the limit is reached. It keeps the
 campaign within its limit by counting each running workflow's expected cost in
-advance (in-flight) and starting no new workflow once spent + in-flight reaches
-the limit. The campaign can end slightly above its limit only when running
-workflows cost more than expected (in the figure below, some ran longer than
-declared).
+advance (in-flight) and starting only workflows whose cost still fits. The
+campaign can end slightly above its limit only when running workflows cost more
+than expected (in the figure below, some ran longer than declared).
 
-When the limit is reached:
-
-- no new workflows are started; running workflows continue to the end;
-- the campaign ends with exit reason `spending_limit` once none is running;
-- the log shows `[SCHEDULER-<campaign>] spending limit reached: <dim>: completed=… + in-flight=… >= …`.
+The campaign ends with exit reason `spending_limit` when nothing is running and
+either spent + in-flight has reached the limit (the log shows
+`[SCHEDULER-<campaign>] spending limit reached: <dim>: completed=… + in-flight=… >= …`)
+or no queued request fits what is left.
 
 A campaign that needs a hard limit can enforce one in its own controller: each
 policy cycle `obs["budget"]` shows what is spent, in flight and remaining
@@ -196,9 +201,8 @@ policy cycle `obs["budget"]` shows what is spent, in flight and remaining
 ![Campaign spending limit](figures/aucam_budget_burn.png)
 
 The check covers the whole campaign, not each workflow type: one expensive
-type can use up the budget before others run. Planned: skip only the requests
-whose estimated cost doesn't fit, so a cheaper workflow type can still start
-(B2 in §7 below and in [known gaps](known-gaps.md)).
+type can still use up the budget before others run, as long as each of its
+workflows fits.
 
 A campaign that is idle below its limit ends separately, after
 `CampaignSpec.idle_exit_s` (see the developer guide, "How a campaign ends").
@@ -333,6 +337,7 @@ after the workflow has ended go into the ledger but not into `spent`.)
 | `[WORKFLOW-…] spending limit exceeded <dim>=… > … — auto-cancel` | WARNING | A workflow spent past its own limit (§4) |
 | `[WORKFLOW-…] resources exceeded <key>=… > … — auto-cancel` | WARNING | A workflow used more CPUs/GPUs at once than it was given |
 | `[SCHEDULER-…] DROP <type>: its minimum does not fit the remaining budget` | INFO | A request was not started (sizing) |
+| `[SCHEDULER-…] WAIT <type>: <dim> cost … > remaining …; stays queued` | INFO | A request does not fit yet (§4); logged once per request |
 | `[BANDIT] …  budget_rem=…%  c_eff=…  arms={type: μ=…}` | INFO | The bandit chooses among queued requests |
 | `[BANDIT] …  → <type>  ucb=…  c_eff=…` | INFO | The bandit picks a type it has seen before |
 | `[CM] Campaign … SUMMARY — exit=… spent={…}` | INFO | A campaign ends |
@@ -344,7 +349,6 @@ after the workflow has ended go into the ledger but not into `spent`.)
 |---|---|---|
 | B0 | Any budget dimension | Partial: limits, in-flight and methods B/C accept any dimension; method A charges only CPU/GPU hours; `[SPEND]` logs show only CPU/GPU |
 | B1 | Burn-down in the observation | Partial: `remaining`, `fraction_left`; missing spending rate, projected spending, time to limit, cost per type |
-| B2 | Launch only requests that fit the remaining budget | Not started |
 | B3 | Learned cost estimates | Done (§6); count not configurable, not checkpointed |
 | B4 | `CostCancelRule`: cancel workflows that spend without improving | Not started |
 | U2 | Cost-aware bandit and sizing | Partial: exploration shrinks with the budget (§5); reward not yet cost-weighted; `size()` not yet value-based |
@@ -369,6 +373,7 @@ to the campaign; every public method takes one lock.
 | `record()` | `_on_task_event()` (A); `_on_done()` (B–D) | Add charges to `spent` |
 | `clear_in_flight()` | `_on_done()` | Workflow ended |
 | `limit_reached()` | `_spending_limit_reached()` | Campaign limit check (§4) |
+| `shortfall()` | `_drain_queue()` | Does a request's cost fit what is left (§4) |
 | `spending_fraction()` | `_drain_queue()` → `SchedulingContext.budget_remaining_fraction`; `[SPEND]` logs | "used" in §5 |
 | `campaign_view()` | Policy cycle | `obs["budget"]` (§5) |
 | `close()` | `CampaignManager.run()` | Return `spent` for `CampaignOutcome.spent` |
