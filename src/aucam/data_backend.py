@@ -32,7 +32,7 @@ class DataBackend(Protocol):
     # ── CM → workflow signal channel ──────────────────────────────────────────
 
     async def write_signal(self, wf_id: str, decision: CampaignDecision) -> None:
-        """Deliver a CM decision (PAUSE / RESUME) to the workflow."""
+        """Deliver a CM decision (PAUSE / RESUME / CANCEL) to the workflow."""
         ...
 
     async def poll_signal(self, wf_id: str) -> CampaignDecision | None:

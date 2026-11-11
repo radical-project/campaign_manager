@@ -53,6 +53,7 @@ from src.aucam import (
     BanditSchedulingPolicy,
     CampaignBudget,
     CampaignController,
+    CampaignDecision,
     CampaignManager,
     CampaignSpec,
     CancelRule,
@@ -100,6 +101,11 @@ def make_sim(
         converging = random.random() < p_converge
         spent = 0.0
         for step in range(steps):
+            # AuCaM sends CANCEL before cancelling (cancel_grace_s below): stop
+            # cleanly, reporting what was spent.
+            if await reporter.poll() == CampaignDecision.CANCEL:
+                logging.info("[%s] CANCEL received at step %d — stopping", arm, step)
+                return
             if respect_limit and spent + step_cpu_h > limit + 1e-12:  # float tolerance
                 logging.info(
                     "[%s] stopping at step %d to stay within %.4f cpu_hours", arm, step, limit
@@ -282,6 +288,7 @@ def build_spec(
                 block=fast_sim,
                 launch_on_start=True,
                 stale_timeout_s=30.0,
+                cancel_grace_s=2.0,  # it stops on CANCEL; AuCaM waits up to 2 s
                 declared_spending={"wall_hours": 6 * STEP_S / H, "cpu_hours": 6 * FAST_STEP_CPU_H},
                 spending_limit={"cpu_hours": round(9 * FAST_STEP_CPU_H, 6)},
             ),
@@ -290,6 +297,7 @@ def build_spec(
                 block=runaway_sim if overspend else precise_sim,
                 launch_on_start=True,
                 stale_timeout_s=60.0,
+                cancel_grace_s=2.0,
                 declared_spending={
                     "wall_hours": 10 * STEP_S / H,
                     "cpu_hours": 10 * PRECISE_STEP_CPU_H,

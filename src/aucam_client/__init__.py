@@ -1,7 +1,7 @@
 """Lightweight reporting client for command-line workflows.
 
 A program launched by CM through ``WorkflowConfig.launch_cmd`` can be written
-in any language.  It reports to CM and receives PAUSE / RESUME signals through
+in any language.  It reports to CM and receives PAUSE / RESUME / CANCEL signals through
 the campaign's DataBackend (Redis or Dragon), using CM's language-neutral
 protocol:
 
@@ -12,9 +12,11 @@ protocol:
 
   Each write replaces the previous report; CM reads the latest one every
   policy cycle and once more when the workflow ends.
-* **Signal** — key ``<CM_WORKFLOW_ID>:signal``, value the string ``PAUSE`` or
-  ``RESUME``.  The program reads it and deletes the key.  CANCEL is never sent
-  as a signal: CM stops the task through AsyncFlow.
+* **Signal** — key ``<CM_WORKFLOW_ID>:signal``, value the string ``PAUSE``,
+  ``RESUME`` or ``CANCEL``.  The program reads it and deletes the key.  CANCEL
+  is sent only to workflow types with a grace period (``cancel_grace_s``): the
+  program should save what it needs and exit; when the grace period ends, or
+  without one, CM stops the task through AsyncFlow.
 
 CM exports ``CM_WORKFLOW_ID``, ``CM_DATA_ENDPOINT`` (``host:port`` for Redis,
 the serialized DDict descriptor for Dragon) and ``CM_DATA_BACKEND``
@@ -42,7 +44,7 @@ from typing import Any
 __all__ = ["Reporter", "ReporterConfigError", "SIGNAL_SUFFIX", "encode_report"]
 
 SIGNAL_SUFFIX = ":signal"
-_SIGNALS = ("PAUSE", "RESUME")
+_SIGNALS = ("PAUSE", "RESUME", "CANCEL")
 
 
 class ReporterConfigError(RuntimeError):
@@ -134,7 +136,7 @@ class Reporter:
         return report
 
     def poll_signal(self) -> str | None:
-        """Return ``"PAUSE"`` or ``"RESUME"`` if one is pending (and clear it), else None."""
+        """Return ``"PAUSE"``, ``"RESUME"`` or ``"CANCEL"`` if one is pending (and clear it), else None."""
         key = self.wf_id + SIGNAL_SUFFIX
         if self.backend == "redis":
             r = self._redis()
@@ -154,7 +156,14 @@ class Reporter:
         sig = str(sig).strip().upper()
         return sig if sig in _SIGNALS else None
 
-    def wait_for_resume(self, interval: float = 1.0) -> None:
-        """Block until RESUME arrives (call after poll_signal() returned PAUSE)."""
-        while self.poll_signal() != "RESUME":
+    def wait_for_resume(self, interval: float = 1.0) -> str:
+        """Block until RESUME or CANCEL arrives; return which (call after PAUSE).
+
+        On CANCEL, save what you need and exit: AuCaM cancels the program once
+        its grace period (WorkflowConfig.cancel_grace_s) ends.
+        """
+        while True:
+            sig = self.poll_signal()
+            if sig in ("RESUME", "CANCEL"):
+                return sig
             time.sleep(interval)

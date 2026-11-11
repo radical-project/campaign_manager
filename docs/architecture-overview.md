@@ -129,7 +129,7 @@ several workflows at once or changing goals.
 |---|---|
 | `goals_satisfied` | Ended by AuCaM: the controller declares goals (target values for metrics, e.g. "best energy ≤ −8"), AuCaM checks them every cycle, and all are met. The goal is reached. |
 | `controller_terminate` | Ended by the controller, which decides to stop for its own reason: its goal is reached (the built-in "N successful runs" goal ends this way), or it gives up (e.g. the goal looks unreachable). The goal may or may not be reached. |
-| `spending_limit` | The spending limit is reached and no workflows are running |
+| `spending_limit` | The spending limit is reached and no workflows are running, or actual spending went past it and AuCaM cancelled the running workflows |
 | `campaign_idle` | Nothing queued or running for a while (`idle_exit_s`, configurable or off) |
 | `signal` | AuCaM receives SIGTERM or SIGINT, e.g. before a SLURM job's time limit, or the caller calls `cm.stop()` |
 
@@ -146,9 +146,16 @@ best score). The caller can use it to plan the next campaign.
 A campaign limits how many workflows run at once (`max_concurrent_workflows`
 in total and `max_concurrency_per_workflow` for each workflow type) and can
 set a spending limit. AuCaM adds what has been spent to the expected cost of
-the workflows still running, and stops starting new workflows once that total
-reaches the limit. Workflows already running are not cancelled: the campaign
-ends after they finish.
+the workflows still running, and starts a new workflow only if its own expected
+cost still fits. If running workflows cost more than expected and actual
+spending goes past the limit, AuCaM cancels them and ends the campaign
+(`CampaignBudget.on_limit="cancel"`, the default), or lets them finish
+(`"finish"`).
+
+A cancel can be graceful: for a workflow type with a grace period
+(`cancel_grace_s`), AuCaM first sends the workflow CANCEL through the data
+backend so it can save its state and exit, and cancels it for real only if it
+is still running when the grace period ends.
 
 See [budgets and spending](budget.md) for how spending is measured.
 

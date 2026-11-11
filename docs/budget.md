@@ -183,20 +183,26 @@ may start instead, even one of lower priority; CRITICAL requests are checked
 too. The log shows `[SCHEDULER-<campaign>] WAIT <type>: <dim> cost … > remaining …;
 stays queued` once per request.
 
-AuCaM does not stop running workflows when the limit is reached. It keeps the
-campaign within its limit by counting each running workflow's expected cost in
-advance (in-flight) and starting only workflows whose cost still fits. The
-campaign can end slightly above its limit only when running workflows cost more
-than expected (in the figure below, some ran longer than declared).
+AuCaM keeps the campaign within its limit by counting each running workflow's
+expected cost in advance (in-flight) and starting only workflows whose cost
+still fits. Running workflows can still cost more than expected (in the figure
+below, some ran longer than declared). `CampaignBudget.on_limit` sets what
+happens then:
 
-The campaign ends with exit reason `spending_limit` when nothing is running and
-either spent + in-flight has reached the limit (the log shows
+- `"cancel"` (default): every policy cycle AuCaM adds up actual spending —
+  charged, plus what each running workflow has used so far (measured as for
+  its own limit, below). Once that goes past the limit, it cancels the running
+  workflows (gracefully, if their type has a `cancel_grace_s`), charges what
+  they used, and ends the campaign with `spending_limit`. The log shows
+  `[SCHEDULER-<campaign>] campaign spending limit exceeded by actual spending:
+  <dim>=… > … — cancelling N running workflow(s)`. The campaign ends at most
+  about one policy cycle's spending (plus any grace period) above its limit.
+- `"finish"`: running workflows finish; the campaign can end above its limit.
+
+The campaign also ends with exit reason `spending_limit` when nothing is
+running and either spent + in-flight has reached the limit (the log shows
 `[SCHEDULER-<campaign>] spending limit reached: <dim>: completed=… + in-flight=… >= …`)
 or no queued request fits what is left.
-
-A campaign that needs a hard limit can enforce one in its own controller: each
-policy cycle `obs["budget"]` shows what is spent, in flight and remaining
-(§5), and the controller can cancel running workflows.
 
 ![Campaign spending limit](figures/aucam_budget_burn.png)
 
@@ -227,8 +233,9 @@ for every workflow of a type, or `LaunchRequest.spending_limit` for one workflow
   else the running totals the workflow reports, else `declared_spending`
   prorated by elapsed time. A dimension with none of these is not checked.
   When spending so far exceeds the limit in any dimension, AuCaM cancels the
-  workflow and logs `[WORKFLOW-…] spending limit exceeded <dim>=… > … —
-  auto-cancel`. The workflow is charged what it used; its `WorkflowResult` has
+  workflow — gracefully if its type has a `cancel_grace_s` (developer guide,
+  "How a campaign ends") — and logs `[WORKFLOW-…] spending limit exceeded
+  <dim>=… > … — auto-cancel`. The workflow is charged what it used; its `WorkflowResult` has
   `over_budget=True` and the limit in `spending_limit`;
   `CampaignOutcome.budget_cancels` counts such workflows.
 
@@ -379,6 +386,9 @@ after the workflow has ended go into the ledger but not into `spent`.)
 | `[SCHEDULER-…] spending limit reached: …` | INFO | Campaign limit reached (once) |
 | `[WORKFLOW-…] spending limit exceeded <dim>=… > … — auto-cancel` | WARNING | A workflow spent past its own limit (§4) |
 | `[WORKFLOW-…] resources exceeded <key>=… > … — auto-cancel` | WARNING | A workflow used more CPUs/GPUs at once than it was given |
+| `[SCHEDULER-…] campaign spending limit exceeded by actual spending: …` | INFO | `on_limit="cancel"`: running workflows are cancelled (§4) |
+| `[WORKFLOW-…] CANCEL signal sent; grace …s` | INFO | A graceful cancel starts |
+| `[WORKFLOW-…] did not exit within its grace period — cancelling` | WARNING | A graceful cancel ends in a forced one |
 | `[SCHEDULER-…] DROP <type>: its minimum does not fit the remaining budget` | INFO | A request was not started (sizing) |
 | `[SCHEDULER-…] WAIT <type>: <dim> cost … > remaining …; stays queued` | INFO | A request does not fit yet (§4); logged once per request |
 | `[BANDIT] …  budget_rem=…%  c_eff=…  arms={type: μ=…}` | INFO | The bandit chooses among queued requests |

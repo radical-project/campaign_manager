@@ -224,6 +224,8 @@ class _WorkflowInstance:
         "over_resources",
         "capped",
         "peak_use",
+        "cancel_mode",
+        "cancel_handle",
     )
 
     def __init__(
@@ -257,6 +259,10 @@ class _WorkflowInstance:
         self.capped = capped
         # Most CPUs / GPUs seen in use at once (task telemetry or reports), U2.
         self.peak_use: dict[str, float] = {}
+        # P1: None until a cancel starts; "graceful" once CANCEL was sent and
+        # the grace period runs, "forced" once AuCaM cancelled the block.
+        self.cancel_mode: str | None = None
+        self.cancel_handle: asyncio.TimerHandle | None = None
 
 
 class _CampaignInstance:
@@ -1071,9 +1077,21 @@ class _CampaignInstance:
 
         def _on_done(fut: asyncio.Future, _inst: _WorkflowInstance = inst) -> None:
             wall = time.time() - _inst.started_at
-            if fut.cancelled():
+            if _inst.cancel_handle is not None:
+                _inst.cancel_handle.cancel()
+            if fut.cancelled() and _inst.cancel_mode is None:
+                _inst.cancel_mode = "forced"  # cancelled outside _cancel (e.g. the engine)
+            if fut.cancelled() or _inst.cancel_mode == "graceful":
+                # A workflow that exits on its own after CANCEL still counts as
+                # cancelled (P1); WorkflowResult.cancel says how it ended.
                 rc, status = -1, WorkflowStatus.CANCELLED
                 self._cancelled += 1
+                if not fut.cancelled() and fut.exception() is not None:
+                    logger.warning(
+                        "[WORKFLOW-%s] raised while exiting after CANCEL: %r",
+                        _inst.wf_id,
+                        fut.exception(),
+                    )
             elif fut.exception() is not None:
                 # A command-line workflow reports its program's exit code; a
                 # signal (negative code) maps to the shell convention 128 + N so
@@ -1094,7 +1112,10 @@ class _CampaignInstance:
                 rc, status = 0, WorkflowStatus.COMPLETED
                 self._completed += 1
 
-            logger.info(f"[WORKFLOW-{_inst.wf_id}] {status.value} wall={wall:.1f}s rc={rc}")
+            logger.info(
+                f"[WORKFLOW-{_inst.wf_id}] {status.value} wall={wall:.1f}s rc={rc}"
+                + (f" cancel={_inst.cancel_mode}" if rc == -1 else "")
+            )
 
             _status_to_event = {
                 WorkflowStatus.COMPLETED: "TaskCompleted",
@@ -1202,10 +1223,13 @@ class _CampaignInstance:
                 resources=dict(_inst.resources),
                 over_resources=_inst.over_resources,
                 capped=_inst.capped,
+                cancel=_inst.cancel_mode if rc == -1 else None,
             )
 
             if self.spec.data_backend is not None:
                 asyncio.ensure_future(self.spec.data_backend.delete_report(_inst.wf_id))
+                if _inst.cancel_mode == "graceful":
+                    asyncio.ensure_future(self.spec.data_backend.clear_signal(_inst.wf_id))
 
             # Update scheduler policy, controller counters, and history.
             # DAG-triggered and init requests were not selected by the policy,
@@ -1790,6 +1814,101 @@ class _CampaignInstance:
                     pass
         return out
 
+    def _grace(self, inst: _WorkflowInstance) -> float:
+        """The workflow type's grace period for a graceful cancel (P1)."""
+        g = self._wf_config(inst.workflow_type).cancel_grace_s
+        return float(self.spec.cancel_grace_s if g is None else g)
+
+    async def _cancel(self, inst: _WorkflowInstance) -> None:
+        """Cancel a running workflow (P1).
+
+        With a grace period (WorkflowConfig.cancel_grace_s / CampaignSpec.
+        cancel_grace_s) and a DataBackend: send it CANCEL, and cancel the block
+        only if it is still running when the grace period ends.  Without one,
+        cancel the block at once.  Its in-flight spending stays held against
+        the campaign until it ends.
+        """
+        if inst.future.done() or inst.cancel_mode is not None:
+            return
+        grace = self._grace(inst)
+        backend = self.spec.data_backend
+        if grace > 0 and backend is not None:
+            try:
+                await backend.write_signal(inst.wf_id, CampaignDecision.CANCEL)
+            except Exception:
+                logger.warning(
+                    "[WORKFLOW-%s] could not send CANCEL; cancelling at once",
+                    inst.wf_id,
+                    exc_info=True,
+                )
+                self._force_cancel(inst)
+                return
+            inst.cancel_mode = "graceful"
+            inst.cancel_handle = asyncio.get_running_loop().call_later(
+                grace, self._force_cancel, inst, True
+            )
+            logger.info(f"[WORKFLOW-{inst.wf_id}] CANCEL signal sent; grace {grace:g}s")
+        else:
+            self._force_cancel(inst)
+
+    def _force_cancel(self, inst: _WorkflowInstance, grace_ended: bool = False) -> None:
+        """Cancel the workflow's block now."""
+        if inst.future.done():
+            return
+        if grace_ended:
+            logger.warning(
+                f"[WORKFLOW-{inst.wf_id}] did not exit within its grace period — cancelling"
+            )
+        inst.cancel_mode = "forced"
+        inst.future.cancel()
+
+    async def _check_pause_ack(self, inst: _WorkflowInstance, timeout: float) -> None:
+        """Cancel a workflow that has not picked up its PAUSE signal in time (P1)."""
+        await asyncio.sleep(timeout)
+        if self._done or inst.future.done() or inst.cancel_mode is not None:
+            return
+        backend = self.spec.data_backend
+        try:
+            pending = await backend.poll_signal(inst.wf_id)
+        except Exception:
+            logger.debug("[CM] poll_signal(%s) failed", inst.wf_id, exc_info=True)
+            return
+        if pending == CampaignDecision.PAUSE:
+            logger.warning(
+                f"[WORKFLOW-{inst.wf_id}] did not acknowledge PAUSE within {timeout:g}s — "
+                f"auto-cancel"
+            )
+            with suppress(Exception):
+                await backend.clear_signal(inst.wf_id)
+            self._stale_cancels += 1
+            self._force_cancel(inst)
+
+    def _campaign_limit_hit(self, now: float) -> bool:
+        """B6: has actual spending gone past the campaign's limit?
+
+        Actual = charged + what running workflows have used so far (not their
+        in-flight estimates).  With CampaignBudget.on_limit == "cancel", the
+        caller then ends the campaign, cancelling the running workflows.
+        """
+        if self.spec.budget.on_limit != "cancel" or not self._active:
+            return False
+        limits = self._allocator.limits(self.name)
+        if not limits:
+            return False
+        used = dict(self._allocator.spent(self.name))
+        for inst in self._active.values():
+            for k, v in self._spent_so_far(inst, now, limits).items():
+                used[k] = used.get(k, 0.0) + v
+        for key, limit in limits.items():
+            if used.get(key, 0.0) > limit + 1e-12:
+                logger.info(
+                    f"[SCHEDULER-{self.name}] campaign spending limit exceeded by actual "
+                    f"spending: {key}={used[key]:.4g} > {limit:.4g} — cancelling "
+                    f"{len(self._active)} running workflow(s) (on_limit='cancel')"
+                )
+                return True
+        return False
+
     def _apply_auto_cancels(
         self,
         result: PolicyResult,
@@ -1806,7 +1925,7 @@ class _CampaignInstance:
         """
         self._auto_cancelled = set()
         for wf_id, inst in list(self._active.items()):
-            if result.decisions.get(wf_id) == CampaignDecision.CANCEL:
+            if result.decisions.get(wf_id) == CampaignDecision.CANCEL or inst.cancel_mode:
                 continue
             wfc = self._wf_config(inst.workflow_type)
 
@@ -1997,6 +2116,9 @@ class _CampaignInstance:
         )
         result, decided_by = await self._decide(obs)
         self._apply_auto_cancels(result, live_reports, now)
+        if self._campaign_limit_hit(now):
+            await self._shutdown(reason="spending_limit")
+            return
 
         active_count = len(self._active)
         logger.info(
@@ -2034,10 +2156,12 @@ class _CampaignInstance:
             if inst is None or inst.future.done():
                 continue
             if decision == CampaignDecision.CANCEL:
+                if inst.cancel_mode is not None:
+                    continue  # already being cancelled
                 # Auto-cancels (stale, wall time, spending limit) have their own counters.
                 auto = wf_id in self._auto_cancelled
                 logger.info(f"[WORKFLOW-{wf_id}] CANCEL ({'auto' if auto else 'policy'})")
-                inst.future.cancel()
+                await self._cancel(inst)
                 if not auto:
                     self._policy_cancels += 1
             elif decision in (CampaignDecision.PAUSE, CampaignDecision.RESUME):
@@ -2050,6 +2174,8 @@ class _CampaignInstance:
                 else:
                     await self.spec.data_backend.write_signal(wf_id, decision)
                     logger.info(f"[WORKFLOW-{wf_id}] {decision.value} signal sent")
+                    if decision == CampaignDecision.PAUSE and wfc.pause_timeout_s is not None:
+                        asyncio.ensure_future(self._check_pause_ack(inst, wfc.pause_timeout_s))
 
         if result.cancel_queued:
             for wf_type, count in result.cancel_queued.items():
@@ -2124,9 +2250,11 @@ class _CampaignInstance:
 
         logger.info(f"[CM] {self.name}: graceful shutdown ({len(self._active)} active instances)")
 
+        # Cancel every running workflow: gracefully where its type has a grace
+        # period (P1), at once otherwise.
         for inst in list(self._active.values()):
-            if not inst.future.done():
-                inst.future.cancel()
+            if not inst.future.done() and inst.cancel_mode is None:
+                await self._cancel(inst)
 
         if self._active:
             futs = [inst.future for inst in list(self._active.values())]
@@ -2136,7 +2264,19 @@ class _CampaignInstance:
                     timeout=timeout,
                 )
             except TimeoutError:
-                logger.warning(f"[CM] {self.name}: instances did not exit within {timeout}s")
+                # Grace periods longer than shutdown_timeout_s end here.
+                pending = [i for i in self._active.values() if not i.future.done()]
+                for inst in pending:
+                    self._force_cancel(inst)
+                logger.warning(
+                    f"[CM] {self.name}: {len(pending)} instance(s) did not exit within "
+                    f"{timeout}s; cancelled"
+                )
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(
+                        asyncio.gather(*[i.future for i in pending], return_exceptions=True),
+                        timeout=5.0,
+                    )
             # asyncio schedules done-callbacks via call_soon; yield once so they
             # fire before _save_checkpoint() reads the counters they update.
             await asyncio.sleep(0)

@@ -77,6 +77,17 @@ class WorkflowConfig(BaseModel):
     # instead of spending_limit / resources for that key: an exact amount is
     # kept as is.  See docs/budget.md, "Sizing each workflow".
     bounds: dict[str, tuple[float, float]] = {}
+    # Graceful cancel (P1): seconds this workflow gets to save its state and
+    # exit after AuCaM sends it CANCEL (reporter.poll() returns
+    # CampaignDecision.CANCEL; a command-line program reads it with
+    # aucam-report signal); after that, or with 0, AuCaM cancels it at once.
+    # None: CampaignSpec.cancel_grace_s.  Only give a grace period to
+    # workflows that check for CANCEL — others keep running (and holding
+    # budget) until it ends.
+    cancel_grace_s: float | None = None
+    # PAUSE timeout (P1): cancel the workflow if it has not picked up a PAUSE
+    # signal (reporter.poll()) within this many seconds.  None: no check.
+    pause_timeout_s: float | None = None
     # Set True only for workflows that handle PAUSE/RESUME: Python workflows via
     # reporter.poll() + wait_for_resume(); launch_cmd programs via
     # aucam_client.Reporter.poll_signal() (needs a remote DataBackend).
@@ -139,6 +150,16 @@ class CampaignBudget:
     max_concurrent_workflows: int
     max_concurrency_per_workflow: int
     spending: dict[str, float] = field(default_factory=dict)
+    # What happens when actual spending (charged + what running workflows have
+    # used so far) goes past the spending limit (B6): "cancel" — cancel the
+    # running workflows (gracefully, if their type has a cancel_grace_s),
+    # charge what they used and end with spending_limit; "finish" — let them
+    # finish (the campaign can end above its limit).
+    on_limit: str = "cancel"
+
+    def __post_init__(self) -> None:
+        if self.on_limit not in ("cancel", "finish"):
+            raise ValueError("on_limit must be 'cancel' or 'finish'")
 
 
 class CampaignSpec(BaseModel):
@@ -153,6 +174,9 @@ class CampaignSpec(BaseModel):
     max_queue_depth: int = 50
     age_threshold_s: float = 300.0
     shutdown_timeout_s: float = 120.0
+    # Default WorkflowConfig.cancel_grace_s for workflow types that set none
+    # (P1).  0: cancel at once.
+    cancel_grace_s: float = 0.0
     # Longest the controller's decide() may take.  None (default): decide() runs
     # in the event loop with no limit.  A number: decide() runs in a thread, and
     # a cycle where it does not finish in time uses the built-in rules instead

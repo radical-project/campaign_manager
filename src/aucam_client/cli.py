@@ -2,7 +2,7 @@
 
     aucam-report emit [--score VALUE] [--metric KEY=VALUE]... [--metrics JSON]
                       [--iteration N]
-    aucam-report signal                 # prints PAUSE or RESUME, or nothing
+    aucam-report signal                 # prints PAUSE, RESUME or CANCEL, or nothing
     aucam-report wait-resume [--interval SECONDS]
 
 Values are parsed as JSON when possible (``0.8``, ``true``, ``{"a": 1}``) and
@@ -56,8 +56,8 @@ def _parser() -> argparse.ArgumentParser:
         help="metrics as a JSON object (merged with --metric)",
     )
     e.add_argument("--iteration", type=int, default=0)
-    sub.add_parser("signal", help="print a pending PAUSE/RESUME signal, if any")
-    w = sub.add_parser("wait-resume", help="block until RESUME arrives")
+    sub.add_parser("signal", help="print a pending PAUSE/RESUME/CANCEL signal, if any")
+    w = sub.add_parser("wait-resume", help="block until RESUME or CANCEL arrives; print which")
     w.add_argument("--interval", type=float, default=1.0)
     return p
 
@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
             if sig:
                 print(sig)
         else:
-            rep.wait_for_resume(args.interval)
+            print(rep.wait_for_resume(args.interval))
     except (ReporterConfigError, TypeError) as exc:
         print(f"aucam-report: {exc}", file=sys.stderr)
         return 2

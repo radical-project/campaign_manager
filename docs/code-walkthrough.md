@@ -110,7 +110,8 @@ AsyncFlow's own (pass one task's future to another).
 A Python workflow gets `backend.make_reporter(wf_id)` and calls `emit()`;
 command-line workflows use `aucam_client` with Redis or Dragon. Each policy
 cycle `_collect_live_reports()` reads `get_report()` for every running workflow;
-PAUSE / RESUME go out with `write_signal()`.
+PAUSE / RESUME, and CANCEL for a graceful cancel (`_cancel()`, with a timer that
+cancels the block when the grace period ends), go out with `write_signal()`.
 
 ---
 

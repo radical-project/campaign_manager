@@ -21,16 +21,13 @@ that must land first.
 | Priority | ID | Item | Status | Needs |
 |---|---|---|---|---|
 | 3 | B0 | Any budget dimension (e.g. `llm_tokens`) | Partial | with X1 |
-| 3 | P1 | Graceful cancel through the DataBackend; PAUSE timeout | Not started | |
-| 3 | B6 | Stop at the campaign spending limit | Not started | P1 |
-| 3 | U4 | Graceful cancel for per-workflow limits | Not started | P1 |
 | 3 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) | |
 | 3 | R1 | Restart: rejoin running workflows, keep goals | Not started | |
 | 3 | R2 | Restart: dependency state | Partial | |
 | 3 | B3 | Learned cost estimates (follow-ups: setting, checkpoint) | Done, two follow-ups | with R1 |
 | 3 | W1 | Concurrency cap per workflow type | Not started | |
 | 3 | U3 | Example campaigns use their resource allocation | Not started | |
-| 3 | U5 | Per-workflow enforcement lags by one check | Open | revisit after P1 |
+| 3 | U5 | Per-workflow enforcement lags by one check | Open | |
 | 4 | U1 | Change a running workflow's allocation | Not started (decided: not for now) | |
 | 4 | L1 | Launch fewer workflows when the backend is backlogged | Not started | task counts from Delta runs |
 | 4 | H1 | On-completion hooks can enqueue requests | Not started | |
@@ -40,7 +37,7 @@ that must land first.
 
 ---
 
-## Budget burn-down (B0–B6)
+## Budget burn-down (B0, B3)
 
 Goal: the budget becomes a decision input — AuCaM forecasts the campaign's
 spending, launches only what fits, cancels workflows that spend without
@@ -61,15 +58,6 @@ update `budget.md` and the developer guide.
   `_update_type_cost()`, `_estimates`). Missing: make the threshold (3 workflows)
   a `CampaignSpec.min_cost_samples` setting; save `_type_cost_stats` in the
   checkpoint.
-- **B6 — stop at the campaign spending limit.** Today, once no queued
-  request fits the remaining budget, AuCaM stops launching but lets running
-  workflows finish, so a campaign can end above its limit (e.g. up to
-  27.6 CPU·s against a 24 CPU·s limit in the slides' use case). The limit
-  should hold: when it is reached, cancel the running workflows gracefully
-  (P1), charge what they used, and end with `spending_limit`.
-  Make it the default, with an option on `CampaignBudget` (e.g.
-  `on_limit="finish"`) for campaigns that prefer to let running work
-  complete. Today a custom controller can do this in `decide()`.
 
 ## Per-workflow allocations (U1, U3–U5)
 
@@ -90,15 +78,16 @@ from the controller's intent (`LaunchRequest.spending_limit` / `resources` /
   `context["resources"]` / `CM_RESOURCES_<KEY>`, size their tasks to them, and
   report `cpus_in_use` / `gpus_in_use`, with an overuse configuration like the
   spending ones (`campaign_overuse.yaml`, `--overspend`).
-- **U4 — graceful per-workflow cancel.** A workflow over its spending limit or resources
-  is cancelled at once. Plan: cancel it gracefully (P1).
 - **U5 — enforcement lag.** Spending and resources in use are checked once
   per policy cycle, from the workflow's last report or its tasks, so a workflow can
   go past its limit by what it uses in one `policy_interval_s` — more for a
   workflow that reports rarely (the DeepDriveSim MiniApps worker reports once
   per prediction cycle). Resources in use come from task telemetry only with
   X1; otherwise only from what the workflow reports, and a workflow that
-  reports nothing is not checked.
+  reports nothing is not checked. A graceful cancel adds up to the type's
+  `cancel_grace_s` of spending. The same lag applies to the campaign limit
+  with `on_limit="cancel"`. Possible fix: a workflow checks its own limit
+  (it receives it) and stops itself, as the example campaigns do.
 
 ## Other planned features
 
@@ -112,12 +101,6 @@ from the controller's intent (`LaunchRequest.spending_limit` / `resources` /
   requests); after a restart a completion can be counted again and held
   requests are lost. Fix: add both to `CampaignCheckpoint` (with defaults for
   old checkpoints) and restore them like `dep_satisfied`.
-- **P1 — graceful cancel; PAUSE timeout.** One mechanism for every cancel
-  that can wait a moment: send CANCEL through the DataBackend so the workflow
-  can save its state and exit, and cancel it for real only if it is still
-  running after a grace period. Used at shutdown, at the campaign spending
-  limit (B6) and for workflows over their own limits (U4). Also: cancel a workflow
-  that does not acknowledge PAUSE within a timeout.
 - **H1 — hooks.** Let `WorkflowConfig.on_completion` hooks enqueue requests.
 - **A1 — accounting.** Per-dimension prices for comparing dimensions.
 - **S1 — scheduling.** `ADRSchedulingPolicy` and `LLMSchedulingPolicy` are
@@ -159,5 +142,7 @@ from the controller's intent (`LaunchRequest.spending_limit` / `resources` /
   on the subprocess but never kills the subprocess, so a cancelled `sleep`
   keeps running, even after `shutdown()`. On this backend (the default for
   local runs), cancelling a command-line workflow marks it cancelled while its
-  program keeps running.
+  program keeps running. A program that checks for CANCEL
+  (`aucam-report signal`) and has a grace period (`cancel_grace_s`) stops
+  itself; one that does not keeps running.
   Needs a fix in RHAPSODY: terminate the process (group) on cancel.

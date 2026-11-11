@@ -63,6 +63,10 @@ class WorkflowResult:
     resources: dict = field(default_factory=dict)
     over_resources: bool = False
     capped: bool = False
+    # How a cancelled workflow ended (P1): "graceful" — it received CANCEL and
+    # exited on its own within its grace period; "forced" — AuCaM cancelled it
+    # (no grace period, or it did not exit in time).  None if not cancelled.
+    cancel: str | None = None
 
 
 @dataclass

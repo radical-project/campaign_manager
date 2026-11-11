@@ -105,6 +105,8 @@ WorkflowConfig(
     max_wall_time_s=3600.0,  # cancel a workflow that takes longer
     stale_timeout_s=120.0,  # cancel a workflow that stops reporting (after its first report)
     supports_pause=False,  # True only if the workflow handles PAUSE/RESUME
+    pause_timeout_s=None,  # cancel a workflow that has not picked up PAUSE in time
+    cancel_grace_s=None,  # seconds to save and exit after CANCEL (§6); None: the spec's
     on_completion=callback,  # called with the WorkflowResult of every workflow
 )
 ```
@@ -173,9 +175,14 @@ still runs; AuCaM then only tracks its lifecycle.
 ```python
 async def my_worker(reporter: WorkflowReporter) -> None:
     for step in range(n_steps):
-        if await reporter.poll() == CampaignDecision.PAUSE:  # only with supports_pause=True
+        sig = await reporter.poll()
+        if sig == CampaignDecision.CANCEL:  # only with cancel_grace_s > 0
             save_state()
-            await reporter.wait_for_resume()
+            return
+        if sig == CampaignDecision.PAUSE:  # only with supports_pause=True
+            save_state()
+            if await reporter.wait_for_resume() == CampaignDecision.CANCEL:
+                return
 
         result = run_step(step)
         await reporter.emit(
@@ -206,8 +213,9 @@ the program runs but cannot report). Three options:
 
    ```bash
    aucam-report emit --score 0.82 --metric cpu_hours=1.5 --iteration 3
-   sig=$(aucam-report signal)                 # PAUSE, RESUME or nothing
-   [ "$sig" = PAUSE ] && aucam-report wait-resume
+   sig=$(aucam-report signal)                 # PAUSE, RESUME, CANCEL or nothing
+   [ "$sig" = CANCEL ] && { save_state; exit 0; }
+   [ "$sig" = PAUSE ] && [ "$(aucam-report wait-resume)" = CANCEL ] && { save_state; exit 0; }
    ```
 
    Values are parsed as JSON when possible; `--metrics '{"k": 1}'` passes an
@@ -355,13 +363,26 @@ class BestScore(CampaignController):
 |---|---|
 | `goals_satisfied` | All `Goal`s are satisfied: each names a key of the observation, a threshold and `"minimize"` / `"maximize"` |
 | `controller_terminate` | `decide()` returned `terminate=True` — including the built-in `goal_type` / `goal_n` goal |
-| `spending_limit` | The campaign's spending limit is reached and nothing is running |
+| `spending_limit` | The campaign's spending limit is reached and nothing is running, or actual spending went past it and the running workflows were cancelled (`on_limit="cancel"`, §9) |
 | `campaign_idle` | Idle for `idle_exit_s`: queue empty, nothing running or paused, no requests held by dependencies |
 | `signal` | AuCaM received SIGTERM or SIGINT, or `cm.stop()` was called |
 
-Then AuCaM clears the queue, cancels running workflows (waiting up to
-`shutdown_timeout_s`), writes a final checkpoint and `run()` returns the
-outcome.
+Then AuCaM clears the queue, cancels running workflows (gracefully where
+their type has a grace period, see below; waiting up to `shutdown_timeout_s`
+in all), writes a final checkpoint and `run()` returns the outcome.
+
+**Graceful cancel.** Every cancel — by the controller, a rule, a limit, or at
+shutdown — is graceful for a workflow type with `cancel_grace_s > 0`
+(`WorkflowConfig`, or `CampaignSpec.cancel_grace_s` for all types; default 0):
+AuCaM sends the workflow CANCEL through the data backend, and cancels it for
+real only if it is still running when the grace period ends. The workflow
+should check `reporter.poll()` (or `aucam-report signal`) and, on CANCEL, save
+what it needs and return. Either way it counts as cancelled (`returncode`
+−1); `WorkflowResult.cancel` is `"graceful"` if it exited on its own and
+`"forced"` otherwise. Give a grace period only to workflows that check for
+CANCEL: the others keep running, and keep their spending held against the
+campaign, until it ends. A command-line workflow needs the Redis or Dragon
+backend to receive CANCEL.
 
 `CampaignSpec.idle_exit_s`:
 
@@ -557,6 +578,7 @@ command-line overrides. Their keys are specific to each example; see the
 | A dependency target starts immediately | Set `launch_on_start=False` on it |
 | The campaign ends with `campaign_idle` too early | Raise `idle_exit_s` or set it to `None` |
 | PAUSE has no effect | `supports_pause=True` is needed, and the workflow must `poll()` |
+| A cancel takes `cancel_grace_s` seconds | The workflow does not check for CANCEL; set its `cancel_grace_s` to 0 |
 | Spending stays 0 | No `declared_spending` and nothing reported; see [budget.md](budget.md) |
 
 Planned features and known problems: [known gaps](known-gaps.md).
@@ -574,6 +596,7 @@ Planned features and known problems: [known gaps](known-gaps.md).
 | `policy_interval_s` | 60.0 | Seconds between policy cycles (also runs on every completion) |
 | `shutdown_timeout_s` | 120.0 | Grace period for running workflows at shutdown |
 | `decide_timeout_s` | `None` | Longest `decide()` may take; slower cycles use the built-in rules (§5) |
+| `cancel_grace_s` | 0.0 | Default grace period for a graceful cancel (§6) |
 | `idle_exit_s` | `"auto"` | §6 |
 | `max_queue_depth` | 50 | Above this, a warning is logged (requests are still queued) |
 | `age_threshold_s` | 300.0 | NORMAL requests waiting longer become HIGH |
@@ -593,6 +616,7 @@ Planned features and known problems: [known gaps](known-gaps.md).
 | `spending_limit`, `over_budget` | The workflow's own spending limit (empty: none), and whether AuCaM cancelled it for exceeding it |
 | `resources`, `over_resources` | What the workflow could use at once, and whether AuCaM cancelled it for using more |
 | `capped` | The scheduler gave it less spending than requested, to fit the remaining budget |
+| `cancel` | For a cancelled workflow: `"graceful"` (it exited after CANCEL) or `"forced"`; otherwise `None` |
 | `resource_profile` | Measured CPU/memory use, when available |
 
 ### Imports

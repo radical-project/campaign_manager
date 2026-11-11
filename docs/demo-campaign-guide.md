@@ -57,10 +57,15 @@ python run_campaign.py --overspend            # precise_sim ignores its limit
 ```
 
 `precise_sim` now runs 3× longer and ignores its limit, so AuCaM cancels it once
-its reported spending passes the limit:
+its reported spending passes the limit. The sims have a 2 s grace period
+(`cancel_grace_s=2.0`), so AuCaM first sends CANCEL and the workflow stops
+itself at its next step:
 
 ```
 [WORKFLOW-demo.precise_sim.…] spending limit exceeded cpu_hours=0.0057 > 0.0045 — auto-cancel
+[WORKFLOW-demo.precise_sim.…] CANCEL signal sent; grace 2s
+[precise] CANCEL received at step 20 — stopping
+[WORKFLOW-demo.precise_sim.…] CANCELLED wall=1.0s rc=-1 cancel=graceful
 [CM] Campaign demo SUMMARY — … (stale=0 walltime=0 budget=1 resources=0 policy=…) …
 spent 0.0169 cpu_hours; workflows cancelled for exceeding their own limit: 1
 ```
@@ -82,6 +87,8 @@ async def sim(reporter: WorkflowReporter, context: dict) -> None:
     limit = context["spending_limit"]["cpu_hours"]  # given by AuCaM
     spent = 0.0
     for step in range(steps):
+        if await reporter.poll() == CampaignDecision.CANCEL:  # AuCaM cancels it
+            return  # (it has cancel_grace_s=2.0 to stop on its own)
         if spent + step_cpu_h > limit:  # stop before passing the limit
             break
         await asyncio.sleep(0.05)  # one step of work
@@ -93,6 +100,9 @@ async def sim(reporter: WorkflowReporter, context: dict) -> None:
             iteration=step,
         )
 ```
+
+Cancels by `CancelRule`, by the workflow's own limit and at the end of the
+campaign all send CANCEL first, so the log shows `cancel=graceful` for the sims.
 
 In the demo each step costs a fixed amount (`FAST_STEP_CPU_H`,
 `PRECISE_STEP_CPU_H`); one factory, `make_sim()`, builds both sims.

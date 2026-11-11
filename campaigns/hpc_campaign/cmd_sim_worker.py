@@ -45,9 +45,13 @@ def main() -> int:
         # Stay within the spending limit: stop before a step that would pass it.
         if respect and spent() + sleep_s / 3600.0 > limit:
             break
-        # Check for a CM signal before each step.
-        if reporter.poll_signal() == "PAUSE":
-            reporter.wait_for_resume()
+        # Check for a CM signal before each step; CANCEL (with a grace period):
+        # stop here, keeping what was reported.
+        sig = reporter.poll_signal()
+        if sig == "PAUSE":
+            sig = reporter.wait_for_resume()
+        if sig == "CANCEL":
+            break
 
         # Simulate score drift.
         delta = random.gauss(+0.05, 0.1) if converge else random.gauss(-0.08, 0.1)
