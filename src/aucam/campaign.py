@@ -10,6 +10,7 @@ import shlex
 import threading
 import time
 import uuid
+from collections import deque
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -323,6 +324,12 @@ class _CampaignInstance:
         # Per-type observed cost stats for learned in-flight estimates (B3).
         # {workflow_type: {dim: {"n": int, "mean": float}}}
         self._type_cost_stats: dict[str, dict[str, dict]] = {}
+        # Per-type outcomes and total spending, all finished workflows (B1).
+        # {workflow_type: {"completed", "cancelled", "failed": int,
+        #                  "spent": {dim: float}, "score_sum": float, "score_n": int}}
+        self._type_totals: dict[str, dict] = {}
+        # (monotonic time, spent) at recent policy cycles, for the spending rate (B1).
+        self._spent_samples: deque[tuple[float, dict[str, float]]] = deque(maxlen=20)
 
         # Last telemetry snapshot — updated each policy cycle, used by _drain_queue.
         self._last_telemetry: TelemetrySnapshot = TelemetrySnapshot()
@@ -916,6 +923,77 @@ class _CampaignInstance:
         }
         return alloc
 
+    def _record_type_totals(self, result: WorkflowResult, spent: dict[str, float]) -> None:
+        """Add one finished workflow to its type's totals (B1, ``budget["by_type"]``)."""
+        t = self._type_totals.setdefault(
+            result.workflow_type,
+            {
+                "completed": 0,
+                "cancelled": 0,
+                "failed": 0,
+                "spent": {},
+                "score_sum": 0.0,
+                "score_n": 0,
+            },
+        )
+        rc = result.returncode
+        t["completed" if rc == 0 else "cancelled" if rc == -1 else "failed"] += 1
+        for k, v in (spent or {}).items():
+            if k != "wall_hours":
+                t["spent"][k] = t["spent"].get(k, 0.0) + float(v)
+        if rc == 0 and isinstance(result.final_score, (int, float)):
+            t["score_sum"] += float(result.final_score)
+            t["score_n"] += 1
+
+    def _budget_view(self) -> dict:
+        """The ledger view plus burn-down, passed to the controller as ``obs["budget"]``.
+
+        Adds to each limited dimension in ``burn`` (B1):
+          rate_per_hour  — spending charged per hour over the last (up to 20)
+                           policy cycles; 0 in the first cycle;
+          projected      — spent + in-flight + the estimated cost of queued requests;
+          hours_to_limit — remaining / rate_per_hour (None while the rate is 0).
+        and ``by_type``: per workflow type, finished-workflow counts, total and
+        average spending, spending per completed workflow and mean final score.
+        """
+        view = self._allocator.campaign_view(self.name)
+        now = time.monotonic()
+        spent = view["spent"]
+        self._spent_samples.append((now, dict(spent)))
+        # Rate over the window of recent cycles; 0 until there are two samples
+        # (a restored campaign's spending was not charged in this window).
+        t0, spent0 = self._spent_samples[0]
+        hours = max(now - t0, 1e-9) / 3600.0
+        queued: dict[str, float] = {}
+        for req in self._queue.candidates():
+            wfc = self._wf_config(req.workflow_type)
+            for k, v in self._held_estimate(req, self._run_limit(wfc, req)).items():
+                if k != "wall_hours":
+                    queued[k] = queued.get(k, 0.0) + float(v)
+        for key, b in view["burn"].items():
+            rate = max(0.0, spent.get(key, 0.0) - spent0.get(key, 0.0)) / hours
+            b["rate_per_hour"] = rate
+            b["projected"] = (
+                spent.get(key, 0.0) + view["in_flight"].get(key, 0.0) + queued.get(key, 0.0)
+            )
+            b["hours_to_limit"] = b["remaining"] / rate if rate > 0 else None
+        by_type: dict[str, dict] = {}
+        for wt, t in self._type_totals.items():
+            n = t["completed"] + t["cancelled"] + t["failed"]
+            by_type[wt] = {
+                "completed": t["completed"],
+                "cancelled": t["cancelled"],
+                "failed": t["failed"],
+                "spent": dict(t["spent"]),
+                "avg_cost": {k: v / n for k, v in t["spent"].items()} if n else {},
+                "cost_per_completed": (
+                    {k: v / t["completed"] for k, v in t["spent"].items()} if t["completed"] else {}
+                ),
+                "mean_score": t["score_sum"] / t["score_n"] if t["score_n"] else None,
+            }
+        view["by_type"] = by_type
+        return view
+
     def _held_estimate(self, request: LaunchRequest, limit: dict[str, float]) -> dict[str, float]:
         """What a workflow is held at against the campaign while it runs.
 
@@ -1106,6 +1184,7 @@ class _CampaignInstance:
             if _inst.request.requester == "policy_agent":
                 self._policy.on_outcome(_inst.request, result)
             self.spec.controller.on_complete(result)
+            self._record_type_totals(result, actual_spent)
             self._history.append(result)
             if len(self._history) > self._history_max:
                 self._history.pop(0)
@@ -1842,7 +1921,7 @@ class _CampaignInstance:
         self._last_telemetry = telemetry  # cache for _drain_queue
         obs = self._observe(
             queue_snapshot=self._queue.snapshot(),
-            budget=self._allocator.campaign_view(self.name),
+            budget=self._budget_view(),
             running=self._running_by_type(),
             live_reports=live_reports,
             telemetry=telemetry,

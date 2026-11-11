@@ -272,7 +272,7 @@ The observation has these keys (plus any your `observe()` adds):
 | Key | Content |
 |---|---|
 | `queue_snapshot` | `QueueSnapshot`: queued counts by priority and type |
-| `budget` | This campaign's ledger entry: `limits`, `spent`, `in_flight`, `burn` (§9) |
+| `budget` | This campaign's ledger entry: `limits`, `spent`, `in_flight`, `burn`, `by_type` (§9) |
 | `running` | `{workflow_type: number running}` |
 | `live_reports` | `{wf_id: WorkflowReport}` — latest report of each running workflow |
 | `wf_types` | `{wf_id: workflow_type}` |
@@ -461,8 +461,10 @@ CampaignBudget(
   `CM_SPENDING_LIMIT_<DIM>` for a command-line program), and enforced: AuCaM
   cancels a workflow once its spending so far exceeds it (`over_budget=True` in its
   result).
-- **In the observation:** `obs["budget"]` has `limits`, `spent`, `in_flight` and
-  `burn[dim] = {remaining, fraction_left}`.
+- **In the observation:** `obs["budget"]` has `limits`, `spent`, `in_flight`,
+  `burn[dim]` (`remaining`, `fraction_left`, `rate_per_hour`, `projected`,
+  `hours_to_limit`) and `by_type` (per type: counts, spending, cost per
+  completed workflow, mean score); see [budgets and spending](budget.md) §5.
 
 ![Campaign budget burn-down](figures/aucam_budget_burn.png)
 

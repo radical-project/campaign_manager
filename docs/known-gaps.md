@@ -20,15 +20,14 @@ that must land first.
 
 | Priority | ID | Item | Status | Needs |
 |---|---|---|---|---|
-| 2 | P1 | Graceful cancel through the DataBackend; PAUSE timeout | Not started | |
-| 2 | B1 | Burn-down in the controller's observation | Partial | |
 | 2 | U2 | Value-based sizing and cost-aware bandit; learned resource sizes | Partial | |
 | 2 | U6 | Default controller sets limits from learned cost | Not started | |
-| 2 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) | |
-| 2 | B6 | Stop at the campaign spending limit | Not started | P1 |
-| 2 | U4 | Graceful cancel for per-workflow limits | Not started | P1 |
-| 2 | B4 | `CostCancelRule` | Not started | B1 helps |
+| 2 | B4 | `CostCancelRule` | Not started | |
 | 3 | B0 | Any budget dimension (e.g. `llm_tokens`) | Partial | with X1 |
+| 3 | P1 | Graceful cancel through the DataBackend; PAUSE timeout | Not started | |
+| 3 | B6 | Stop at the campaign spending limit | Not started | P1 |
+| 3 | U4 | Graceful cancel for per-workflow limits | Not started | P1 |
+| 3 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) | |
 | 3 | R1 | Restart: rejoin running workflows, keep goals | Not started | |
 | 3 | R2 | Restart: dependency state | Partial | |
 | 3 | B3 | Learned cost estimates (follow-ups: setting, checkpoint) | Done, two follow-ups | with R1 |
@@ -61,12 +60,6 @@ update `budget.md` and the developer guide.
   dimensions are never charged and a limit on them is not enforced. Fix: for
   such workflows, still charge the reported totals of the dimensions other
   than CPU and GPU hours. `[SPEND]` logs also show only CPU/GPU.
-- **B1 — burn-down in the observation.** `campaign_view()` has
-  `burn[dim] = {remaining, fraction_left}`. Missing: `rate_per_hour` (smoothed
-  over recent policy cycles; needs spending timestamps in the ledger),
-  `projected` (spent + in-flight + estimated cost of queued requests),
-  `hours_to_limit`, and `burn["by_type"]` (completions, average cost, cost per
-  completed workflow, mean final score).
 - **B3 — learned costs, follow-ups.** Implemented (`_learned_cost()`,
   `_update_type_cost()`, `_estimates`). Missing: make the threshold (3 workflows)
   a `CampaignSpec.min_cost_samples` setting; save `_type_cost_stats` in the

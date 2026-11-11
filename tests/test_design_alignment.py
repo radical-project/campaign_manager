@@ -218,7 +218,7 @@ def test_budget_observation_is_campaign_ledger() -> None:
         ),
     )
     asyncio.run(asyncio.wait_for(CampaignManager().run(spec), timeout=30.0))
-    assert set(spy.seen) == {"limits", "spent", "in_flight", "burn"}
+    assert set(spy.seen) == {"limits", "spent", "in_flight", "burn", "by_type"}
     assert spy.seen["limits"] == {"cpu_hours": 2.0}
 
 

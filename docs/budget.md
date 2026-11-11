@@ -273,15 +273,48 @@ controller's observation includes `obs["budget"]`:
     "spent": {"cpu_hours": 0.34, "gpu_hours": 0.028},
     "in_flight": {"cpu_hours": 0.10},
     "burn": {
-        "cpu_hours": {"remaining": 0.56, "fraction_left": 0.56},
-        "gpu_hours": {"remaining": 0.222, "fraction_left": 0.888},
+        "cpu_hours": {
+            "remaining": 0.56,
+            "fraction_left": 0.56,
+            "rate_per_hour": 0.9,
+            "projected": 0.62,
+            "hours_to_limit": 0.62,
+        },
+        "gpu_hours": {...},
+    },
+    "by_type": {
+        "sim": {
+            "completed": 5,
+            "cancelled": 2,
+            "failed": 0,
+            "spent": {"cpu_hours": 0.30},
+            "avg_cost": {"cpu_hours": 0.043},
+            "cost_per_completed": {"cpu_hours": 0.06},
+            "mean_score": 0.81,
+        },
     },
 }
 ```
 
-`remaining = max(0, limit − spent − in_flight)`, `fraction_left = remaining / limit`.
-A controller can use these, for example, to stop launching expensive types or
-to end the campaign early.
+Per limited dimension in `burn`:
+
+| Key | Meaning |
+|---|---|
+| `remaining` | `max(0, limit − spent − in_flight)` |
+| `fraction_left` | `remaining / limit` |
+| `rate_per_hour` | Spending charged per hour over the last (up to 20) policy cycles; 0 in the first cycle |
+| `projected` | spent + in-flight + the estimated cost of the queued requests (each at its own limit, else the learned or declared cost) |
+| `hours_to_limit` | `remaining / rate_per_hour`; `None` while the rate is 0 |
+
+`by_type` covers every finished workflow of each type: `completed` /
+`cancelled` / `failed` counts, total `spent`, `avg_cost` (spent ÷ finished
+workflows), `cost_per_completed` (spent, cancelled and failed workflows
+included, ÷ completed workflows; empty until one completes) and `mean_score`
+(mean final score of completed workflows).
+
+A controller can use these, for example, to stop launching a type whose cost
+per completed workflow is too high, to stop when `projected` exceeds the
+limit, or to end the campaign early.
 
 ### Scheduler (bandit)
 
@@ -348,7 +381,6 @@ after the workflow has ended go into the ledger but not into `spent`.)
 | ID | Feature | Status |
 |---|---|---|
 | B0 | Any budget dimension | Partial: limits, in-flight and methods B/C accept any dimension; method A charges only CPU/GPU hours; `[SPEND]` logs show only CPU/GPU |
-| B1 | Burn-down in the observation | Partial: `remaining`, `fraction_left`; missing spending rate, projected spending, time to limit, cost per type |
 | B3 | Learned cost estimates | Done (§6); count not configurable, not checkpointed |
 | B4 | `CostCancelRule`: cancel workflows that spend without improving | Not started |
 | U2 | Cost-aware bandit and sizing | Partial: exploration shrinks with the budget (§5); reward not yet cost-weighted; `size()` not yet value-based |
