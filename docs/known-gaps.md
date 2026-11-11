@@ -22,7 +22,6 @@ that must land first.
 |---|---|---|---|---|
 | 2 | U2 | Value-based sizing and cost-aware bandit; learned resource sizes | Partial | |
 | 2 | U6 | Default controller sets limits from learned cost | Not started | |
-| 2 | B4 | `CostCancelRule` | Not started | |
 | 3 | B0 | Any budget dimension (e.g. `llm_tokens`) | Partial | with X1 |
 | 3 | P1 | Graceful cancel through the DataBackend; PAUSE timeout | Not started | |
 | 3 | B6 | Stop at the campaign spending limit | Not started | P1 |
@@ -64,13 +63,6 @@ update `budget.md` and the developer guide.
   `_update_type_cost()`, `_estimates`). Missing: make the threshold (3 workflows)
   a `CampaignSpec.min_cost_samples` setting; save `_type_cost_stats` in the
   checkpoint.
-- **B4 — cost-based cancel rule.** A new built-in rule in `controller.py`,
-  `CostCancelRule(workflow_type, max_without_improvement={"gpu_hours": 5.0},
-  direction="maximize")`, applied by `_apply_rules()`: cancel a running
-  workflow that has spent the given amount since its score last improved.
-  Needs per running workflow: spending so far (per-task charges are in
-  `_task_usage`), best score, spending at the best score — tracked on
-  `_WorkflowInstance` and passed in the observation (e.g. `obs["wf_spend"]`).
 - **B6 — stop at the campaign spending limit.** Today, once no queued
   request fits the remaining budget, AuCaM stops launching but lets running
   workflows finish, so a campaign can end above its limit (e.g. up to

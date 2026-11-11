@@ -316,6 +316,10 @@ A controller can use these, for example, to stop launching a type whose cost
 per completed workflow is too high, to stop when `projected` exceeds the
 limit, or to end the campaign early.
 
+`obs["wf_spend"]` gives each running workflow's spending so far. The built-in
+`CostCancelRule` uses it to cancel a workflow that has spent a set amount since
+its score last improved (developer guide, "Built-in rules").
+
 ### Scheduler (bandit)
 
 The default scheduling policy (a UCB1 bandit, which balances trying workflow
@@ -382,7 +386,6 @@ after the workflow has ended go into the ledger but not into `spent`.)
 |---|---|---|
 | B0 | Any budget dimension | Partial: limits, in-flight and methods B/C accept any dimension; method A charges only CPU/GPU hours; `[SPEND]` logs show only CPU/GPU |
 | B3 | Learned cost estimates | Done (§6); count not configurable, not checkpointed |
-| B4 | `CostCancelRule`: cancel workflows that spend without improving | Not started |
 | U2 | Cost-aware bandit and sizing | Partial: exploration shrinks with the budget (§5); reward not yet cost-weighted; `size()` not yet value-based |
 
 ---

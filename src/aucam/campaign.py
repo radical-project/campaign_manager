@@ -11,6 +11,7 @@ import threading
 import time
 import uuid
 from collections import deque
+from collections.abc import Iterable
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -1676,8 +1677,10 @@ class _CampaignInstance:
             wf_node=wf_node,
         )
 
-    def _spent_so_far(self, inst: _WorkflowInstance, now: float) -> dict[str, float]:
-        """A running workflow's spending so far, per dimension of its limit.
+    def _spent_so_far(
+        self, inst: _WorkflowInstance, now: float, keys: Iterable[str] | None = None
+    ) -> dict[str, float]:
+        """A running workflow's spending so far, per dimension of its limit (or ``keys``).
 
         Best source first, as when it is charged: per-task charges from AsyncFlow
         telemetry (finished tasks plus the elapsed share of running ones), then
@@ -1704,7 +1707,7 @@ class _CampaignInstance:
         decl = inst.declared_spending
         decl_wall_h = decl.get("wall_hours", 0.0)
         elapsed_h = (now - inst.started_at) / 3600.0
-        for key in inst.spending_limit:
+        for key in inst.spending_limit if keys is None else keys:
             if task_level and key in ("cpu_hours", "gpu_hours"):
                 out[key] = charged.get(key, 0.0) + live.get(key, 0.0)
             elif metrics.get(key) is not None:
@@ -1714,6 +1717,20 @@ class _CampaignInstance:
                     pass
             elif decl_wall_h > 0 and key in decl:
                 out[key] = decl[key] * elapsed_h / decl_wall_h
+        return out
+
+    def _wf_spend(self, now: float) -> dict[str, dict[str, float]]:
+        """Spending so far of every running workflow (``obs["wf_spend"]``).
+
+        Dimensions: CPU and GPU hours, the campaign's limits, and the
+        workflow's own limit and declared spending; one with no source is absent.
+        """
+        base = {"cpu_hours", "gpu_hours", *self._allocator.limits(self.name)}
+        out: dict[str, dict[str, float]] = {}
+        for wf_id, inst in self._active.items():
+            keys = base | set(inst.spending_limit) | set(inst.declared_spending)
+            keys.discard("wall_hours")
+            out[wf_id] = self._spent_so_far(inst, now, keys)
         return out
 
     def _in_use(self, inst: _WorkflowInstance) -> dict[str, float]:
@@ -1928,6 +1945,9 @@ class _CampaignInstance:
             # wf_types: wf_id → workflow_type; lets controllers identify
             # which workflow type each live report belongs to.
             wf_types={wf_id: inst.workflow_type for wf_id, inst in self._active.items()},
+            # wf_spend: wf_id → spending so far per dimension (best source
+            # available); used by CostCancelRule.
+            wf_spend=self._wf_spend(now),
             # tasks: AsyncFlow task counts (waiting / submitted / running);
             # None without telemetry.
             tasks=self._task_observation(),

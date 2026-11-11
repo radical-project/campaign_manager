@@ -26,6 +26,59 @@ class CancelRule:
 
 
 @dataclass
+class CostCancelRule:
+    """Cancel a running workflow that keeps spending without improving its score.
+
+    A workflow of ``workflow_type`` is cancelled once it has spent
+    ``max_without_improvement`` (in any one dimension, e.g.
+    ``{"gpu_hours": 5.0}``) since its score last improved, or since it started
+    if it has not reported a score yet.  ``direction`` says whether a higher
+    ("maximize") or lower ("minimize") score is better; a change smaller than
+    ``min_delta`` is not an improvement.
+
+    Spending so far comes from ``obs["wf_spend"]`` (AuCaM fills it each policy
+    cycle); the score is checked once per cycle, from the latest report.
+    """
+
+    workflow_type: str
+    max_without_improvement: dict[str, float]
+    direction: str = "maximize"
+    min_delta: float = 0.0
+    # wf_id -> (best score or None, spending when it was reached)
+    _best: dict[str, tuple[float | None, dict[str, float]]] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
+
+    def __post_init__(self) -> None:
+        if self.direction not in ("maximize", "minimize"):
+            raise ValueError("direction must be 'maximize' or 'minimize'")
+
+    def check(self, wf_id: str, score: float | None, spent: dict[str, float]) -> str | None:
+        """Update the workflow's best score; return why to cancel it, or None."""
+        best, at_best = self._best.get(wf_id, (None, {}))
+        if isinstance(score, (int, float)):
+            better = (
+                best is None
+                or (self.direction == "maximize" and score > best + self.min_delta)
+                or (self.direction == "minimize" and score < best - self.min_delta)
+            )
+            if better:
+                self._best[wf_id] = (float(score), dict(spent))
+                return None
+        self._best.setdefault(wf_id, (best, at_best))
+        for key, amount in self.max_without_improvement.items():
+            since = spent.get(key, 0.0) - at_best.get(key, 0.0)
+            if key in spent and since >= amount:
+                return f"{key} {since:.4g} spent since its best score {best}"
+        return None
+
+    def forget(self, running: set[str]) -> None:
+        """Drop state of workflows that are no longer running."""
+        for wf_id in [w for w in self._best if w not in running]:
+            del self._best[wf_id]
+
+
+@dataclass
 class LaunchRule:
     """Keep requesting a workflow type while the goal is not yet reached."""
 
@@ -105,13 +158,13 @@ class CampaignController:
         launch: list[str] | None = None,
         goal_type: str | None = None,
         goal_n: int | None = None,
-        rules: list[CancelRule | LaunchRule] | None = None,
+        rules: list[CancelRule | CostCancelRule | LaunchRule] | None = None,
     ) -> None:
         self._goal_type = goal_type
         self._goal_n = goal_n
 
         # Merge explicit rules + launch shorthand into one list
-        self._rules: list[CancelRule | LaunchRule] = list(rules or [])
+        self._rules: list[CancelRule | CostCancelRule | LaunchRule] = list(rules or [])
         for wt in launch or []:
             self._rules.append(LaunchRule(wt))
 
@@ -172,7 +225,7 @@ class CampaignController:
 
     def _apply_rules(
         self,
-        rules: list[CancelRule | LaunchRule],
+        rules: list[CancelRule | CostCancelRule | LaunchRule],
         obs: dict,
     ) -> PolicyResult:
         """Apply a rule list against the current observation and return a PolicyResult.
@@ -193,6 +246,24 @@ class CampaignController:
                             rule.workflow_type,
                             wf_id,
                             f"{report.score:.3f}" if report.score is not None else "None",
+                        )
+                        decisions[wf_id] = CampaignDecision.CANCEL
+
+            elif isinstance(rule, CostCancelRule):
+                wf_spend: dict = obs.get("wf_spend", {})
+                rule.forget(set(wf_types))
+                for wf_id, wt in wf_types.items():
+                    if wt != rule.workflow_type or wf_id in decisions:
+                        continue
+                    report = live_reports.get(wf_id)
+                    score = report.score if report is not None else None
+                    why = rule.check(wf_id, score, wf_spend.get(wf_id, {}))
+                    if why is not None:
+                        logger.info(
+                            "[CTRL] CostCancelRule(%s): cancelling %s: %s",
+                            rule.workflow_type,
+                            wf_id,
+                            why,
                         )
                         decisions[wf_id] = CampaignDecision.CANCEL
 

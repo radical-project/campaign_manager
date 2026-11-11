@@ -254,6 +254,21 @@ CampaignController(
 that type is queued. `CancelRule` cancels running workflows of its type whose
 latest report matches `when`.
 
+`CostCancelRule` cancels a workflow that keeps spending without getting better:
+
+```python
+CostCancelRule(
+    "sim_worker",
+    max_without_improvement={"gpu_hours": 5.0},  # since its score last improved
+    direction="maximize",  # or "minimize"; min_delta= sets the smallest improvement
+)
+```
+
+A `sim_worker` that has spent 5 GPU-hours since its best score (or since it
+started, if it has not reported a score) is cancelled. Its spending so far comes
+from `obs["wf_spend"]` (below): per-task charges, the totals it reports, or its
+`declared_spending` prorated by elapsed time.
+
 ### Your own logic
 
 Subclass `CampaignController` and override what you need:
@@ -276,6 +291,7 @@ The observation has these keys (plus any your `observe()` adds):
 | `running` | `{workflow_type: number running}` |
 | `live_reports` | `{wf_id: WorkflowReport}` — latest report of each running workflow |
 | `wf_types` | `{wf_id: workflow_type}` |
+| `wf_spend` | `{wf_id: {dim: spending so far}}` — CPU/GPU hours, the campaign's limited dimensions and the workflow's own; a dimension with no source is absent |
 | `telemetry` | `TelemetrySnapshot`: run times, node readings, spending, live use estimates |
 | `tasks` | AsyncFlow task counts for this campaign: `waiting` (not yet handed to the backend), `submitted` (waiting in the backend), `running`. `None` without telemetry (`enable_telemetry=True`). |
 

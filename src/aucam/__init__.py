@@ -2,7 +2,14 @@
 
 from .budget import BudgetAllocator
 from .checkpoint import CampaignCheckpoint, checkpoint_path, read_checkpoint, write_checkpoint
-from .controller import CampaignController, CancelRule, Goal, LaunchRule, PolicyResult
+from .controller import (
+    CampaignController,
+    CancelRule,
+    CostCancelRule,
+    Goal,
+    LaunchRule,
+    PolicyResult,
+)
 from .data_backend import (
     DataBackend,
     LocalDictBackend,
@@ -49,6 +56,7 @@ __all__ = [
     "write_checkpoint",
     "CampaignController",
     "CancelRule",
+    "CostCancelRule",
     "LaunchRule",
     "CampaignDecision",
     "CampaignManager",
