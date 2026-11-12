@@ -93,6 +93,9 @@ next_types = [t for t, s in by_type.items() if s["completed"] > 0]  # ["fast_goo
   in-flight estimates, learned cost estimates, and a bandit that explores less as
   the budget runs out; [budgets and spending](budget.md) shows each with a
   figure from a real run.
+- **Per-workflow allocations** — each workflow gets its own spending limit and
+  CPUs / GPUs, learned from earlier workflows of its type, and is cancelled if
+  it goes past them; [budgets and spending](budget.md) §4.
 - **Dependencies** — a workflow type can start only after another one finishes
   and passes a condition (`WorkflowDependency`).
 - **Command-line workflows** — programs in any language, reporting through the

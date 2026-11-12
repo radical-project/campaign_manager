@@ -43,3 +43,6 @@ slurm-*.err
 # OS / local tooling
 .DS_Store
 .claude/settings.local.json
+
+# Local design notes under review
+docs/s1-design-note.md

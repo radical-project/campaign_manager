@@ -47,6 +47,8 @@ the type's starting values and what AuCaM learned, passed to the workflow and en
   (or lowers) a running workflow's limit, with the in-flight amount updated in the
   ledger and the new limit sent to the workflow through the DataBackend.
   Enables "start small, give more to the promising" (successive halving).
+  Unlike U7, which sizes a workflow at launch, U1 changes it after launch;
+  both need workflows that read their limit and adapt.
 - **U5 — enforcement lag.** Spending and resources in use are checked once
   per policy cycle, from the workflow's last report or its tasks, so a workflow can
   go past its limit by what it uses in one `policy_interval_s` — more for a
@@ -67,11 +69,14 @@ the type's starting values and what AuCaM learned, passed to the workflow and en
   adaptive sampling, an optimizer that stops when its limit is reached — and
   for them a smaller amount near the end of a campaign is better than none.
   Plan: a type-level minimum, e.g. `WorkflowConfig(elastic={"cpu_hours": 0.5})`,
-  below which the workflow is not worth starting; `size()` gives what is left,
-  down to that minimum, and the workflow receives the amount it got and sizes
-  its work to fit. An earlier version had ranges (`bounds`) for this; they were
-  removed because no campaign needed them and they made sizing harder to
-  follow. Revisit when a real campaign has such a workflow.
+  below which the workflow is not worth starting. The upper amount is what
+  `size()` gives today; if it does not fit, the workflow gets what is left,
+  down to that minimum, and sizes its work to the amount it receives. A
+  controller's explicit amount is used as given and never reduced. U7 decides
+  the amount at launch; U1 changes it while the workflow runs, and the two
+  combine: start small when the budget is short, give more later. An earlier
+  version had ranges (`bounds`) for this; they were removed because no
+  campaign needed them and they made sizing harder to follow. Revisit when a real campaign has such a workflow.
 
 ## Other planned features
 

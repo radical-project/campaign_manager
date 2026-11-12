@@ -54,6 +54,7 @@ WorkflowConfig(
     block=my_workflow,
     declared_spending={"wall_hours": 0.5, "cpu_hours": 0.5, "gpu_hours": 0.05},
     spending_limit={"cpu_hours": 1.0},  # starting limit per workflow (optional, §4)
+    learn=True,  # False: every workflow keeps this limit (§4)
 )
 
 # A different limit for one workflow (optional; overrides the type's)
@@ -68,8 +69,8 @@ LaunchRequest.make("sim", spending_limit={"cpu_hours": 2.0})
   nothing better is measured (§3, method C). `wall_hours` itself is never
   charged.
 
-A workflow without `declared_spending` still runs, but AuCaM reserves nothing
-for it in advance and may charge it nothing. AuCaM logs a warning at start-up
+A workflow type with neither `declared_spending` nor `spending_limit` still
+runs, but AuCaM reserves nothing for it in advance and may charge it nothing. AuCaM logs a warning at start-up
 when a campaign has a spending limit and a workflow type has no
 `declared_spending`.
 
@@ -286,7 +287,9 @@ How much a workflow gets is decided when it starts, by the scheduling policy's
 
 If the amount does not fit what is left in the campaign budget, the request
 waits while other workflows run, and is dropped once nothing else runs.
-AuCaM never gives a workflow less than this amount to make it fit. Resources (`cpus`,
+AuCaM never gives a workflow less than this amount to make it fit. A type
+with `WorkflowConfig(..., learn=False)` keeps a fixed amount: steps 2 and 3
+are skipped. Resources (`cpus`,
 `gpus`) follow the same order, with the type's learned peak use instead of
 learned cost and no declared step; AuCaM enforces them like the spending
 limit. A campaign can replace this rule with its own (developer guide, "How
@@ -321,6 +324,7 @@ controller's observation includes `obs["budget"]`:
     "limits": {"cpu_hours": 1.0, "gpu_hours": 0.25},
     "spent": {"cpu_hours": 0.34, "gpu_hours": 0.028},
     "in_flight": {"cpu_hours": 0.10},
+    "capacity": {"cpus": {"total": 64, "in_use": 16, "free": 48}},
     "burn": {
         "cpu_hours": {
             "remaining": 0.56,
@@ -363,7 +367,9 @@ included, ÷ completed workflows; empty until one completes) and `mean_score`
 
 A controller can use these, for example, to stop launching a type whose cost
 per completed workflow is too high, to stop when `projected` exceeds the
-limit, or to end the campaign early.
+limit, or to end the campaign early. `obs["learned_cost"]` and
+`obs["allocations"]` show what AuCaM has learned per type and what each
+finished workflow got and achieved (developer guide §8).
 
 `obs["wf_spend"]` gives each running workflow's spending so far. The built-in
 `CostCancelRule` uses it to cancel a workflow that has spent a set amount since
@@ -399,7 +405,8 @@ After 3 workflows of a type have completed (`CampaignSpec.min_cost_samples`),
 AuCaM uses their average actual cost as the estimate for new workflows of that
 type, instead of `declared_spending`, and their average peak CPUs / GPUs in use
 for its resources. Only completed workflows count, since cancelled and
-failed ones are partial.
+failed ones are partial. A type with `learn=False` keeps its starting
+amount; its averages are still shown.
 
 The averages, and the per-type totals in `obs["budget"]["by_type"]`, are saved
 in the checkpoint: a restarted campaign keeps using what it learned.
@@ -431,8 +438,8 @@ after the workflow has ended go into the ledger but not into `spent`.)
 | `[SCHEDULER-…] campaign spending limit exceeded by actual spending: …` | INFO | `on_limit="cancel"`: running workflows are cancelled (§4) |
 | `[WORKFLOW-…] CANCEL signal sent; grace …s` | INFO | A graceful cancel starts |
 | `[WORKFLOW-…] did not exit within its grace period — cancelling` | WARNING | A graceful cancel ends in a forced one |
-| `[SCHEDULER-…] DROP <type>: its minimum does not fit the remaining budget` | INFO | A request was not started (sizing) |
-| `[SCHEDULER-…] WAIT <type>: <dim> cost … > remaining …; stays queued` | INFO | A request does not fit yet (§4); logged once per request |
+| `[SCHEDULER-…] WAIT <type>: …; stays queued` | INFO | A request does not fit the remaining budget or the free CPUs / GPUs yet (§4); logged once per request |
+| `[SCHEDULER-…] DROP <type>: …` | INFO | A request was dropped: it does not fit with nothing else running, or needs more than the capacity |
 | `[BANDIT] …  budget_rem=…%  c_eff=…  arms={type: μ=…}` | INFO | The bandit chooses among queued requests |
 | `[BANDIT] …  → <type>  ucb=…  c_eff=…` | INFO | The bandit picks a type it has seen before |
 | `[CM] Campaign … SUMMARY — exit=… spent={…}` | INFO | A campaign ends |

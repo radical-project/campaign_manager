@@ -13,9 +13,12 @@ What AuCaM does:
   every policy cycle and whenever a workflow finishes.
 - **Learns what to run** — the scheduler (a UCB1 bandit) favours
   workflow types that complete and explores less as the budget runs down.
+- **Learns how much each workflow gets** — every workflow starts with its own
+  spending limit and CPUs / GPUs, sized from what earlier workflows of its type
+  used, within the campaign's capacity; a campaign can plug in its own sizing.
 - **Keeps spending within limits** — every workflow is charged (CPU-hours,
-  GPU-hours or any other dimension) in one ledger, and the campaign stops
-  launching at its limit.
+  GPU-hours or any other dimension) in one ledger, a workflow that passes its
+  own limit is cancelled, and the campaign stops launching at its limit.
 - **Runs any workflow** — Python functions or command-line programs in any
   language, on AsyncFlow and RHAPSODY backends, from a laptop to an HPC
   allocation.
@@ -89,7 +92,7 @@ asyncio.run(main())
 |---|---|---|
 | [Architecture overview](docs/architecture-overview.md) | Everyone | Concepts, components and design decisions, without code |
 | [Demo campaign guide](docs/demo-campaign-guide.md) | New users | Run a demo campaign in a few minutes |
-| [Capability demo](docs/cm-advantages.md) | Everyone | What AuCaM adds, shown on one run |
+| [Capability demo](docs/cm-advantages.md) | Everyone | What AuCaM adds, shown on one campaign |
 | [Campaign developer guide](docs/campaign-developer-guide.md) | Campaign authors | Workflows, controllers, scheduling, budgets, running campaigns |
 | [Budgets and spending](docs/budget.md) | Campaign authors | How spending is measured, limited and reported |
 | [Code walkthrough](docs/code-walkthrough.md) | Contributors | Module map and main code paths |

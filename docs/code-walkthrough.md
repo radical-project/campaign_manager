@@ -14,11 +14,11 @@ planned work in [known gaps](known-gaps.md), and budget internals in
 | `src/aucam/manager.py` | `CampaignManager`: `run(spec)` (engine set-up, one campaign, its outcome), `stop()`, signal handling |
 | `src/aucam/campaign.py` | `_CampaignInstance`: everything that runs one campaign — launch, policy cycle, scheduler, accounting, dependencies, checkpoint, shutdown |
 | `src/aucam/controller.py` | `CampaignController` base class, `CancelRule`, `LaunchRule`, `Goal`, `PolicyResult` |
-| `src/aucam/scheduler.py` | `SchedulingPolicy` (FIFO base), `FIFOSchedulingPolicy`, `BanditSchedulingPolicy` (UCB1), `ADRSchedulingPolicy` / `LLMSchedulingPolicy` (stubs), `SchedulingContext` |
+| `src/aucam/scheduler.py` | `SchedulingPolicy` (FIFO base; `size()` sizes each workflow), `FIFOSchedulingPolicy`, `BanditSchedulingPolicy` (UCB1), `ADRSchedulingPolicy` / `LLMSchedulingPolicy` (stubs), `SchedulingContext`, `SizingContext` |
 | `src/aucam/queue.py` | `WorkflowQueue`: priority heap with aging |
 | `src/aucam/budget.py` | `BudgetAllocator`: the campaign's spending ledger |
 | `src/aucam/spec.py` | `CampaignSpec`, `CampaignBudget`, `WorkflowConfig`, `WorkflowDependency` |
-| `src/aucam/types.py` | `WorkflowResult`, `LaunchRequest`, `CampaignOutcome`, snapshots and enums |
+| `src/aucam/types.py` | `WorkflowResult`, `LaunchRequest`, `Allocation`, `AllocationRecord`, `CampaignOutcome`, snapshots and enums |
 | `src/aucam/reporter.py` | `WorkflowReport`, `WorkflowReporter` (interface), `LocalDictReporter` |
 | `src/aucam/data_backend.py` | `DataBackend` protocol; `LocalDictBackend`, `RadexDragonBackend`, `RhapsodyRedisBackend` and their reporters |
 | `src/aucam/checkpoint.py` | `CampaignCheckpoint` and its JSON read/write |
@@ -67,9 +67,11 @@ run()
   request arrives (at least every 2 s): stop if the spending limit is reached;
   otherwise launch CRITICAL requests, then the requests the `SchedulingPolicy`
   selects, within the workflow-count limits. Each request is sized
-  (`_size()`) and launched only if its cost fits what is left of the budget
-  (`BudgetAllocator.shortfall()`); if a pick does not fit, the policy is asked
-  again without it. It also ends the campaign on `spending_limit` (nothing
+  (`_size()` → the policy's `size()`) and launched only if its spending fits
+  what is left of the budget (`BudgetAllocator.shortfall()`) and its resources
+  fit the free capacity (`_free_capacity()`); one that does not fit waits while
+  others run and is dropped once nothing runs, and the policy is asked again
+  without it. It also ends the campaign on `spending_limit` (nothing
   running, and the limit reached or nothing queued fits) and `campaign_idle`
   (`idle_exit_s`).
 
@@ -77,7 +79,7 @@ run()
 
 ```
 _launch(request)
-├── _learned_cost() → estimate → BudgetAllocator.set_in_flight()
+├── _held_estimate() → BudgetAllocator.set_in_flight()   its limit, else its estimate
 └── _make_future()
     ├── Python block:  _run_as_block(block)            reporter / flow= / context= injected
     └── launch_cmd:    _run_as_block(_cmd_block)       one executable task: _wrap_cmd() → bash -c 'export …; exec cmd'
@@ -92,8 +94,11 @@ to the workflow (`_wf_tags`) so task telemetry events can be charged to it
 2. charges spending (`_compute_workflow_spent()`, unless charged per task) and
    updates the learned cost (`_update_type_cost()`, successful runs only);
 3. builds the `WorkflowResult` and passes it, in this order, to
-   `SchedulingPolicy.on_outcome()`, `controller.on_complete()`, the workflow's
-   `on_completion` hook and `_check_dag()` (dependencies).
+   `SchedulingPolicy.on_outcome()` and `controller.on_complete()`;
+4. raises the type's next limit after a cancel at the limit
+   (`_raise_after_limit_cancel()`) and records the allocation, its progress
+   and credit (`_record_allocation()`, `controller.progress()`);
+5. calls the workflow's `on_completion` hook and `_check_dag()` (dependencies).
 
 ### Dependencies — `enqueue()` and `_check_dag()`
 
@@ -119,8 +124,8 @@ cancels the block when the grace period ends), go out with `write_signal()`.
 
 | To add | Implement | Pass it via |
 |---|---|---|
-| Decision logic | subclass `CampaignController` (`observe`, `decide`, `on_complete`, `get_summary`, `goals`) | `CampaignSpec.controller` |
-| Scheduling policy | subclass `SchedulingPolicy` (`select`, optionally `on_outcome`) | `CampaignSpec.scheduling_policy` |
+| Decision logic | subclass `CampaignController` (`observe`, `decide`, `on_complete`, `progress`, `get_summary`, `goals`, `state` / `restore`) | `CampaignSpec.controller` |
+| Scheduling policy | subclass `SchedulingPolicy` (`select`; optionally `on_outcome`, `size`, `value`, `state` / `restore`) | `CampaignSpec.scheduling_policy` |
 | Data channel | the `DataBackend` protocol and a `WorkflowReporter` | `CampaignSpec.data_backend` |
 
 ## Tests

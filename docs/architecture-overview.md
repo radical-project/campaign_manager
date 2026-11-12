@@ -77,7 +77,9 @@ controller or the scheduling policy with its own.
   balances *exploring* (trying types it knows little about) with *exploiting*
   (launching the types that complete most often), and explores less as the
   budget runs down. FIFO is also built in, and a campaign can plug
-  in its own policy.
+  in its own policy. The policy also decides how much each workflow gets when
+  it starts — its spending limit and CPUs / GPUs: by default its type's
+  starting value, then what earlier workflows of the type used + 25 %.
 
 **What a campaign gets without writing any code**, compared with launching
 workflows by hand:
@@ -88,8 +90,9 @@ workflows by hand:
 - AuCaM records what each workflow costs (CPU-hours, GPU-hours or another unit
   such as LLM tokens), based on the resources its tasks requested and how long
   they ran, or on what the workflow reports; it gives each workflow its own
-  spending limit when it starts, and launches it only if that limit still fits
-  the campaign's spending limit;
+  spending limit and CPUs / GPUs when it starts, learned from earlier workflows
+  of its type, and launches it only if they fit what is left of the campaign's
+  spending limit and capacity;
 - a workflow type can wait for another to succeed (dependencies);
 - state is checkpointed, and a restarted campaign continues: it adopts command-line
   workflows that are still running and charges the work lost with the others;
@@ -98,7 +101,7 @@ workflows by hand:
   workflow types that never succeeded, or adjust parameters and limits).
 
 The [capability demo](cm-advantages.md) shows cancellation, the bandit and
-accounting on one run.
+accounting on one campaign.
 
 ---
 
@@ -118,7 +121,7 @@ accounting on one run.
 5. When the cancelled simulation ends, its slot is freed, its spending is
    recorded and the controller is told its result.
 6. The scheduler starts the queued request in the freed slot, within the
-   campaign's workflow-count and spending limits.
+   campaign's workflow-count and spending limits and its capacity.
 
 A custom controller could decide anything else in step 3, such as launching
 several workflows at once or changing goals.
@@ -130,7 +133,7 @@ several workflows at once or changing goals.
 | Exit reason | When |
 |---|---|
 | `goals_satisfied` | Ended by AuCaM: the controller declares goals (target values for metrics, e.g. "best energy ≤ −8"), AuCaM checks them every cycle, and all are met. The goal is reached. |
-| `controller_terminate` | Ended by the controller, which decides to stop for its own reason: its goal is reached (the built-in "N successful runs" goal ends this way), or it gives up (e.g. the goal looks unreachable). The goal may or may not be reached. |
+| `controller_terminate` | Ended by the controller, which decides to stop for its own reason: its goal is reached (the built-in "N successful workflows" goal ends this way), or it gives up (e.g. the goal looks unreachable). The goal may or may not be reached. |
 | `spending_limit` | The spending limit is reached and no workflows are running, or actual spending went past it and AuCaM cancelled the running workflows |
 | `campaign_idle` | Nothing queued or running for a while (`idle_exit_s`, configurable or off) |
 | `signal` | AuCaM receives SIGTERM or SIGINT, e.g. before a SLURM job's time limit, or the caller calls `cm.stop()` |
@@ -202,7 +205,7 @@ See [budgets and spending](budget.md) for how spending is measured.
 
 - [Demo campaign guide](demo-campaign-guide.md) — run a campaign in minutes.
 - [Capability demo](cm-advantages.md) — cancellation, learning and accounting
-  on one run.
+  on one campaign.
 - [Campaign developer guide](campaign-developer-guide.md) — write workflows,
   controllers and the code that runs campaigns.
 - [Budgets and spending](budget.md) — how spending is measured, limited and

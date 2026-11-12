@@ -100,7 +100,9 @@ WorkflowConfig(
     block=my_async_fn,  # a Python workflow ── or ──
     launch_cmd=["./sim", "--fast"],  # a command-line program (any language)
     declared_spending={"wall_hours": 0.5, "cpu_hours": 4.0},  # expected cost of one workflow (§9)
-    spending_limit={"cpu_hours": 6.0},  # cancel a workflow that spends more (§9)
+    spending_limit={"cpu_hours": 6.0},  # starting limit per workflow (§8); cancelled above it
+    resources={"cpus": 8},  # starting CPUs / GPUs per workflow (§8, §9)
+    learn=True,  # False: keep spending_limit / resources fixed (§8)
     task_description={"ranks": 4, "cores_per_rank": 8},  # launch_cmd: resource request
     env={"OMP_NUM_THREADS": "8"},  # launch_cmd: extra environment variables
     launch_on_start=True,  # queue one request when the campaign starts
@@ -126,7 +128,8 @@ them (in any order):
 - `flow` — the AsyncFlow engine; submit compute steps as `@flow` tasks
   so they run on the allocation, are cancelled with the workflow and are
   charged to it;
-- `context` — the `LaunchRequest.context` dict of this launch.
+- `context` — the `LaunchRequest.context` dict of this launch, plus
+  `spending_limit` and `resources`: what AuCaM gave this workflow (§9).
 
 ```python
 async def my_worker(reporter: WorkflowReporter, flow=None, context=None) -> None:
@@ -151,6 +154,7 @@ exist on the compute node. The program's environment has:
 | `CM_WORKFLOW_ID` | ID of this workflow |
 | `CM_CAMPAIGN_ID` | Campaign name |
 | `CM_CTX_<KEY>` | One per `LaunchRequest.context` entry |
+| `CM_SPENDING_LIMIT_<DIM>`, `CM_RESOURCES_<KEY>` | The workflow's spending limit and CPUs / GPUs (§9) |
 | `CM_DATA_ENDPOINT`, `CM_DATA_BACKEND` | How to reach the data backend (Redis or Dragon only) |
 | *`WorkflowConfig.env`* | As given |
 
@@ -305,7 +309,7 @@ The observation has these keys (plus any your `observe()` adds):
 | Key | Content |
 |---|---|
 | `queue_snapshot` | `QueueSnapshot`: queued counts by priority and type |
-| `budget` | This campaign's ledger entry: `limits`, `spent`, `in_flight`, `burn`, `by_type` (§9) |
+| `budget` | This campaign's ledger entry: `limits`, `spent`, `in_flight`, `burn`, `by_type`, `capacity` (§9) |
 | `running` | `{workflow_type: number running}` |
 | `live_reports` | `{wf_id: WorkflowReport}` — latest report of each running workflow |
 | `wf_types` | `{wf_id: workflow_type}` |
@@ -385,7 +389,8 @@ in all), writes a final checkpoint and `run()` returns the outcome.
 **Restarting a campaign.** With `checkpoint_dir` set, AuCaM saves the
 campaign's state after every policy cycle. Started again with the same spec,
 it continues from it: the queue (with each request's own limits), requests
-held by dependencies, counters, spending, learned costs, goals (with the
+held by dependencies, counters, spending, learned costs and raised limits,
+the allocation history, goals (with the
 controller's changes) and the `state()` of the scheduling policy (the
 bandit's statistics) and of the controller. Workflows that were running:
 
@@ -494,6 +499,9 @@ its allocation: a spending limit and the resources it may use at once.
   4. the type's starting value, as given;
   5. for spending, the type's `declared_spending` + 25%.
 
+  A type with `learn=False` skips steps 2 and 3: each of its workflows gets the
+  same amount (`ctx.learn` is False, so a learner overriding `size()` can keep it).
+
   Then it checks the remaining campaign budget: if the amount does not fit,
   `size()` returns nothing: the request waits while other workflows run, and is dropped
   (`CampaignOutcome.unfit_dropped`) once nothing else runs. A workflow type with
@@ -540,6 +548,25 @@ scales AuCaM's default amount by ×0.5, ×1 or ×1.5, tries each a few times,
 and then keeps the factor whose workflows brought the most progress (their
 own plus credit) per hour of run time, skipping records still pending.
 
+**Writing your own sizing rule.**
+
+- **The aim** is to reach the campaign's goal in the least time; the budget is
+  a constraint, not something to minimize. More for one workflow can make it
+  faster or more likely to succeed, but leaves less for the others.
+- **What to measure:** `total_progress` (own progress + credit) per hour of
+  run time, or per resource-hour (run time × the CPUs or GPUs it was given),
+  so that a workflow holding half the capacity counts twice as much as one
+  holding a quarter. Skip records that are still `pending`.
+- **Workflows cancelled at their limit** (`cancelled_at_limit`) show the limit
+  was too low: their true cost is unknown, only that it is higher. Count them
+  as such; don't drop them.
+- **Zero credit** is final once a record is no longer pending: what the
+  workflow led to failed, was cancelled, or never came. A `progress()` that
+  raises or returns `None` counts as 0.
+- **Keep what is fixed:** the controller's amount (`ctx.requested`) and types
+  with `learn=False` (`ctx.learn`); the default `size()` already does. Return
+  `None` if the amount does not fit `ctx.remaining` or `ctx.free`.
+
 ---
 
 ## 9. Budgets and limits
@@ -570,16 +597,21 @@ A custom scheduling policy reads the caps with `ctx.cap(workflow_type)`.
   descriptions), or from the spending it reports (cumulative `cpu_hours`,
   `gpu_hours`, …), or by prorating its `declared_spending` by its actual run
   time.
-- **Limit.** Every workflow gets its own spending limit when it starts (below),
+- **Limit.** Every workflow gets its own spending limit when it starts (§8),
   held against the campaign while it runs; a request starts only if its limit
   fits what is left, and one that does not stays queued while a cheaper one
-  may start. A workflow that spends past its own limit is cancelled. If actual
-  spending still goes past the campaign limit (a workflow type with no
-  estimate has no limit of its own), AuCaM cancels the running workflows
-  (`on_limit="cancel"`, the default; `"finish"` lets them finish). The campaign
-  ends with `spending_limit` when nothing is running and nothing queued fits.
-  Give every workflow type a starting `spending_limit` or a `declared_spending`,
-  so its workflows get a limit from the start. Details:
+  may start. The workflow receives the limit (`context["spending_limit"]`, or
+  `CM_SPENDING_LIMIT_<DIM>` for a command-line program), and AuCaM cancels it
+  once its spending so far exceeds it (`over_budget=True` in its result).
+  AuCaM checks once per policy cycle, so a workflow can go over by what it
+  spends in one cycle; to stay within its limit, a workflow should track its
+  own spending and stop before a step that would pass it (see the demo's
+  `make_sim()`). If actual spending still goes past the campaign limit (a
+  workflow type with no estimate has no limit of its own), AuCaM cancels the
+  running workflows (`on_limit="cancel"`, the default; `"finish"` lets them
+  finish). The campaign ends with `spending_limit` when nothing is running and
+  nothing queued fits. Give every workflow type a starting `spending_limit` or
+  a `declared_spending`, so its workflows get a limit from the start. Details:
   [budgets and spending](budget.md) §4.
 - **Resources per workflow.** `WorkflowConfig.resources={"cpus": 8, "gpus": 1}`
   (or `LaunchRequest.resources`) is what one workflow may use at once. The workflow
@@ -588,20 +620,11 @@ A custom scheduling policy reads the caps with `ctx.cap(workflow_type)`.
   with telemetry, or from the `cpus_in_use` / `gpus_in_use` it reports
   (`over_resources=True` in the result). The example campaigns do this; see
   `--overcpu` in the demo and `campaign_overuse_cpus.yaml` in `hpc_campaign`.
-- **Per-workflow limit.** `WorkflowConfig.spending_limit` caps what one workflow of the
-  type may spend; `LaunchRequest.make(..., spending_limit={...})` sets a
-  different limit for one workflow. The limit is held against the campaign
-  while the workflow runs, passed to the workflow (`context["spending_limit"]`, or
-  `CM_SPENDING_LIMIT_<DIM>` for a command-line program), and enforced: AuCaM
-  cancels a workflow once its spending so far exceeds it (`over_budget=True` in its
-  result). AuCaM checks once per policy cycle, so a workflow can go over by what
-  it spends in one cycle; to stay within its limit, a workflow should track its
-  own spending and stop before a step that would pass the limit (see the demo's
-  `make_sim()`).
 - **In the observation:** `obs["budget"]` has `limits`, `spent`, `in_flight`,
   `burn[dim]` (`remaining`, `fraction_left`, `rate_per_hour`, `projected`,
-  `hours_to_limit`) and `by_type` (per type: counts, spending, cost per
-  completed workflow, mean score); see [budgets and spending](budget.md) §5.
+  `hours_to_limit`), `by_type` (per type: counts, spending, cost per
+  completed workflow, mean score) and `capacity`; see
+  [budgets and spending](budget.md) §5.
 
 ![Campaign budget burn-down](figures/aucam_budget_burn.png)
 
@@ -705,11 +728,24 @@ Planned features and known problems: [known gaps](known-gaps.md).
 
 Everything is in `src.aucam`: `CampaignManager`, `CampaignSpec`,
 `CampaignBudget`, `WorkflowConfig`, `WorkflowDependency`,
-`CampaignController`, `CancelRule`, `LaunchRule`, `Goal`, `PolicyResult`,
+`CampaignController`, `CancelRule`, `CostCancelRule`, `LaunchRule`, `Goal`, `PolicyResult`,
 `CampaignDecision`, `LaunchRequest`, `LaunchPriority`, `WorkflowReporter`,
 `WorkflowReport`, `WorkflowResult`, `CampaignOutcome`,
 `BanditSchedulingPolicy`, `FIFOSchedulingPolicy`, `SchedulingPolicy`,
-`SchedulingContext`, `LocalDictBackend`, `RhapsodyRedisBackend`,
+`SchedulingContext`, `SizingContext`, `Allocation`, `AllocationRecord`, `LocalDictBackend`, `RhapsodyRedisBackend`,
 `RadexDragonBackend`, `TelemetrySnapshot`, `QueueSnapshot`, `BlockProfiler`,
 `TaskProfiler`, checkpoint helpers. The command-line reporting client is
 `src.aucam_client`.
+
+### Changes from earlier versions
+
+- Python ≥ 3.11, `radical.asyncflow` and `rhapsody-py` ≥ 0.7.0.
+- `CampaignBudget.capacity` is required.
+- `WorkflowConfig.spending_limit` / `resources` are starting values, not fixed
+  amounts: after `min_cost_samples` successful workflows, each new one gets the
+  learned amount + 25 %. Set `learn=False` to keep them fixed.
+- Every workflow gets a spending limit: a type without a `spending_limit` gets
+  `declared_spending` + 25 %. If that is too low, its first workflows are
+  cancelled at their limit, each next one getting 25 % more.
+- `WorkflowConfig.bounds`, `LaunchRequest.bounds`, `fair_share` and
+  `WorkflowResult.capped` are removed (known gaps, U7).

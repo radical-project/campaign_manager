@@ -273,7 +273,11 @@ async def exp_runlimit() -> dict:
         controller=Ctrl(launch=["steady", "runaway"]),
         workflows=[
             WorkflowConfig(
-                name=k, block=make(k), declared_spending=declared(cpus, 1.2), spending_limit=lim
+                name=k,
+                block=make(k),
+                declared_spending=declared(cpus, 1.2),
+                spending_limit=lim,
+                learn=False,  # keep the limit fixed, so every run has the same one
             )
             for k in ("steady", "runaway")
         ],
@@ -396,7 +400,7 @@ def plot_bandit(d: dict, plt) -> None:
     for kind, color, y in (("good", C_GOOD, 1), ("poor", C_POOR, 0)):
         xs = [i for i, p in zip(n, picks, strict=True) if p["type"] == kind]
         a1.scatter(xs, [y] * len(xs), color=color, s=45, marker="s")
-        a1.text(len(picks) + 0.8, y, f"{len(xs)} runs", va="center", fontsize=9, color=color)
+        a1.text(len(picks) + 0.8, y, f"{len(xs)} workflows", va="center", fontsize=9, color=color)
     a1.set_yticks([0, 1], ["poor\n(fails 75 %)", "good\n(fails 10 %)"])
     a1.set_ylim(-0.6, 1.6)
     a1.set_title(
@@ -430,7 +434,7 @@ def plot_bandit(d: dict, plt) -> None:
 
 
 def plot_runlimit(d: dict, plt) -> None:
-    """Timeline: one bar per run; red bars were cancelled by AuCaM at the run's limit."""
+    """Timeline: one bar per workflow; red bars were cancelled by AuCaM at its limit."""
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
 
@@ -473,12 +477,14 @@ def plot_runlimit(d: dict, plt) -> None:
     ax.set_yticks([])
     ax.set_xlabel("time since the campaign started (s)")
     ax.set_title(
-        f"Per-run spending limit: {d['limit']:.0f} CPU·s per run (2 CPUs, so {t_lim:.1f} s of run time)",
+        f"Per-workflow spending limit: {d['limit']:.0f} CPU·s (2 CPUs, so {t_lim:.1f} s of run time)",
         loc="left",
         fontsize=11,
     )
     handles = [
-        Patch(color=C_GOOD, label=f"steady: sizes its work to fit its limit ({n['steady']} runs)"),
+        Patch(
+            color=C_GOOD, label=f"steady: sizes its work to fit its limit ({n['steady']} workflows)"
+        ),
         Patch(color="#e8a33d", label=f"runaway that finished below its limit ({n['ok']})"),
         Patch(color=C_LIMIT, label=f"runaway cancelled by AuCaM at its limit ({n['cut']})"),
         Patch(
@@ -487,7 +493,7 @@ def plot_runlimit(d: dict, plt) -> None:
             hatch="///",
             label="work it had left when cancelled",
         ),
-        Line2D([], [], color=C_ANN, lw=1.2, label="the run's limit"),
+        Line2D([], [], color=C_ANN, lw=1.2, label="the workflow's limit"),
     ]
     ax.legend(
         handles=handles,

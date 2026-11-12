@@ -26,6 +26,7 @@ Scheduling policies (see scheduler.py):
   bandit_tight  — UCB1 with low exploration (c=0.5); faster exploitation.
   custom        — recency-bias subclass of SchedulingPolicy.
   fifo          — no learning; queue order.
+  learn         — the bandit, plus a learner for how much each sim gets.
 
 Usage:
   python run_campaign.py                    # single campaign, bandit policy
@@ -73,7 +74,7 @@ from src.aucam import (
 # ── Workflows ──────────────────────────────────────────────────────────────────
 #
 # Each step of a synthetic sim costs a fixed amount of CPU time, reported as a
-# running cpu_hours total in every emit().  AuCaM passes each run its spending
+# running cpu_hours total in every emit().  AuCaM passes each workflow its spending
 # limit in context["spending_limit"]; a well-behaved workflow sizes its work to
 # fit and stops before it would exceed it.  A workflow that ignores its limit is
 # cancelled by AuCaM once its reported spending passes the limit.
@@ -238,7 +239,7 @@ class ShowcaseController(CampaignController):
             return True
         return super().is_goal_reached()
 
-    # ── goals: declare a tracked quality target for the CM dashboard ─────────
+    # ── goals: targets AuCaM checks every policy cycle ───────────────────────
 
     def goals(self) -> list[Goal]:
         return [Goal(name="quality", metric="score", threshold=0.8, direction="maximize")]
@@ -343,7 +344,6 @@ def build_spec(
             ),
         ],
         dependencies=[
-            # Each successful sim triggers one analysis run.
             # Each successful sim triggers an analysis — with --policy learn,
             # only one whose final score reaches analysis_threshold, so a sim
             # given too little budget to converge does not count toward the goal.
@@ -356,7 +356,7 @@ def build_spec(
     )
 
 
-# ── CM lifecycle ───────────────────────────────────────────────────────────────
+# ── Running the campaign ───────────────────────────────────────────────────────
 
 
 async def run(args: argparse.Namespace) -> None:
