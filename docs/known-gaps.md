@@ -22,7 +22,6 @@ that must land first.
 |---|---|---|---|---|
 | 3 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) | |
 | 3 | R1 | Restart: rejoin running workflows, keep goals | Not started | |
-| 3 | U3 | Example campaigns use their resource allocation | Not started | |
 | 3 | U5 | Per-workflow enforcement lags by one check | Open | |
 | 4 | U1 | Change a running workflow's allocation | Not started (decided: not for now) | |
 | 4 | L1 | Launch fewer workflows when the backend is backlogged | Not started | task counts from Delta runs |
@@ -33,7 +32,7 @@ that must land first.
 
 ---
 
-## Per-workflow allocations (U1, U3–U5)
+## Per-workflow allocations (U1, U5)
 
 Each workflow gets an allocation when it starts — a spending limit and the CPUs and
 GPUs it may use at once (`Allocation`) — sized by `SchedulingPolicy.size()`
@@ -47,11 +46,6 @@ from the controller's intent (`LaunchRequest.spending_limit` / `resources` /
   (or lowers) a running workflow's limit, with the in-flight amount updated in the
   ledger and the new limit sent to the workflow through the DataBackend.
   Enables "start small, give more to the promising" (successive halving).
-- **U3 — example campaigns and resources.** The example campaigns pass and
-  respect spending limits but not resources: their workflows should read
-  `context["resources"]` / `CM_RESOURCES_<KEY>`, size their tasks to them, and
-  report `cpus_in_use` / `gpus_in_use`, with an overuse configuration like the
-  spending ones (`campaign_overuse.yaml`, `--overspend`).
 - **U5 — enforcement lag.** Spending and resources in use are checked once
   per policy cycle, from the workflow's last report or its tasks, so a workflow can
   go past its limit by what it uses in one `policy_interval_s` — more for a

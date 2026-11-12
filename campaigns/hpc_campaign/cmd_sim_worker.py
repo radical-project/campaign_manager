@@ -30,13 +30,17 @@ def main() -> int:
 
     n_iters = int(os.environ.get("DEMO_N_ITERS", "10"))
     sleep_s = float(os.environ.get("DEMO_SLEEP_S", "0.08"))
-    # This run's spending limit from AuCaM; spending = 1 CPU × wall time.
+    # This run's spending limit from AuCaM; spending = its CPUs × wall time.
     limit = float(os.environ.get("CM_SPENDING_LIMIT_CPU_HOURS", "inf"))
     respect = os.environ.get("DEMO_RESPECT_LIMIT", "1") == "1"
+    # The CPUs AuCaM gave it (CM_RESOURCES_CPUS); twice that to overuse them.
+    cpus = float(os.environ.get("CM_RESOURCES_CPUS", "1"))
+    if os.environ.get("DEMO_RESPECT_RESOURCES", "1") != "1":
+        cpus *= 2
     t0 = time.monotonic()
 
     def spent() -> float:
-        return (time.monotonic() - t0) / 3600.0
+        return cpus * (time.monotonic() - t0) / 3600.0
 
     converge = random.random() < 0.65  # 65% convergence rate (same as sim_worker)
 
@@ -59,7 +63,12 @@ def main() -> int:
 
         reporter.emit(
             score=score,
-            metrics={"step": step, "converging": converge, "cpu_hours": spent()},
+            metrics={
+                "step": step,
+                "converging": converge,
+                "cpu_hours": spent(),
+                "cpus_in_use": cpus,
+            },
             iteration=step,
         )
         time.sleep(sleep_s)
@@ -67,7 +76,13 @@ def main() -> int:
     # Final emit with the terminal score.
     reporter.emit(
         score=score,
-        metrics={"step": n_iters, "converging": converge, "score": score, "cpu_hours": spent()},
+        metrics={
+            "step": n_iters,
+            "converging": converge,
+            "score": score,
+            "cpu_hours": spent(),
+            "cpus_in_use": cpus,
+        },
         iteration=n_iters,
     )
     return 0

@@ -73,6 +73,8 @@ class SimWorkerConfig:
     declared_spending: dict = field(default_factory=dict)
     spending_limit: dict = field(default_factory=dict)  # most one run may spend
     respect_limit: bool = True  # False: the run ignores its limit (AuCaM cancels it)
+    resources: dict = field(default_factory=dict)  # CPUs/GPUs one run may use at once
+    respect_resources: bool = True  # False: the run uses twice its CPUs (AuCaM cancels it)
 
 
 @dataclass
@@ -82,6 +84,8 @@ class SimWorkerBConfig:
     declared_spending: dict = field(default_factory=dict)
     spending_limit: dict = field(default_factory=dict)
     respect_limit: bool = True
+    resources: dict = field(default_factory=dict)
+    respect_resources: bool = True
 
 
 @dataclass
@@ -90,6 +94,8 @@ class AnalysisWorkerConfig:
     declared_spending: dict = field(default_factory=dict)
     spending_limit: dict = field(default_factory=dict)
     respect_limit: bool = True
+    resources: dict = field(default_factory=dict)
+    respect_resources: bool = True
 
 
 @dataclass
@@ -163,6 +169,8 @@ def load_campaign(path: str | Path) -> CampaignConfig:
                 },
                 spending_limit={k: float(v) for k, v in (sim.get("spending_limit") or {}).items()},
                 respect_limit=bool(sim.get("respect_limit", True)),
+                resources={k: float(v) for k, v in (sim.get("resources") or {}).items()},
+                respect_resources=bool(sim.get("respect_resources", True)),
             ),
             sim_worker_b=SimWorkerBConfig(
                 stale_timeout_s=float(simb.get("stale_timeout_s", 60.0)),
@@ -171,6 +179,8 @@ def load_campaign(path: str | Path) -> CampaignConfig:
                 },
                 spending_limit={k: float(v) for k, v in (simb.get("spending_limit") or {}).items()},
                 respect_limit=bool(simb.get("respect_limit", True)),
+                resources={k: float(v) for k, v in (simb.get("resources") or {}).items()},
+                respect_resources=bool(simb.get("respect_resources", True)),
             ),
             analysis_worker=AnalysisWorkerConfig(
                 steps=int(ana.get("steps", 2)),
@@ -179,6 +189,8 @@ def load_campaign(path: str | Path) -> CampaignConfig:
                 },
                 spending_limit={k: float(v) for k, v in (ana.get("spending_limit") or {}).items()},
                 respect_limit=bool(ana.get("respect_limit", True)),
+                resources={k: float(v) for k, v in (ana.get("resources") or {}).items()},
+                respect_resources=bool(ana.get("respect_resources", True)),
             ),
         ),
         policy_interval_s=float(d.get("policy_interval_s", 0.5)),

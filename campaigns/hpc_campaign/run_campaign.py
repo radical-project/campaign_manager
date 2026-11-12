@@ -133,6 +133,7 @@ def build_spec(
             on_completion=_on_complete,
             declared_spending=ccfg.workflows.sim_worker.declared_spending,
             spending_limit=ccfg.workflows.sim_worker.spending_limit,
+            resources=ccfg.workflows.sim_worker.resources,
         ),
         WorkflowConfig(
             name="sim_worker_b",
@@ -142,6 +143,7 @@ def build_spec(
             on_completion=_on_complete,
             declared_spending=ccfg.workflows.sim_worker_b.declared_spending,
             spending_limit=ccfg.workflows.sim_worker_b.spending_limit,
+            resources=ccfg.workflows.sim_worker_b.resources,
         ),
         WorkflowConfig(
             name="analysis_worker",
@@ -150,6 +152,7 @@ def build_spec(
             on_completion=_on_complete,
             declared_spending=ccfg.workflows.analysis_worker.declared_spending,
             spending_limit=ccfg.workflows.analysis_worker.spending_limit,
+            resources=ccfg.workflows.analysis_worker.resources,
         ),
     ]
     dependencies = [
@@ -171,12 +174,16 @@ def build_spec(
                     "DEMO_N_ITERS": str(ccfg.workflows.sim_worker.n_iters),
                     "DEMO_SLEEP_S": str(ccfg.workflows.sim_worker.iter_sleep_s),
                     "DEMO_RESPECT_LIMIT": "1" if ccfg.workflows.sim_worker.respect_limit else "0",
+                    "DEMO_RESPECT_RESOURCES": (
+                        "1" if ccfg.workflows.sim_worker.respect_resources else "0"
+                    ),
                 },
                 stale_timeout_s=ccfg.workflows.sim_worker.stale_timeout_s,
                 launch_on_start=True,
                 on_completion=_on_complete,
                 declared_spending=ccfg.workflows.sim_worker.declared_spending,
                 spending_limit=ccfg.workflows.sim_worker.spending_limit,
+                resources=ccfg.workflows.sim_worker.resources,
             )
         )
         dependencies.append(
@@ -439,6 +446,11 @@ def main() -> None:
             "sim_worker": ccfg.workflows.sim_worker.respect_limit,
             "sim_worker_b": ccfg.workflows.sim_worker_b.respect_limit,
             "analysis_worker": ccfg.workflows.analysis_worker.respect_limit,
+        },
+        respect_resources={
+            "sim_worker": ccfg.workflows.sim_worker.respect_resources,
+            "sim_worker_b": ccfg.workflows.sim_worker_b.respect_resources,
+            "analysis_worker": ccfg.workflows.analysis_worker.respect_resources,
         },
     )
 

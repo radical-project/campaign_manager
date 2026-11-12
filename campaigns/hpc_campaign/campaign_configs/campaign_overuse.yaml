@@ -32,6 +32,8 @@ workflows:
     spending_limit:
       cpu_hours:  0.0008      # ≈ 2.9 s: fits, and the run stays within it
     respect_limit: true
+    resources:                # CPUs one workflow may use at once; AuCaM passes them
+      cpus: 1                 # to it and cancels a workflow that uses more
   sim_worker_b:
     # n_iters_b = n_iters // 3 = 10 → ≈ 0.8 s per run
     stale_timeout_s: 60.0
@@ -41,6 +43,8 @@ workflows:
     spending_limit:
       cpu_hours:  0.0001      # ≈ 0.36 s: less than the run needs
     respect_limit: false      # ignores its limit → AuCaM cancels it
+    resources:
+      cpus: 1
   analysis_worker:
     steps: 2
     declared_spending:
@@ -49,6 +53,8 @@ workflows:
     spending_limit:
       cpu_hours:  0.0006      # ≈ 2 s; the run's profiler samples once a second
     respect_limit: true
+    resources:
+      cpus: 1
 
 policy_interval_s: 0.1        # check spending often, so the cancel lands close to the limit
 shutdown_timeout_s: 10.0

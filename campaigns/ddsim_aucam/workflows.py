@@ -151,7 +151,10 @@ def make_miniapps_worker(
     AuCaM passes each run its spending limit (context["spending_limit"]).  A run
     that respects it runs only as many simulations as fit (fit_to_limit); every
     report carries the run's cpu_hours so far (wall time × the declared CPU
-    rate), so AuCaM can cancel a run that spends past its limit.
+    rate) and the CPUs it uses (cpus_in_use, the same rate), so AuCaM can
+    cancel a run that spends past its limit or uses more CPUs than it was
+    given (WorkflowConfig.resources).  The MiniApps pipeline sets its own
+    parallelism, so the run does not resize its tasks to the resources.
 
     Using a factory (instead of a module-level configure()) ensures that
     concurrent campaigns with different configs each get their own closure
@@ -217,6 +220,7 @@ def make_miniapps_worker(
                     "n_completed": n_done,
                     "status": "evaluating",
                     "cpu_hours": spent(),
+                    "cpus_in_use": cpus,
                 },
             )
 
@@ -263,6 +267,7 @@ def make_miniapps_worker(
                 "status": "complete",
                 "node": socket.gethostname(),
                 "cpu_hours": spent(),
+                "cpus_in_use": cpus,
             },
         )
 

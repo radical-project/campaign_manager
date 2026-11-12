@@ -15,9 +15,10 @@ Capabilities shown:
   CampaignBudget       Max concurrent workflows + cpu_hours spending cap
   Custom controller    Tracks best score; ends the campaign after N analyses
   Self-reported budget Workflows report cpu_hours in emit() for accurate charging
-  Per-run budget       Each run gets a spending_limit from AuCaM (context["spending_limit"])
-                       and stops before exceeding it; --overspend makes precise_sim ignore
-                       its limit, and AuCaM cancels it once it spends past it
+  Per-workflow limits  Each workflow gets a spending_limit and resources from AuCaM
+                       (context["spending_limit"], context["resources"]) and stays within
+                       them; --overspend makes precise_sim ignore its spending limit and
+                       --overcpu makes it use twice its CPUs, and AuCaM cancels it
 
 Scheduling policies (see scheduler.py):
   bandit        — UCB1, reward = 1 for any completion.  Learns which arm succeeds more often.
@@ -32,6 +33,7 @@ Usage:
   python run_campaign.py --policy custom    # custom SchedulingPolicy subclass
   python run_campaign.py -v                 # verbose: every launch and cycle
   python run_campaign.py --overspend        # precise_sim ignores its budget → cancelled
+  python run_campaign.py --overcpu          # precise_sim uses 2× its CPUs → cancelled
 """
 
 from __future__ import annotations
@@ -90,13 +92,25 @@ def _cpu_limit(context: dict | None) -> float:
 
 
 def make_sim(
-    arm: str, steps: int, step_cpu_h: float, p_converge: float, respect_limit: bool = True
+    arm: str,
+    steps: int,
+    step_cpu_h: float,
+    p_converge: float,
+    respect_limit: bool = True,
+    overuse_cpus: bool = False,
 ):
-    """A synthetic sim: ``steps`` steps of ``step_cpu_h`` each, ~``p_converge`` convergence."""
+    """A synthetic sim: ``steps`` steps of ``step_cpu_h`` each, ~``p_converge`` convergence.
+
+    It uses the CPUs AuCaM gives it (context["resources"]["cpus"]), or twice
+    that with ``overuse_cpus``, and reports them as cpus_in_use.
+    """
     up, down = (0.06, -0.10) if arm == "fast" else (0.04, -0.08)
 
     async def sim(reporter: WorkflowReporter, context: dict) -> None:
         limit = _cpu_limit(context)
+        cpus = float(context.get("resources", {}).get("cpus", 1.0))
+        if overuse_cpus:
+            cpus *= 2
         score = 0.5
         converging = random.random() < p_converge
         spent = 0.0
@@ -117,7 +131,7 @@ def make_sim(
             score = max(0.0, min(1.0, score))
             await reporter.emit(
                 score=score,
-                metrics={"step": step, "arm": arm, "cpu_hours": spent},
+                metrics={"step": step, "arm": arm, "cpu_hours": spent, "cpus_in_use": cpus},
                 iteration=step,
             )
 
@@ -132,6 +146,10 @@ precise_sim = make_sim("precise", steps=10, step_cpu_h=PRECISE_STEP_CPU_H, p_con
 # --overspend: a precise_sim that runs 3x longer and ignores its spending limit.
 runaway_sim = make_sim(
     "precise", steps=30, step_cpu_h=PRECISE_STEP_CPU_H, p_converge=0.90, respect_limit=False
+)
+# --overcpu: a precise_sim that uses twice the CPUs AuCaM gives it.
+greedy_sim = make_sim(
+    "precise", steps=10, step_cpu_h=PRECISE_STEP_CPU_H, p_converge=0.90, overuse_cpus=True
 )
 
 
@@ -260,6 +278,7 @@ def build_spec(
     cancel_threshold: float = 0.3,
     policy=None,
     overspend: bool = False,
+    overcpu: bool = False,
 ) -> CampaignSpec:
     """Wire workflows, dependencies, controller, budget, and policy into one spec."""
     return CampaignSpec(
@@ -291,10 +310,12 @@ def build_spec(
                 cancel_grace_s=2.0,  # it stops on CANCEL; AuCaM waits up to 2 s
                 declared_spending={"wall_hours": 6 * STEP_S / H, "cpu_hours": 6 * FAST_STEP_CPU_H},
                 spending_limit={"cpu_hours": round(9 * FAST_STEP_CPU_H, 6)},
+                resources={"cpus": 1},  # passed in context["resources"]; AuCaM
+                # cancels a workflow that reports more cpus_in_use
             ),
             WorkflowConfig(
                 name="precise_sim",
-                block=runaway_sim if overspend else precise_sim,
+                block=runaway_sim if overspend else greedy_sim if overcpu else precise_sim,
                 launch_on_start=True,
                 stale_timeout_s=60.0,
                 cancel_grace_s=2.0,
@@ -303,6 +324,7 @@ def build_spec(
                     "cpu_hours": 10 * PRECISE_STEP_CPU_H,
                 },
                 bounds={"cpu_hours": (10 * PRECISE_STEP_CPU_H, round(15 * PRECISE_STEP_CPU_H, 6))},
+                resources={"cpus": 2},
             ),
             WorkflowConfig(
                 name="analysis",
@@ -336,6 +358,7 @@ async def run(args: argparse.Namespace) -> None:
         cancel_threshold=0.3,
         policy=policy,
         overspend=args.overspend,
+        overcpu=args.overcpu,
     )
 
     t0 = time.monotonic()
@@ -350,9 +373,11 @@ async def run(args: argparse.Namespace) -> None:
         (s.get("cancel_rate") or 0.0) * 100,
     )
     logging.info(
-        "spent %.4f cpu_hours; workflows cancelled for exceeding their own limit: %d",
+        "spent %.4f cpu_hours; workflows cancelled for exceeding their own limit: %d, "
+        "for using more CPUs than given: %d",
         outcome.spent.get("cpu_hours", 0.0),
         outcome.budget_cancels,
+        outcome.resource_cancels,
     )
     if isinstance(policy, BanditSchedulingPolicy):
         logging.info("arm stats: %s", policy.arm_stats())
@@ -385,6 +410,11 @@ def main() -> None:
         "--overspend",
         action="store_true",
         help="precise_sim ignores its spending limit; AuCaM cancels it once it overspends",
+    )
+    p.add_argument(
+        "--overcpu",
+        action="store_true",
+        help="precise_sim uses twice its CPUs; AuCaM cancels it once it reports that",
     )
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args()

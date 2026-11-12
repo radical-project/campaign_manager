@@ -515,7 +515,8 @@ A custom scheduling policy reads the caps with `ctx.cap(workflow_type)`.
   gets it (`context["resources"]`, `CM_RESOURCES_<KEY>`) and must size its tasks
   to it; AuCaM cancels a workflow that uses more — measured from its running tasks
   with telemetry, or from the `cpus_in_use` / `gpus_in_use` it reports
-  (`over_resources=True` in the result).
+  (`over_resources=True` in the result). The example campaigns do this; see
+  `--overcpu` in the demo and `campaign_overuse_cpus.yaml` in `hpc_campaign`.
 - **Per-workflow limit.** `WorkflowConfig.spending_limit` caps what one workflow of the
   type may spend; `LaunchRequest.make(..., spending_limit={...})` sets a
   different limit for one workflow. The limit is held against the campaign

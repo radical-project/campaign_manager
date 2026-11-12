@@ -15,9 +15,10 @@ Two simulation arms compete; a dependency triggers analysis after each successfu
 | `precise_sim` | 10 steps, ~90% convergence. Launched by `decide()` with dynamic priority. |
 | `analysis` | Post-processing; fires after every successful sim via `WorkflowDependency`. |
 
-Every workflow has a spending limit. AuCaM passes it to the workflow, the
-workflow reports what it has spent and stops before it would pass the limit,
-and AuCaM cancels a workflow that spends more (§2, "Spending").
+Every workflow has a spending limit and the CPUs it may use (`fast_sim` 1,
+`precise_sim` 2). AuCaM passes both to the workflow; the workflow reports what
+it has spent and the CPUs it uses, and stops before it would pass its limit;
+AuCaM cancels a workflow that spends more or uses more CPUs (§2, "Spending").
 
 The campaign ends after `goal_analyses` analyses complete **or** a simulation
 reaches a perfect score (≥ 0.99) — whichever comes first.
@@ -67,7 +68,20 @@ itself at its next step:
 [precise] CANCEL received at step 20 — stopping
 [WORKFLOW-demo.precise_sim.…] CANCELLED wall=1.0s rc=-1 cancel=graceful
 [CM] Campaign demo SUMMARY — … (stale=0 walltime=0 budget=1 resources=0 policy=…) …
-spent 0.0169 cpu_hours; workflows cancelled for exceeding their own limit: 1
+spent 0.0169 cpu_hours; workflows cancelled for exceeding their own limit: 1, for using more CPUs than given: 0
+```
+
+The same for resources:
+
+```bash
+python run_campaign.py --overcpu              # precise_sim uses twice its CPUs
+```
+
+`precise_sim` now reports `cpus_in_use=4` with 2 CPUs given, and AuCaM cancels it:
+
+```
+[WORKFLOW-demo.precise_sim.…] resources exceeded cpus=4 > 2 — auto-cancel
+[CM] Campaign demo SUMMARY — … (stale=0 walltime=0 budget=0 resources=10 policy=…) …
 ```
 
 ---
@@ -164,9 +178,11 @@ later ones with `0.00375` (12.5 steps).
 
 The controller can give one workflow a different limit than its type's:
 `LaunchRequest.make("precise_sim", spending_limit={"cpu_hours": 0.006})`.
-Each workflow can also be given resources (CPUs, GPUs) to use at once, and the
-scheduler can size both from the remaining budget; see the
-[developer guide](campaign-developer-guide.md), "How much each workflow gets".
+The resources work the same way: `WorkflowConfig(..., resources={"cpus": 2})`
+reaches the workflow as `context["resources"]`, and the workflow reports
+`cpus_in_use` in its metrics. The scheduler can also size both from ranges and
+the remaining budget; see the [developer guide](campaign-developer-guide.md),
+"How much each workflow gets".
 
 ---
 

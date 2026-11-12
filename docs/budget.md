@@ -263,7 +263,10 @@ every `runaway` workflow as it passes the limit (the tick on each bar). Generate
 Each example campaign shows this with a ready-made configuration:
 `campaigns/demo_campaign/run_campaign.py --overspend`,
 `campaigns/hpc_campaign/campaign_configs/campaign_overuse.yaml` and
-`campaigns/ddsim_aucam/campaign_configs/campaign_overuse.yaml`.
+`campaigns/ddsim_aucam/campaign_configs/campaign_overuse.yaml`. The same for
+resources (a workflow that uses more CPUs than it was given):
+`campaigns/demo_campaign/run_campaign.py --overcpu` and
+`campaigns/hpc_campaign/campaign_configs/campaign_overuse_cpus.yaml`.
 
 ---
 

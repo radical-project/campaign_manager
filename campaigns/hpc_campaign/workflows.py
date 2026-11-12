@@ -52,21 +52,29 @@ N_ITERS_B = max(3, N_ITERS // 3)  # sim_worker_b: faster, fewer iters (auto-deri
 # Whether each workflow type stays within the spending limit AuCaM gives it
 # (campaign_overuse.yaml turns this off for one type to show AuCaM cancelling it).
 RESPECT_LIMIT = {"sim_worker": True, "sim_worker_b": True, "analysis_worker": True}
+# False: the run uses twice the CPUs AuCaM gave it (the resource use case).
+RESPECT_RESOURCES = {"sim_worker": True, "sim_worker_b": True, "analysis_worker": True}
 
 
 class RunBudget:
-    """This run's spending limit from AuCaM, and its spending so far.
+    """This run's spending limit and resources from AuCaM, and its spending so far.
 
-    Spending is counted as one CPU for the run's wall time, reported to AuCaM as
-    a running ``cpu_hours`` total.  A run that respects its limit stops before a
-    step that would take it past the limit.
+    The run uses the CPUs AuCaM gave it (context["resources"]["cpus"], 1 if
+    none), or twice that when configured to overuse them; spending is those
+    CPUs × the run's wall time.  Both go to AuCaM in every report
+    (``metrics()``: a running ``cpu_hours`` total and ``cpus_in_use``).  A run
+    that respects its limit stops before a step that would take it past it.
     """
 
-    def __init__(self, context: dict | None, name: str, cpus: float = 1.0) -> None:
+    def __init__(self, context: dict | None, name: str) -> None:
         lim = (context or {}).get("spending_limit", {}).get("cpu_hours")
         self.limit = float(lim) if lim is not None else math.inf
         self.respect = RESPECT_LIMIT.get(name, True)
+        given = float((context or {}).get("resources", {}).get("cpus", 1.0))
+        cpus = given if RESPECT_RESOURCES.get(name, True) else 2 * given
         self.name, self.cpus, self.t0 = name, cpus, time.monotonic()
+        if cpus != given:
+            logger.info("[%s] given %g CPUs, using %g", name, given, cpus)
         if lim is not None:
             logger.info(
                 "[%s] spending limit %.6f cpu_hours%s",
@@ -77,6 +85,10 @@ class RunBudget:
 
     def spent(self) -> float:
         return self.cpus * (time.monotonic() - self.t0) / 3600.0
+
+    def metrics(self) -> dict:
+        """Spending so far and CPUs in use, for every report to AuCaM."""
+        return {"cpu_hours": self.spent(), "cpus_in_use": self.cpus}
 
     def stop_before(self, step_s: float) -> bool:
         """True if a step of ``step_s`` seconds would take this run past its limit."""
@@ -106,6 +118,7 @@ def configure(
     iter_sleep_s: float | None = None,
     analysis_steps: int | None = None,
     respect_limit: dict[str, bool] | None = None,
+    respect_resources: dict[str, bool] | None = None,
 ) -> None:
     """Override timing constants before the campaign starts.
 
@@ -122,6 +135,8 @@ def configure(
         ANALYSIS_STEPS = analysis_steps
     if respect_limit:
         RESPECT_LIMIT.update(respect_limit)
+    if respect_resources:
+        RESPECT_RESOURCES.update(respect_resources)
 
 
 async def sim_worker(reporter: WorkflowReporter, flow=None, context: dict | None = None) -> None:
@@ -178,7 +193,7 @@ async def sim_worker(reporter: WorkflowReporter, flow=None, context: dict | None
                 await reporter.emit(
                     score=state["score"],
                     metrics={
-                        "cpu_hours": budget.spent(),
+                        **budget.metrics(),
                         "batch": batch_num,
                         "converging": state["converging"],
                         "hostname": socket.gethostname(),
@@ -189,7 +204,7 @@ async def sim_worker(reporter: WorkflowReporter, flow=None, context: dict | None
             # Final emit with block-level profiling metrics.
             await reporter.emit(
                 score=state["score"],
-                metrics={"cpu_hours": budget.spent(), "resource_usage": block_prof.metrics},
+                metrics={**budget.metrics(), "resource_usage": block_prof.metrics},
                 iteration=N_ITERS + 1,
             )
 
@@ -208,7 +223,7 @@ async def sim_worker(reporter: WorkflowReporter, flow=None, context: dict | None
                 await reporter.emit(
                     score=score,
                     metrics={
-                        "cpu_hours": budget.spent(),
+                        **budget.metrics(),
                         "iteration": i,
                         "converging": converging,
                         "score": score,
@@ -221,7 +236,7 @@ async def sim_worker(reporter: WorkflowReporter, flow=None, context: dict | None
             await reporter.emit(
                 score=score,
                 metrics={
-                    "cpu_hours": budget.spent(),
+                    **budget.metrics(),
                     "resource_usage": block_prof.metrics,
                     "cpu_seconds": cpu_s,
                 },
@@ -268,7 +283,7 @@ async def sim_worker_b(reporter: WorkflowReporter, flow=None, context: dict | No
                 await reporter.emit(
                     score=state["score"],
                     metrics={
-                        "cpu_hours": budget.spent(),
+                        **budget.metrics(),
                         "batch": batch_num,
                         "converging": state["converging"],
                         "hostname": socket.gethostname(),
@@ -278,7 +293,7 @@ async def sim_worker_b(reporter: WorkflowReporter, flow=None, context: dict | No
 
             await reporter.emit(
                 score=state["score"],
-                metrics={"cpu_hours": budget.spent(), "resource_usage": block_prof.metrics},
+                metrics={**budget.metrics(), "resource_usage": block_prof.metrics},
                 iteration=N_ITERS_B + 1,
             )
 
@@ -296,7 +311,7 @@ async def sim_worker_b(reporter: WorkflowReporter, flow=None, context: dict | No
                 await reporter.emit(
                     score=score,
                     metrics={
-                        "cpu_hours": budget.spent(),
+                        **budget.metrics(),
                         "iteration": i,
                         "converging": converging,
                         "score": score,
@@ -309,7 +324,7 @@ async def sim_worker_b(reporter: WorkflowReporter, flow=None, context: dict | No
             await reporter.emit(
                 score=score,
                 metrics={
-                    "cpu_hours": budget.spent(),
+                    **budget.metrics(),
                     "resource_usage": block_prof.metrics,
                     "cpu_seconds": cpu_s,
                 },
@@ -400,7 +415,7 @@ async def analysis_worker(
             await reporter.emit(
                 score=1.0,
                 metrics={
-                    "cpu_hours": budget.spent(),
+                    **budget.metrics(),
                     "score": 1.0,
                     "profiler_cpu_avg": summarise_result.get("profiler_cpu_avg"),
                     "profiler_n": summarise_result.get("profiler_n", 0),
@@ -422,7 +437,7 @@ async def analysis_worker(
                 await reporter.emit(
                     score=1.0,
                     metrics={
-                        "cpu_hours": budget.spent(),
+                        **budget.metrics(),
                         "step": step,
                         "status": "ok",
                         "cpu_seconds": cpu_s,
@@ -434,7 +449,7 @@ async def analysis_worker(
             await reporter.emit(
                 score=1.0,
                 metrics={
-                    "cpu_hours": budget.spent(),
+                    **budget.metrics(),
                     "score": 1.0,
                     "resource_usage": block_prof.metrics,
                     "cpu_seconds": cpu_s,

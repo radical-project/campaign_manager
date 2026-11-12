@@ -23,6 +23,8 @@ workflows:
     spending_limit:
       cpu_hours:  0.018
     respect_limit: true
+    resources:                # CPUs one workflow may use at once; AuCaM passes them
+      cpus: 1                 # to it and cancels a workflow that uses more
   sim_worker_b:
     stale_timeout_s: 60.0     # n_iters_b ≈ 33 iters × 0.5 s ≈ 16 s
     declared_spending:
@@ -31,6 +33,8 @@ workflows:
     spending_limit:
       cpu_hours:  0.006
     respect_limit: true
+    resources:
+      cpus: 1
   analysis_worker:
     steps: 20                 # 20 × 0.5 s ≈ 10 s
     declared_spending:
@@ -39,6 +43,8 @@ workflows:
     spending_limit:
       cpu_hours:  0.004
     respect_limit: true
+    resources:
+      cpus: 1
 
 policy_interval_s: 0.5
 shutdown_timeout_s: 10.0

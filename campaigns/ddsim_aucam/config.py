@@ -117,6 +117,11 @@ class WorkflowsConfig:
     fast_spending_limit: dict[str, float] = field(default_factory=dict)
     slow_spending_limit: dict[str, float] = field(default_factory=dict)
     respect_limit: dict[str, bool] = field(default_factory=lambda: {"fast": True, "slow": True})
+    # CPUs / GPUs one run of each arm may use at once (WorkflowConfig.resources);
+    # AuCaM passes them to the run and cancels a run that reports more.  slow
+    # defaults to fast.
+    fast_resources: dict[str, float] = field(default_factory=dict)
+    slow_resources: dict[str, float] = field(default_factory=dict)
 
     def fast_config(self) -> MiniAppsConfig:
         return self.miniapps
@@ -196,6 +201,8 @@ def load_campaign(path: str | Path) -> CampaignConfig:
             slow_spending=_spending_dict(wf.get("slow_spending")),
             fast_spending_limit=_spending_dict(wf.get("fast_spending_limit")),
             slow_spending_limit=_spending_dict(wf.get("slow_spending_limit")),
+            fast_resources=_spending_dict(wf.get("fast_resources")),
+            slow_resources=_spending_dict(wf.get("slow_resources")),
             respect_limit={
                 "fast": bool((wf.get("respect_limit") or {}).get("fast", True)),
                 "slow": bool((wf.get("respect_limit") or {}).get("slow", True)),

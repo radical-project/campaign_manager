@@ -132,6 +132,7 @@ def build_spec(
                 on_completion=_on_complete,
                 declared_spending=ccfg.workflows.fast_spending,
                 spending_limit=ccfg.workflows.fast_spending_limit,
+                resources=ccfg.workflows.fast_resources,
             ),
             WorkflowConfig(
                 name="miniapps_slow",
@@ -142,6 +143,7 @@ def build_spec(
                 on_completion=_on_complete,
                 declared_spending=ccfg.workflows.resolved_slow_spending(),
                 spending_limit=ccfg.workflows.resolved_slow_spending_limit(),
+                resources=ccfg.workflows.slow_resources or ccfg.workflows.fast_resources,
             ),
         ],
         policy_interval_s=ccfg.policy_interval_s,
