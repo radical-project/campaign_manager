@@ -23,7 +23,6 @@ that must land first.
 | 4 | U1 | Change a running workflow's allocation | Not started (decided: not for now) | |
 | 4 | U5 | Per-workflow enforcement lags by one check | Decided: workflows check their own limit | |
 | 4 | U7 | Elastic workflows: start with less when the budget is short | Not started | |
-| 4 | L1 | Launch fewer workflows when the backend is backlogged | Not started | task counts from Delta runs |
 | 4 | H1 | On-completion hooks can enqueue requests | Not started | |
 | 4 | A1 | Per-dimension prices | Not started | |
 | External | X1 | More accurate task data in AsyncFlow telemetry | Open | |
@@ -81,17 +80,6 @@ the type's starting values and what AuCaM learned, passed to the workflow and en
 
 - **H1 — hooks.** Let `WorkflowConfig.on_completion` hooks enqueue requests.
 - **A1 — accounting.** Per-dimension prices for comparing dimensions.
-- **L1 — load-aware launching.** Today the controller sees AsyncFlow task
-  counts (`obs["tasks"]`: waiting, submitted, running) and each policy-cycle log
-  line shows them, but nothing acts on them. Plan: an opt-in setting for the
-  built-in controller, e.g. `CampaignController(max_pending_tasks=20)`, that
-  keeps a target number of workflows in flight (running + queued): above the
-  threshold of submitted tasks it halves the target and drops surplus queued
-  requests (`PolicyResult.cancel_queued`); below it, it raises the target by
-  one. `max_concurrent_workflows` stays the cap. Decide after looking at real
-  task counts from Delta runs. Limits: only AsyncFlow tasks are counted, so a
-  command-line workflow is one task; a running workflow's own burst of tasks
-  is not slowed, only new launches.
 
 ## Known problems
 

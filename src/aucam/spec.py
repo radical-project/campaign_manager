@@ -159,10 +159,31 @@ class CampaignBudget:
     # charge what they used and end with spending_limit; "finish" — let them
     # finish (the campaign can end above its limit).
     on_limit: str = "cancel"
+    # Load-aware launching (L1).  With RHAPSODY / AsyncFlow telemetry, how many
+    # workflows may run follows how busy the allocation's nodes are and how
+    # many tasks wait to run; max_concurrent_workflows stays the upper limit.
+    # Without telemetry nothing changes.
+    # target_utilization — while the nodes' CPU / GPU use (0–1, smoothed) is
+    #   below this and few tasks wait, one more workflow may run each cycle;
+    #   None turns load-aware launching off.
+    # max_waiting_tasks — above this many tasks waiting (not yet handed to the
+    #   backend, or queued in it), fewer workflows may run; None:
+    #   2 × max_concurrent_workflows.
+    # overcommit — while there is room (as above), give out up to this many
+    #   times the capacity in CPUs / GPUs; 1.0: never more than the capacity.
+    target_utilization: float | None = 0.85
+    max_waiting_tasks: int | None = None
+    overcommit: float = 1.0
 
     def __post_init__(self) -> None:
         if self.on_limit not in ("cancel", "finish"):
             raise ValueError("on_limit must be 'cancel' or 'finish'")
+        if self.target_utilization is not None and not 0 < self.target_utilization <= 1:
+            raise ValueError("target_utilization must be in (0, 1], or None")
+        if self.max_waiting_tasks is not None and self.max_waiting_tasks < 0:
+            raise ValueError("max_waiting_tasks must be >= 0, or None")
+        if self.overcommit < 1:
+            raise ValueError("overcommit must be >= 1.0")
         from .types import RESOURCE_KEYS  # noqa: PLC0415
 
         if not isinstance(self.capacity, dict) or not self.capacity:

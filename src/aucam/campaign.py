@@ -56,6 +56,21 @@ class _DecideTimeoutError(Exception):
     """decide() did not return within spec.decide_timeout_s."""
 
 
+def _node_utilization(nodes: dict, gpus: bool) -> float | None:
+    """Mean CPU use over the nodes, 0–1; with ``gpus``, the busier of CPU and GPU.
+
+    None without node readings (telemetry off, or local runs).
+    """
+    if not nodes:
+        return None
+    vals = list(nodes.values())
+    util = sum(float(getattr(n, "cpu_percent", 0.0) or 0.0) for n in vals) / len(vals)
+    if gpus:
+        gpu = sum(float(getattr(n, "gpu_percent", 0.0) or 0.0) for n in vals) / len(vals)
+        util = max(util, gpu)
+    return min(1.0, max(0.0, util / 100.0))
+
+
 def _retrieve(task: asyncio.Future) -> None:
     """Done-callback: mark a background task's exception as seen (no warning at exit)."""
     if not task.cancelled():
@@ -373,6 +388,12 @@ class _CampaignInstance:
         self._unfit_logged: set[int] = set()  # id() of queued requests logged as not fitting
         self._controller_errors = 0  # cycles where decide()/observe() failed or timed out
         self._slow_decide: asyncio.Future | None = None  # decide() still running past its timeout
+        # L1: how many workflows may run now (<= max_concurrent_workflows), the
+        # smoothed node utilization, and whether there is room to overcommit.
+        self._allowed = spec.budget.max_concurrent_workflows
+        self._util: float | None = None
+        self._room = False
+        self._load: dict | None = None
         # S1: a scheduling policy's background refresh(), and model usage.
         self._has_refresh = type(self._policy).refresh is not SchedulingPolicy.refresh
         self._refresh_task: asyncio.Task | None = None
@@ -1020,7 +1041,7 @@ class _CampaignInstance:
                 dict(self._type_raised_res.get(request.workflow_type, {})) if wfc.learn else {}
             ),
             allocations=self._allocation_history(),
-            free=self._free_capacity(),
+            free=self._free_capacity(overcommit=True),
             capacity=dict(self.spec.budget.capacity),
             learn=wfc.learn,
         )
@@ -1219,9 +1240,14 @@ class _CampaignInstance:
         """Per-type caps of workflow types that set WorkflowConfig.max_running (W1)."""
         return {w.name: w.max_running for w in self.spec.workflows if w.max_running is not None}
 
-    def _free_capacity(self) -> dict[str, float]:
-        """Capacity minus the resources running workflows were given (step 3)."""
-        free = {k: float(v) for k, v in self.spec.budget.capacity.items()}
+    def _free_capacity(self, overcommit: bool = False) -> dict[str, float]:
+        """Capacity minus the resources running workflows were given (step 3).
+
+        With ``overcommit``, while the nodes have room (L1), the capacity counts
+        CampaignBudget.overcommit times.
+        """
+        f = self.spec.budget.overcommit if overcommit and self._room else 1.0
+        free = {k: float(v) * f for k, v in self.spec.budget.capacity.items()}
         for inst in self._active.values():
             for k, v in inst.resources.items():
                 free[k] = free.get(k, 0.0) - float(v)
@@ -1774,7 +1800,7 @@ class _CampaignInstance:
                 asyncio.ensure_future(self._shutdown(reason="spending_limit"))
             return
 
-        max_concurrent = self.spec.budget.max_concurrent_workflows
+        max_concurrent = min(self.spec.budget.max_concurrent_workflows, self._allowed)
         if len(self._active) >= max_concurrent:
             return
 
@@ -1846,7 +1872,7 @@ class _CampaignInstance:
                     f"exceed the campaign's capacity {cap}"
                 )
                 return "dropped"
-            free = self._free_capacity()
+            free = self._free_capacity(overcommit=True)
             if any(v > free.get(k, 0.0) + 1e-9 for k, v in alloc.resources.items()):
                 unfit.add(id(req))
                 if id(req) not in self._unfit_logged:
@@ -2531,6 +2557,8 @@ class _CampaignInstance:
         self._check_adopted(live_reports, now)
         telemetry = self._collect_telemetry()
         self._last_telemetry = telemetry  # cache for _drain_queue
+        tasks = self._task_observation()
+        self._update_load(telemetry, tasks)
         obs = self._observe(
             queue_snapshot=self._queue.snapshot(),
             budget=self._budget_view(),
@@ -2554,7 +2582,10 @@ class _CampaignInstance:
             wf_spend=self._wf_spend(now),
             # tasks: AsyncFlow task counts (waiting / submitted / running);
             # None without telemetry.
-            tasks=self._task_observation(),
+            tasks=tasks,
+            # load: node utilization, tasks waiting and how many workflows may
+            # run now (L1); None without telemetry.
+            load=self._load,
         )
         result, decided_by = await self._decide(obs)
         self._collect_usage(self.spec.controller)
@@ -2573,6 +2604,11 @@ class _CampaignInstance:
             f"terminate={result.terminate} "
             f"decide={decided_by}"
             + (f" refresh={self._refresh_status}" if self._has_refresh else "")
+            + (
+                f" allowed={self._allowed}/{self.spec.budget.max_concurrent_workflows}"
+                if self._load
+                else ""
+            )
             + (
                 f" tasks: waiting={obs['tasks']['waiting']} "
                 f"submitted={obs['tasks']['submitted']} running={obs['tasks']['running']}"
@@ -2672,6 +2708,60 @@ class _CampaignInstance:
         if self._goals and self._check_goals(obs):
             logger.info(f"[CM] {self.name}: all goals satisfied")
             await self._shutdown(reason="goals_satisfied")
+
+    # ── L1: load-aware launching ─────────────────────────────────────────────
+
+    def _update_load(self, telemetry: Any, tasks: dict | None) -> None:
+        """Set how many workflows may run now from node utilization and waiting tasks.
+
+        Tasks waiting (to be handed to the backend, or queued in it) above
+        max_waiting_tasks: allow a quarter fewer (at least one fewer, never
+        below 1).  Utilization below target_utilization and at most half that
+        many tasks waiting: allow one more, up to max_concurrent_workflows, and
+        let the capacity count overcommit times.  Otherwise keep the count.
+        Without telemetry (no utilization and no task counts) nothing changes.
+        """
+        b = self.spec.budget
+        cap = b.max_concurrent_workflows
+        nodes = getattr(telemetry, "node_resources", None) or {}
+        util_now = _node_utilization(nodes, gpus=float(b.capacity.get("gpus", 0)) > 0)
+        backlog = (
+            None if tasks is None else int(tasks.get("waiting", 0)) + int(tasks.get("submitted", 0))
+        )
+        if b.target_utilization is None or (util_now is None and backlog is None):
+            self._allowed, self._room, self._load = cap, False, None
+            return
+        if util_now is not None:
+            self._util = util_now if self._util is None else 0.5 * self._util + 0.5 * util_now
+        max_wait = b.max_waiting_tasks if b.max_waiting_tasks is not None else 2 * cap
+        prev = self._allowed
+        if backlog is not None and backlog > max_wait:
+            self._allowed = max(1, min(prev - 1, int(prev * 0.75)))
+            self._room = False
+        elif (self._util is None or self._util < b.target_utilization) and (
+            backlog is None or backlog <= max_wait // 2
+        ):
+            self._allowed = min(cap, prev + 1)
+            self._room = self._util is not None
+        else:
+            self._room = False
+        self._allowed = min(self._allowed, cap)
+        self._load = {
+            "utilization": self._util,
+            "waiting_tasks": backlog,
+            "allowed": self._allowed,
+            "max": cap,
+            "room": self._room,
+        }
+        if self._allowed != prev:
+            logger.info(
+                "[LOAD-%s] workflows allowed %d → %d (utilization=%s, tasks waiting=%s)",
+                self.name,
+                prev,
+                self._allowed,
+                "n/a" if self._util is None else f"{self._util:.2f}",
+                "n/a" if backlog is None else backlog,
+            )
 
     # ── S1: background refresh() and model usage ────────────────────────────
 

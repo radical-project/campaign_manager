@@ -632,6 +632,10 @@ CampaignBudget(
     max_concurrency_per_workflow=2,  # running at once per workflow type
     capacity={"cpus": 256, "gpus": 8},  # the allocation's resources (required)
     spending={"gpu_hours": 10.0},  # lifetime limit per dimension (optional)
+    # Load-aware launching, with telemetry (defaults shown):
+    target_utilization=0.85,  # one more workflow per cycle while nodes are below this
+    max_waiting_tasks=None,  # fewer above this many waiting tasks; None: 2 × max_concurrent
+    overcommit=1.0,  # with room, give out up to this × capacity
 )
 ```
 
@@ -641,6 +645,23 @@ minus what the running workflows were given); one that does not fit waits, and
 one that needs more than the whole capacity is dropped. A resource the capacity
 does not name counts as 0. The controller sees it in
 `obs["budget"]["capacity"]`: `{key: {"total", "in_use", "free"}}`.
+
+**Load-aware launching.** With telemetry (`CampaignManager(enable_telemetry=True)`
+on a RHAPSODY / Dragon backend), how many workflows may run follows the
+allocation, between 1 and `max_concurrent_workflows`. Every policy cycle:
+
+- more than `max_waiting_tasks` tasks wait (not yet handed to the backend, or
+  queued in it): a quarter fewer workflows may run (at least one fewer);
+- the nodes' CPU use (and GPU use, if `capacity` has GPUs; smoothed over
+  cycles) is below `target_utilization` and at most half that many tasks wait:
+  one more may run, and the capacity counts `overcommit` times;
+- otherwise the count stays.
+
+It starts at `max_concurrent_workflows`, so set that to the most the
+allocation should ever run. The log shows `[LOAD-…] workflows allowed 4 → 3`
+and `allowed=3/4` in the policy-cycle line; the controller sees
+`obs["load"]` (`utilization`, `waiting_tasks`, `allowed`, `max`, `room`).
+Without telemetry, or with `target_utilization=None`, the limits stay fixed.
 
 A workflow type can set its own cap, `WorkflowConfig(..., max_running=1)`, for
 example to run one long, expensive simulation at a time next to several short

@@ -71,17 +71,23 @@ controller or the scheduling policy with its own.
   this with any logic, including an LLM or ADR.
 - **Queue** — waiting launch requests, ordered by priority (CRITICAL, HIGH,
   NORMAL, LOW) and arrival; NORMAL requests that wait too long become HIGH.
-- **Scheduler** — starts queued requests whenever a slot is free. CRITICAL
-  requests go first; a scheduling policy picks among the rest. Out of the box
-  this is a UCB1 (Upper Confidence Bound) bandit over workflow types: it
-  balances *exploring* (trying types it knows little about) with *exploiting*
-  (launching the types that complete most often), and explores less as the
-  budget runs down. FIFO is also built in, as are policies that ask a
-  language model or an ADR policy to rank the workflow types (in the
-  background, so launches never wait for them), and a campaign can plug in
-  its own policy. The policy also decides how much each workflow gets when
-  it starts — its spending limit and CPUs / GPUs: by default its type's
-  starting value, then what earlier workflows of the type used + 25 %.
+- **Scheduler** — starts a queued request when there is a free slot: the
+  workflow-count limits, the free CPUs / GPUs and the remaining budget all
+  allow it. CRITICAL requests go first; a scheduling policy picks among the rest and decides how
+  much each workflow gets. Built in:
+  - **Bandit** (default) — a UCB1 (Upper Confidence Bound) bandit over
+    workflow types: it balances *exploring* (trying types it knows little
+    about) with *exploiting* (launching the types that complete most often),
+    and explores less as the budget runs down.
+  - **FIFO** — queue order.
+  - **LLM** and **ADR** — a language model or an ADR policy ranks the
+    workflow types; AuCaM asks it in the background, so launches never wait
+    for it, and uses the bandit until it answers.
+  - **Sizing**, for every policy — each workflow gets a spending limit and
+    CPUs / GPUs when it starts: its type's starting value at first, then
+    what earlier workflows of the type used + 25 %.
+
+  A campaign can replace the policy, or just its sizing, with its own.
 
 **What a campaign gets without writing any code**, compared with launching
 workflows by hand:
@@ -191,6 +197,15 @@ See [budgets and spending](budget.md) for how spending is measured.
   past its limit or uses more than it was given. *Why:* AuCaM cannot know which
   nodes a workflow's tasks hold, so the workflow, which does know, is told its
   share and held to it.
+- **AuCaM chooses which workflows start; the backend places their tasks.**
+  Requests wait in AuCaM's queue until a slot is free, and each running
+  workflow's tasks go straight to Dragon / RHAPSODY. *Why:* work handed to
+  the backend runs in the backend's order, and AuCaM can only cancel it;
+  work held in AuCaM's queue can still be re-ranked, re-sized or dropped. The
+  cost is that limits set too low leave part of the allocation idle. So, with
+  telemetry, the number of workflows that may run follows the nodes'
+  utilization and the tasks waiting in the backend, up to
+  `max_concurrent_workflows`.
 - **The controller makes the scientific decisions.** AuCaM itself cancels a
   workflow only when it stops reporting, runs past its wall-time limit, or
   spends past its own spending limit; every
