@@ -63,6 +63,18 @@ def test_report_is_json_and_read_by_backend(cm_env) -> None:
     assert report.metrics == {"cpu_hours": 0.2} and report.iteration == 3
 
 
+def test_done_report_keeps_the_last_metrics(cm_env) -> None:
+    rep = Reporter()
+    rep.emit(score=0.7, metrics={"cpu_hours": 0.3}, iteration=5)
+    rep.done(3)
+    report = asyncio.run(RhapsodyRedisBackend(cm_env).get_report("camp.wf.1"))
+    assert report.done is True and report.returncode == 3
+    assert report.score == 0.7 and report.metrics == {"cpu_hours": 0.3}
+    assert cli_main(["done", "--rc", "0"]) == 0
+    report = asyncio.run(RhapsodyRedisBackend(cm_env).get_report("camp.wf.1"))
+    assert report.done is True and report.returncode == 0
+
+
 def test_backend_still_reads_pickled_reports(cm_env) -> None:
     host, port = cm_env.rsplit(":", 1)
     payload = {"wf_id": "w", "score": 1.0, "metrics": {}, "emitted_at": 1.0, "iteration": 0}

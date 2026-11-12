@@ -209,6 +209,18 @@ def _wants_context(fn: Any) -> bool:
         return False
 
 
+def _jsonable(value: Any, what: str) -> Any:
+    """``value`` if it can go into the JSON checkpoint, else None (with a warning)."""
+    if value is None:
+        return None
+    try:
+        json.dumps(value)
+    except (TypeError, ValueError) as exc:
+        logger.warning("[CKPT] the %s state is not JSON-serializable (%s); not saved", what, exc)
+        return None
+    return value
+
+
 def _request_record(req: LaunchRequest) -> QueuedRequestRecord:
     """A LaunchRequest as a checkpoint record (R2)."""
     return QueuedRequestRecord(
@@ -258,6 +270,7 @@ class _WorkflowInstance:
         "peak_use",
         "cancel_mode",
         "cancel_handle",
+        "adopted_at",
     )
 
     def __init__(
@@ -295,6 +308,9 @@ class _WorkflowInstance:
         # the grace period runs, "forced" once AuCaM cancelled the block.
         self.cancel_mode: str | None = None
         self.cancel_handle: asyncio.TimerHandle | None = None
+        # R1: set when a restarted AuCaM adopted this still-running command-line
+        # workflow (it has no task handle; it ends on its "done" report).
+        self.adopted_at: float | None = None
 
 
 class _CampaignInstance:
@@ -1115,204 +1131,206 @@ class _CampaignInstance:
             attributes={"aucam.campaign": self.name, "aucam.wf_type": request.workflow_type},
         )
 
-        def _on_done(fut: asyncio.Future, _inst: _WorkflowInstance = inst) -> None:
-            wall = time.time() - _inst.started_at
-            if _inst.cancel_handle is not None:
-                _inst.cancel_handle.cancel()
-            if fut.cancelled() and _inst.cancel_mode is None:
-                _inst.cancel_mode = "forced"  # cancelled outside _cancel (e.g. the engine)
-            if fut.cancelled() or _inst.cancel_mode == "graceful":
-                # A workflow that exits on its own after CANCEL still counts as
-                # cancelled (P1); WorkflowResult.cancel says how it ended.
-                rc, status = -1, WorkflowStatus.CANCELLED
-                self._cancelled += 1
-                if not fut.cancelled() and fut.exception() is not None:
-                    logger.warning(
-                        "[WORKFLOW-%s] raised while exiting after CANCEL: %r",
-                        _inst.wf_id,
-                        fut.exception(),
-                    )
-            elif fut.exception() is not None:
-                # A command-line workflow reports its program's exit code; a
-                # signal (negative code) maps to the shell convention 128 + N so
-                # that -1 keeps meaning "cancelled".
-                code = self._exit_codes.get(_inst.wf_id)
-                if code is None or code == 0:
-                    rc = 1
-                else:
-                    rc = 128 - code if code < 0 else code
-                status = WorkflowStatus.FAILED
-                self._failed += 1
-                logger.error(
-                    "[WORKFLOW-%s] worker raised",
+        future.add_done_callback(lambda f, i=inst: self._on_done(f, i))
+
+    def _on_done(self, fut: asyncio.Future, _inst: _WorkflowInstance) -> None:
+        """Account for a finished workflow: status, spending, result, hooks."""
+        wfc = self._wf_config(_inst.workflow_type)
+        wall = time.time() - _inst.started_at
+        if _inst.cancel_handle is not None:
+            _inst.cancel_handle.cancel()
+        if fut.cancelled() and _inst.cancel_mode is None:
+            _inst.cancel_mode = "forced"  # cancelled outside _cancel (e.g. the engine)
+        if fut.cancelled() or _inst.cancel_mode == "graceful":
+            # A workflow that exits on its own after CANCEL still counts as
+            # cancelled (P1); WorkflowResult.cancel says how it ended.
+            rc, status = -1, WorkflowStatus.CANCELLED
+            self._cancelled += 1
+            if not fut.cancelled() and fut.exception() is not None:
+                logger.warning(
+                    "[WORKFLOW-%s] raised while exiting after CANCEL: %r",
                     _inst.wf_id,
-                    exc_info=fut.exception(),
+                    fut.exception(),
                 )
+        elif fut.exception() is not None:
+            # A command-line workflow reports its program's exit code; a
+            # signal (negative code) maps to the shell convention 128 + N so
+            # that -1 keeps meaning "cancelled".
+            code = self._exit_codes.get(_inst.wf_id)
+            if code is None or code == 0:
+                rc = 1
             else:
-                rc, status = 0, WorkflowStatus.COMPLETED
-                self._completed += 1
-
-            logger.info(
-                f"[WORKFLOW-{_inst.wf_id}] {status.value} wall={wall:.1f}s rc={rc}"
-                + (f" cancel={_inst.cancel_mode}" if rc == -1 else "")
-            )
-
-            _status_to_event = {
-                WorkflowStatus.COMPLETED: "TaskCompleted",
-                WorkflowStatus.CANCELLED: "TaskCanceled",
-                WorkflowStatus.FAILED: "TaskFailed",
-            }
-            _tel_kw: dict = {
-                "task_id": _inst.wf_id,
-                "workflow_id": _inst.wf_id,
-                "duration_seconds": wall,
-                "attributes": {
-                    "aucam.campaign": self.name,
-                    "aucam.wf_type": _inst.workflow_type,
-                    "aucam.rc": rc,
-                },
-            }
-            if status == WorkflowStatus.FAILED:
-                _tel_kw["error_type"] = "unknown"
-            self._flow._emit(_status_to_event[status], **_tel_kw)
-
-            # Grab the last emitted report synchronously before async delete fires.
-            # For in-process (LocalDictBackend) this is always available.
-            # For remote backends (Dragon, Redis) use _inst.last_report, which
-            # _read_final_report refreshed when the workflow's block ended.
-            backend = self.spec.data_backend
-            last_report = _inst.last_report
-            if hasattr(backend, "sync_get_report"):
-                last_report = backend.sync_get_report(_inst.wf_id) or last_report
-            final_metrics: dict = dict(last_report.metrics or {}) if last_report is not None else {}
-            final_score = last_report.score if last_report is not None else None
-            if last_report is not None:
-                _inst.last_report = last_report  # so the final report counts for peak use
-
-            self._completion_event.set()
-
-            self._active.pop(_inst.wf_id, None)
-            self._exit_codes.pop(_inst.wf_id, None)
-            # Forget this workflow's tasks; end events may never arrive after a cancel.
-            for uid in [u for u, (w, _s) in self._task_states.items() if w == _inst.wf_id]:
-                del self._task_states[uid]
-            self._slot_event.set()
-
-            # Replace the in-flight estimate with the workflow's actual spending.
-            # Dimensions a workflow may report besides CPU/GPU hours (B0): those it
-            # declares, its own limit's and the campaign's.
-            extra_keys = (
-                set(_inst.declared_spending)
-                | set(_inst.spending_limit)
-                | set(self._allocator.limits(self.name))
-            )
-            contribution, resource_profile = self._compute_workflow_spent(
+                rc = 128 - code if code < 0 else code
+            status = WorkflowStatus.FAILED
+            self._failed += 1
+            logger.error(
+                "[WORKFLOW-%s] worker raised",
                 _inst.wf_id,
-                _inst.declared_spending,
-                wall,
-                final_metrics,
-                extra_keys,
+                exc_info=fut.exception(),
             )
-            self._allocator.clear_in_flight(self.name, _inst.wf_id)
-            # Workflows charged task by task from AsyncFlow events
-            # (_on_task_event) are not charged again here for CPU/GPU hours
-            # (their events still in flight are recorded when they arrive);
-            # their other dimensions (e.g. llm_tokens) come from their reports (B0).
-            task_level = _inst.wf_id in self._task_level
-            other = {k: v for k, v in contribution.items() if k not in ("cpu_hours", "gpu_hours")}
-            if not task_level:
-                self._allocator.record(self.name, contribution)
-            elif other:
-                self._allocator.record(self.name, other)
-            self._estimates.pop(_inst.wf_id, None)
+        else:
+            rc, status = 0, WorkflowStatus.COMPLETED
+            self._completed += 1
 
-            if task_level:
-                # .get(): a workflow can be marked task-level (TaskCreated) and
-                # end before any task was charged (cancelled mid-task, zero
-                # duration, or end events still in flight).
-                actual_spent = {**dict(self._task_usage.get(_inst.wf_id, {})), **other}
+        logger.info(
+            f"[WORKFLOW-{_inst.wf_id}] {status.value} wall={wall:.1f}s rc={rc}"
+            + (f" cancel={_inst.cancel_mode}" if rc == -1 else "")
+        )
+
+        _status_to_event = {
+            WorkflowStatus.COMPLETED: "TaskCompleted",
+            WorkflowStatus.CANCELLED: "TaskCanceled",
+            WorkflowStatus.FAILED: "TaskFailed",
+        }
+        _tel_kw: dict = {
+            "task_id": _inst.wf_id,
+            "workflow_id": _inst.wf_id,
+            "duration_seconds": wall,
+            "attributes": {
+                "aucam.campaign": self.name,
+                "aucam.wf_type": _inst.workflow_type,
+                "aucam.rc": rc,
+            },
+        }
+        if status == WorkflowStatus.FAILED:
+            _tel_kw["error_type"] = "unknown"
+        self._flow._emit(_status_to_event[status], **_tel_kw)
+
+        # Grab the last emitted report synchronously before async delete fires.
+        # For in-process (LocalDictBackend) this is always available.
+        # For remote backends (Dragon, Redis) use _inst.last_report, which
+        # _read_final_report refreshed when the workflow's block ended.
+        backend = self.spec.data_backend
+        last_report = _inst.last_report
+        if hasattr(backend, "sync_get_report"):
+            last_report = backend.sync_get_report(_inst.wf_id) or last_report
+        final_metrics: dict = dict(last_report.metrics or {}) if last_report is not None else {}
+        final_score = last_report.score if last_report is not None else None
+        if last_report is not None:
+            _inst.last_report = last_report  # so the final report counts for peak use
+
+        self._completion_event.set()
+
+        self._active.pop(_inst.wf_id, None)
+        self._exit_codes.pop(_inst.wf_id, None)
+        # Forget this workflow's tasks; end events may never arrive after a cancel.
+        for uid in [u for u, (w, _s) in self._task_states.items() if w == _inst.wf_id]:
+            del self._task_states[uid]
+        self._slot_event.set()
+
+        # Replace the in-flight estimate with the workflow's actual spending.
+        # Dimensions a workflow may report besides CPU/GPU hours (B0): those it
+        # declares, its own limit's and the campaign's.
+        extra_keys = (
+            set(_inst.declared_spending)
+            | set(_inst.spending_limit)
+            | set(self._allocator.limits(self.name))
+        )
+        contribution, resource_profile = self._compute_workflow_spent(
+            _inst.wf_id,
+            _inst.declared_spending,
+            wall,
+            final_metrics,
+            extra_keys,
+        )
+        self._allocator.clear_in_flight(self.name, _inst.wf_id)
+        # Workflows charged task by task from AsyncFlow events
+        # (_on_task_event) are not charged again here for CPU/GPU hours
+        # (their events still in flight are recorded when they arrive);
+        # their other dimensions (e.g. llm_tokens) come from their reports (B0).
+        task_level = _inst.wf_id in self._task_level
+        other = {k: v for k, v in contribution.items() if k not in ("cpu_hours", "gpu_hours")}
+        if not task_level:
+            self._allocator.record(self.name, contribution)
+        elif other:
+            self._allocator.record(self.name, other)
+        self._estimates.pop(_inst.wf_id, None)
+
+        if task_level:
+            # .get(): a workflow can be marked task-level (TaskCreated) and
+            # end before any task was charged (cancelled mid-task, zero
+            # duration, or end events still in flight).
+            actual_spent = {**dict(self._task_usage.get(_inst.wf_id, {})), **other}
+            spend_method = "exact"
+            spend_source = "task_telemetry"
+        else:
+            actual_spent = contribution
+            if any(final_metrics.get(k) is not None for k in ("cpu_hours", "gpu_hours")):
                 spend_method = "exact"
-                spend_source = "task_telemetry"
+                spend_source = "wf_reported"
+            elif contribution:
+                spend_method = "estimated"
+                spend_source = "wall_proration"
             else:
-                actual_spent = contribution
-                if any(final_metrics.get(k) is not None for k in ("cpu_hours", "gpu_hours")):
-                    spend_method = "exact"
-                    spend_source = "wf_reported"
-                elif contribution:
-                    spend_method = "estimated"
-                    spend_source = "wall_proration"
-                else:
-                    spend_method = "none"
-                    spend_source = "no_declared_spending"
-            # Update the per-type cost model (B3) from successful runs only:
-            # cancelled and failed runs are partial and would bias the mean.
-            if rc == 0 and actual_spent:
-                self._update_type_cost(_inst.workflow_type, actual_spent)
-            self._note_peak_use(_inst)
-            if rc == 0 and _inst.peak_use:
-                rstats = self._type_resource_stats.setdefault(_inst.workflow_type, {})
-                for key, val in _inst.peak_use.items():
-                    s_ = rstats.setdefault(key, {"n": 0, "mean": 0.0})
-                    s_["mean"] = (s_["mean"] * s_["n"] + val) / (s_["n"] + 1)
-                    s_["n"] += 1
-            others = "".join(
-                f"  {k}={v:.4g}"
-                for k, v in sorted(actual_spent.items())
-                if k not in ("cpu_hours", "gpu_hours", "wall_hours")
-            )
-            logger.info(
-                "[SPEND] wf_done  wf=%s  method=%s  source=%s  cpu_h=%.4f  gpu_h=%.4f%s  wall_s=%.1f  rc=%s",
-                _inst.wf_id,
-                spend_method,
-                spend_source,
-                actual_spent.get("cpu_hours", 0.0),
-                actual_spent.get("gpu_hours", 0.0),
-                others,
-                wall,
-                rc,
-            )
-            result = WorkflowResult(
-                workflow_id=_inst.wf_id,
-                workflow_type=_inst.workflow_type,
-                returncode=rc,
-                wall_time_s=wall,
-                final_metrics=final_metrics,
-                resource_profile=resource_profile,
-                final_score=final_score,
-                spent=actual_spent,
-                spending_limit=dict(_inst.spending_limit),
-                over_budget=_inst.over_budget,
-                resources=dict(_inst.resources),
-                over_resources=_inst.over_resources,
-                capped=_inst.capped,
-                cancel=_inst.cancel_mode if rc == -1 else None,
-            )
+                spend_method = "none"
+                spend_source = "no_declared_spending"
+        # Update the per-type cost model (B3) from successful runs only:
+        # cancelled and failed runs are partial and would bias the mean.
+        if rc == 0 and actual_spent:
+            self._update_type_cost(_inst.workflow_type, actual_spent)
+        self._note_peak_use(_inst)
+        if rc == 0 and _inst.peak_use:
+            rstats = self._type_resource_stats.setdefault(_inst.workflow_type, {})
+            for key, val in _inst.peak_use.items():
+                s_ = rstats.setdefault(key, {"n": 0, "mean": 0.0})
+                s_["mean"] = (s_["mean"] * s_["n"] + val) / (s_["n"] + 1)
+                s_["n"] += 1
+        others = "".join(
+            f"  {k}={v:.4g}"
+            for k, v in sorted(actual_spent.items())
+            if k not in ("cpu_hours", "gpu_hours", "wall_hours")
+        )
+        logger.info(
+            "[SPEND] wf_done  wf=%s  method=%s  source=%s  cpu_h=%.4f  gpu_h=%.4f%s  wall_s=%.1f  rc=%s",
+            _inst.wf_id,
+            spend_method,
+            spend_source,
+            actual_spent.get("cpu_hours", 0.0),
+            actual_spent.get("gpu_hours", 0.0),
+            others,
+            wall,
+            rc,
+        )
+        result = WorkflowResult(
+            workflow_id=_inst.wf_id,
+            workflow_type=_inst.workflow_type,
+            returncode=rc,
+            wall_time_s=wall,
+            final_metrics=final_metrics,
+            resource_profile=resource_profile,
+            final_score=final_score,
+            spent=actual_spent,
+            spending_limit=dict(_inst.spending_limit),
+            over_budget=_inst.over_budget,
+            resources=dict(_inst.resources),
+            over_resources=_inst.over_resources,
+            capped=_inst.capped,
+            cancel=_inst.cancel_mode if rc == -1 else None,
+        )
 
-            if self.spec.data_backend is not None:
-                asyncio.ensure_future(self.spec.data_backend.delete_report(_inst.wf_id))
-                if _inst.cancel_mode == "graceful":
-                    asyncio.ensure_future(self.spec.data_backend.clear_signal(_inst.wf_id))
+        if self.spec.data_backend is not None:
+            asyncio.ensure_future(self.spec.data_backend.delete_report(_inst.wf_id))
+            if _inst.cancel_mode == "graceful":
+                asyncio.ensure_future(self.spec.data_backend.clear_signal(_inst.wf_id))
 
-            # Update scheduler policy, controller counters, and history.
-            # DAG-triggered and init requests were not selected by the policy,
-            # so they must not feed back into the policy's arm statistics.
-            if _inst.request.requester == "policy_agent":
-                self._policy.on_outcome(_inst.request, result)
-            self.spec.controller.on_complete(result)
-            self._record_type_totals(result, actual_spent)
-            self._history.append(result)
-            if len(self._history) > self._history_max:
-                self._history.pop(0)
+        # Update scheduler policy, controller counters, and history.
+        # DAG-triggered and init requests were not selected by the policy,
+        # so they must not feed back into the policy's arm statistics.
+        if _inst.request.requester == "policy_agent":
+            self._policy.on_outcome(_inst.request, result)
+        self.spec.controller.on_complete(result)
+        self._record_type_totals(result, actual_spent)
+        self._history.append(result)
+        if len(self._history) > self._history_max:
+            self._history.pop(0)
 
-            if wfc.on_completion is not None:
-                try:
-                    wfc.on_completion(result)
-                except Exception:
-                    logger.exception(f"[WORKFLOW-{_inst.wf_id}] on_completion hook raised")
+        if wfc.on_completion is not None:
+            try:
+                wfc.on_completion(result)
+            except Exception:
+                logger.exception(f"[WORKFLOW-{_inst.wf_id}] on_completion hook raised")
 
-            self._check_dag(result)
-
-        future.add_done_callback(_on_done)
+        self._check_dag(result)
 
     def _check_dag(self, result: WorkflowResult) -> None:
         for dep in self.spec.dependencies:
@@ -1362,6 +1380,7 @@ class _CampaignInstance:
 
     def _build_checkpoint(self) -> CampaignCheckpoint:
         """Snapshot current mutable state into a serializable checkpoint."""
+        now = time.time()
         queue_records = [_request_record(req) for _, _, _, req in self._queue._heap]
         active_records = [
             ActiveWorkflowRecord(
@@ -1370,6 +1389,9 @@ class _CampaignInstance:
                 started_at=inst.started_at,
                 declared_spending=dict(inst.declared_spending),
                 request=_request_record(inst.request),
+                spending_limit=dict(inst.spending_limit),
+                resources=dict(inst.resources),
+                spent_so_far=self._spent_so_far(inst, now, self._spend_keys(inst)),
             )
             for inst in self._active.values()
         ]
@@ -1397,7 +1419,19 @@ class _CampaignInstance:
             type_cost_stats=self._type_cost_stats,
             type_resource_stats=self._type_resource_stats,
             type_totals=self._type_totals,
+            goals=[dataclasses.asdict(g) for g in self._goals],
+            policy_state=_jsonable(self._policy.state(), "scheduling policy"),
+            controller_state=_jsonable(
+                getattr(self.spec.controller, "state", lambda: None)(), "controller"
+            ),
         )
+
+    def _spend_keys(self, inst: _WorkflowInstance) -> set[str]:
+        """Dimensions to measure for a workflow: CPU/GPU, limits, declared."""
+        keys = {"cpu_hours", "gpu_hours", *self._allocator.limits(self.name)}
+        keys |= set(inst.spending_limit) | set(inst.declared_spending)
+        keys.discard("wall_hours")
+        return keys
 
     def _checkpoint_path(self):
         if self.spec.checkpoint_dir is None:
@@ -1444,13 +1478,41 @@ class _CampaignInstance:
         self._type_cost_stats = {k: dict(v) for k, v in ckpt.type_cost_stats.items()}
         self._type_resource_stats = {k: dict(v) for k, v in ckpt.type_resource_stats.items()}
         self._type_totals = {k: dict(v) for k, v in ckpt.type_totals.items()}
+        # Goals as they were (with the controller's changes), and what the
+        # scheduling policy and the controller learned (R1).
+        if ckpt.goals is not None:
+            self._goals = [Goal(**g) for g in ckpt.goals]
+        for what, obj, state in (
+            ("scheduling policy", self._policy, ckpt.policy_state),
+            ("controller", self.spec.controller, ckpt.controller_state),
+        ):
+            if state is not None and hasattr(obj, "restore"):
+                try:
+                    obj.restore(state)
+                except Exception:
+                    logger.warning(
+                        "[CKPT] %s: restoring the %s failed", self.name, what, exc_info=True
+                    )
 
         # Re-push queued requests
         for rec in ckpt.queue:
             self.enqueue(_request_from_record(rec))
 
         # Re-enqueue workflows that were active — they need to be re-run
+        adopted = lost = 0
         for rec in ckpt.active:
+            if self._can_adopt(rec):
+                self._adopt(rec)
+                adopted += 1
+                continue
+            # It died with AuCaM: charge what it had used, then run it again.
+            lost += 1
+            if rec.spent_so_far:
+                self._allocator.record(self.name, rec.spent_so_far)
+            logger.info(
+                f"[CKPT] {self.name}: {rec.wf_id} was running — charged "
+                f"{rec.spent_so_far or 'nothing'} and queued again"
+            )
             orig = _request_from_record(rec.request) if rec.request is not None else None
             req = LaunchRequest(
                 workflow_type=rec.workflow_type,
@@ -1472,7 +1534,7 @@ class _CampaignInstance:
             f"[CKPT] {self.name}: restored "
             f"queued={len(ckpt.queue)} "
             f"held_by_dependencies={len(ckpt.dep_pending)} "
-            f"re-enqueued_active={len(ckpt.active)} "
+            f"re-enqueued_active={lost} adopted={adopted} "
             f"cycles_before={ckpt.policy_cycles}"
         )
 
@@ -1880,6 +1942,97 @@ class _CampaignInstance:
                     pass
         return out
 
+    # ── R1: adopting workflows that outlived a restart ───────────────────────
+
+    def _can_adopt(self, rec: ActiveWorkflowRecord) -> bool:
+        """Can this workflow, running when AuCaM stopped, still be running now?
+
+        Only a command-line program reporting through a remote DataBackend
+        (Redis, Dragon) can outlive AuCaM and be followed without a task handle.
+        """
+        backend = self.spec.data_backend
+        try:
+            wfc = self._wf_config(rec.workflow_type)
+        except Exception:
+            return False
+        return (
+            wfc.launch_cmd is not None
+            and backend is not None
+            and backend.endpoint() is not None
+            and not hasattr(backend, "sync_get_report")
+        )
+
+    def _adopt(self, rec: ActiveWorkflowRecord) -> None:
+        """Track a still-running command-line workflow by its reports (R1)."""
+        wfc = self._wf_config(rec.workflow_type)
+        req = (
+            _request_from_record(rec.request)
+            if rec.request is not None
+            else LaunchRequest.make(rec.workflow_type, requester="cm:recovery")
+        )
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        inst = _WorkflowInstance(
+            wf_id=rec.wf_id,
+            workflow_type=rec.workflow_type,
+            future=future,
+            started_at=rec.started_at,
+            declared_spending=dict(wfc.declared_spending),
+            request=req,
+            spending_limit=rec.spending_limit,
+            resources=rec.resources,
+        )
+        inst.adopted_at = time.time()
+        self._active[rec.wf_id] = inst
+        self._wf_tags[rec.wf_id] = rec.wf_id
+        est = self._held_estimate(req, inst.spending_limit)
+        self._estimates[rec.wf_id] = est
+        self._allocator.set_in_flight(self.name, rec.wf_id, est)
+        future.add_done_callback(lambda f, i=inst: self._on_done(f, i))
+        logger.info(f"[CKPT] {self.name}: adopted {rec.wf_id}, still running before the restart")
+
+    def _check_adopted(self, live_reports: dict, now: float) -> None:
+        """Finish adopted workflows on their "done" report; give up on silent ones."""
+        for wf_id, inst in list(self._active.items()):
+            if inst.adopted_at is None or inst.future.done():
+                continue
+            report = live_reports.get(wf_id) or inst.last_report
+            if report is not None and getattr(report, "done", False):
+                rc = int(report.returncode or 0)
+                if rc == 0:
+                    inst.future.set_result(None)
+                else:
+                    self._exit_codes[wf_id] = rc
+                    inst.future.set_exception(RuntimeError(f"program exited with {rc}"))
+                continue
+            wfc = self._wf_config(inst.workflow_type)
+            timeout = wfc.stale_timeout_s or max(60.0, 3 * self.spec.policy_interval_s)
+            last = report.emitted_at if report is not None else None
+            fresh = last is not None and last > inst.adopted_at - timeout
+            quiet_since = last if fresh else inst.adopted_at
+            if now - quiet_since > timeout:
+                # It died with AuCaM after all: charge what it reported, run it again.
+                logger.warning(
+                    f"[WORKFLOW-{wf_id}] adopted, but no report for {timeout:g}s — "
+                    f"treated as lost and queued again"
+                )
+                self._stale_cancels += 1
+                inst.cancel_mode = "forced"
+                inst.future.cancel()
+                self.enqueue(
+                    dataclasses.replace(
+                        inst.request,
+                        priority=LaunchPriority.HIGH,
+                        enqueued_at=time.time(),
+                        context={**inst.request.context, "recovered_from": wf_id},
+                        requester="cm:recovery",
+                    )
+                )
+
+    @property
+    def goals(self) -> list[Goal]:
+        """The campaign's goals as they are now (including the controller's changes)."""
+        return list(self._goals)
+
     def _grace(self, inst: _WorkflowInstance) -> float:
         """The workflow type's grace period for a graceful cancel (P1)."""
         g = self._wf_config(inst.workflow_type).cancel_grace_s
@@ -1926,6 +2079,15 @@ class _CampaignInstance:
                 f"[WORKFLOW-{inst.wf_id}] did not exit within its grace period — cancelling"
             )
         inst.cancel_mode = "forced"
+        if inst.adopted_at is not None and self.spec.data_backend is not None:
+            # No task handle: ask the program to stop; it may keep running.
+            logger.warning(
+                f"[WORKFLOW-{inst.wf_id}] adopted after a restart — AuCaM cannot stop its "
+                f"program; sent CANCEL"
+            )
+            asyncio.ensure_future(
+                self.spec.data_backend.write_signal(inst.wf_id, CampaignDecision.CANCEL)
+            )
         inst.future.cancel()
 
     async def _check_pause_ack(self, inst: _WorkflowInstance, timeout: float) -> None:
@@ -2155,6 +2317,7 @@ class _CampaignInstance:
         live_reports = await self._collect_live_reports()
         for inst in self._active.values():
             self._note_peak_use(inst)
+        self._check_adopted(live_reports, now)
         telemetry = self._collect_telemetry()
         self._last_telemetry = telemetry  # cache for _drain_queue
         obs = self._observe(

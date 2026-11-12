@@ -85,6 +85,8 @@ def main() -> int:
         },
         iteration=n_iters,
     )
+    # Last: tell AuCaM it finished (lets a restarted AuCaM adopt this program).
+    reporter.done(0)
     return 0
 
 

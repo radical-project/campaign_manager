@@ -218,3 +218,6 @@ class CampaignOutcome:
     # Policy cycles where the controller's decide() or observe() failed or
     # timed out; AuCaM used its built-in rules for those cycles.
     controller_errors: int = 0
+    # The campaign's goals when it ended, including changes the controller
+    # made while it ran (Goal objects).
+    goals: list = field(default_factory=list)

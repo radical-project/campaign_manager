@@ -37,6 +37,11 @@ class ActiveWorkflowRecord:
     # The request it was launched from, so a re-run keeps its own limit,
     # resources and ranges (R2).
     request: QueuedRequestRecord | None = None
+    # Its allocation, and its spending so far (R1): charged on restart if the
+    # workflow cannot be adopted, so lost work is not lost spending.
+    spending_limit: dict[str, float] = field(default_factory=dict)
+    resources: dict[str, float] = field(default_factory=dict)
+    spent_so_far: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -106,6 +111,13 @@ class CampaignCheckpoint:
     type_resource_stats: dict[str, dict] = field(default_factory=dict)
     type_totals: dict[str, dict] = field(default_factory=dict)
 
+    # R1: the campaign's goals as they are now (including changes the
+    # controller made while it ran), and the scheduling policy's and the
+    # controller's own state (state() / restore(); JSON-serializable).
+    goals: list[dict] | None = None
+    policy_state: Any = None
+    controller_state: Any = None
+
 
 # ── Serialization ─────────────────────────────────────────────────────────────
 
@@ -152,6 +164,9 @@ def _from_json(d: dict[str, Any]) -> CampaignCheckpoint:
         type_cost_stats=d.get("type_cost_stats", {}),
         type_resource_stats=d.get("type_resource_stats", {}),
         type_totals=d.get("type_totals", {}),
+        goals=d.get("goals"),
+        policy_state=d.get("policy_state"),
+        controller_state=d.get("controller_state"),
     )
 
 

@@ -21,7 +21,6 @@ that must land first.
 | Priority | ID | Item | Status | Needs |
 |---|---|---|---|---|
 | 3 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) | |
-| 3 | R1 | Restart: rejoin running workflows, keep goals | Not started | |
 | 4 | U1 | Change a running workflow's allocation | Not started (decided: not for now) | |
 | 4 | U5 | Per-workflow enforcement lags by one check | Decided: workflows check their own limit | |
 | 4 | L1 | Launch fewer workflows when the backend is backlogged | Not started | task counts from Delta runs |
@@ -29,6 +28,7 @@ that must land first.
 | 4 | A1 | Per-dimension prices | Not started | |
 | External | X1 | More accurate task data in AsyncFlow telemetry | Open | |
 | External | X2 | RHAPSODY concurrent backend does not kill cancelled programs | Open | |
+| External | X3 | Reattach to running tasks after a restart | Open | |
 
 ---
 
@@ -62,10 +62,6 @@ from the controller's intent (`LaunchRequest.spending_limit` / `resources` /
 
 ## Other planned features
 
-- **R1 — restart.** Rejoin workflows still running after a restart instead of
-  restarting them; re-send PAUSE to paused workflows (`paused_wf_ids` in the
-  checkpoint is always empty); save run-time goal changes and return the
-  final goals in `CampaignOutcome`.
 - **H1 — hooks.** Let `WorkflowConfig.on_completion` hooks enqueue requests.
 - **A1 — accounting.** Per-dimension prices for comparing dimensions.
 - **S1 — scheduling.** `ADRSchedulingPolicy` and `LLMSchedulingPolicy` are
@@ -103,3 +99,11 @@ from the controller's intent (`LaunchRequest.spending_limit` / `resources` /
   (`aucam-report signal`) and has a grace period (`cancel_grace_s`) stops
   itself; one that does not keeps running.
   Needs a fix in RHAPSODY: terminate the process (group) on cancel.
+- **X3 — reattach after a restart.** A restarted AuCaM adopts command-line
+  workflows that report through Redis or Dragon by following their reports
+  (R1), but has no handle to their tasks: it cannot force-cancel them, charge
+  them per task or get an exit code except from their `done` report. Python
+  workflows run inside AuCaM and always die with it. Needs asyncflow /
+  RHAPSODY to look up a running task by id (e.g. on a Dragon runtime that
+  outlives AuCaM). Related: AuCaM saves no "paused" state — a workflow that was
+  paused is adopted or re-run as running.

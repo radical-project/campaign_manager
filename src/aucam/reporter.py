@@ -26,6 +26,11 @@ class WorkflowReport:
     metrics: dict = field(default_factory=dict)
     emitted_at: float = field(default_factory=time.time)
     iteration: int = 0
+    # Final report of a command-line program (aucam-report done): it has
+    # finished with this exit code.  Lets a restarted AuCaM finish a workflow
+    # it adopted (R1), whose task it no longer has a handle to.
+    done: bool = False
+    returncode: int | None = None
 
 
 class WorkflowReporter(ABC):

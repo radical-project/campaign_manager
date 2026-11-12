@@ -217,7 +217,12 @@ the program runs but cannot report). Three options:
    sig=$(aucam-report signal)                 # PAUSE, RESUME, CANCEL or nothing
    [ "$sig" = CANCEL ] && { save_state; exit 0; }
    [ "$sig" = PAUSE ] && [ "$(aucam-report wait-resume)" = CANCEL ] && { save_state; exit 0; }
+   # ... at the very end:
+   aucam-report done --rc $?                  # finished, with this exit code
    ```
+
+   The final `done` report lets a restarted AuCaM adopt the program if AuCaM
+   was restarted while it ran (§6); Python: `Reporter().done(rc)`.
 
    Values are parsed as JSON when possible; `--metrics '{"k": 1}'` passes an
    object. Exit status 2: not running as an AuCaM workflow (or bad value);
@@ -290,6 +295,7 @@ Subclass `CampaignController` and override what you need:
 | `is_goal_reached()` → `bool` | By the default `decide()` | `goal_n` completions of `goal_type` |
 | `goals()` → `list[Goal]` | At start | `[]` |
 | `get_summary()` → `dict` | When the campaign ends | `{}`; returned in `CampaignOutcome.summary` |
+| `state()` → JSON-serializable / `restore(state)` | Every checkpoint / on restart | Saves and restores the `completed` / `cancelled` / `failed` counters; extend to keep your own state (e.g. the best score) across a restart |
 
 The observation has these keys (plus any your `observe()` adds):
 
@@ -372,6 +378,22 @@ Then AuCaM clears the queue, cancels running workflows (gracefully where
 their type has a grace period, see below; waiting up to `shutdown_timeout_s`
 in all), writes a final checkpoint and `run()` returns the outcome.
 
+**Restarting a campaign.** With `checkpoint_dir` set, AuCaM saves the
+campaign's state after every policy cycle. Started again with the same spec,
+it continues from it: the queue (with each request's own limits), requests
+held by dependencies, counters, spending, learned costs, goals (with the
+controller's changes) and the `state()` of the scheduling policy (the
+bandit's statistics) and of the controller. Workflows that were running:
+
+- a command-line program reporting through Redis or Dragon may still be
+  running: AuCaM **adopts** it under its old id, follows its reports, and
+  finishes it on its `done` report (`aucam-report done --rc N`). If it sends
+  no report within `stale_timeout_s` (default 60 s), it died with AuCaM:
+  AuCaM charges what it last reported and runs it again. An adopted program
+  can be cancelled only through CANCEL (AuCaM has no handle to its task);
+- any other workflow died with AuCaM: AuCaM charges what it had spent by the
+  last checkpoint and runs it again from the start.
+
 **Graceful cancel.** Every cancel — by the controller, a rule, a limit, or at
 shutdown — is graceful for a workflow type with `cancel_grace_s > 0`
 (`WorkflowConfig`, or `CampaignSpec.cancel_grace_s` for all types; default 0):
@@ -435,7 +457,7 @@ than `age_threshold_s` become HIGH).
 | `ADRSchedulingPolicy`, `LLMSchedulingPolicy` | Stubs; behave as FIFO |
 
 Pass a policy instance as `scheduling_policy=`, or `None` for a new bandit.
-An instance passed to the specs of several campaigns keeps what it learned.
+An instance passed to the specs of several campaigns keeps what it learned. With `checkpoint_dir`, what it learned is also saved in the checkpoint: a policy returns it from `state()` (JSON-serializable) and loads it in `restore(state)`; the bandit does both.
 
 ![Bandit and budget](figures/aucam_bandit_budget.png)
 
@@ -568,7 +590,7 @@ async def main() -> None:
 `budget_cancels` / `resource_cancels` (workflows cancelled for exceeding their own
 spending limit or resources), `unfit_dropped` (requests that did not fit the
 remaining budget), `controller_errors` (policy cycles where `decide()` or
-`observe()` failed or timed out, §5).
+`observe()` failed or timed out, §5). `goals`: the goals when it ended, including the controller's changes.
 
 ### Config-driven runners
 
@@ -613,7 +635,7 @@ Planned features and known problems: [known gaps](known-gaps.md).
 | `max_queue_depth` | 50 | Above this, a warning is logged (requests are still queued) |
 | `age_threshold_s` | 300.0 | NORMAL requests waiting longer become HIGH |
 | `data_backend` | `None` → `LocalDictBackend` | §4 |
-| `checkpoint_dir` | `None` | Save state after every policy cycle; restore on restart: the queue (with each request's own limits), dependency state, counters, spending and learned costs. Workflows that were running are queued again and start over |
+| `checkpoint_dir` | `None` | Save state after every policy cycle; restore on restart (§6, "Restarting a campaign") |
 | `scheduling_policy` | `None` → new `BanditSchedulingPolicy` | §8 |
 
 ### `WorkflowResult`

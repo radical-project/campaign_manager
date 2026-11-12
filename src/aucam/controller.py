@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from .reporter import WorkflowReport
 from .types import CampaignDecision, LaunchRequest, QueueSnapshot, WorkflowResult
@@ -196,6 +197,28 @@ class CampaignController:
             c = iv.get("failed")
             if isinstance(c, dict):
                 c[result.workflow_type] = c.get(result.workflow_type, 0) + 1
+
+    def state(self) -> Any:
+        """The controller's own state, saved in the campaign checkpoint (R1).
+
+        Default: the completed / cancelled / failed counters, so goal_n keeps
+        counting after a restart.  Override to add your own (call super() and
+        extend the dict); return something JSON-serializable.
+        """
+        iv = vars(self)
+        return {
+            k: dict(iv[k])
+            for k in ("completed", "cancelled", "failed")
+            if isinstance(iv.get(k), dict)
+        }
+
+    def restore(self, state: Any) -> None:
+        """Load what ``state()`` returned, when a campaign restarts from a checkpoint."""
+        if not isinstance(state, dict):
+            return
+        for k in ("completed", "cancelled", "failed"):
+            if isinstance(state.get(k), dict):
+                setattr(self, k, {t: int(n) for t, n in state[k].items()})
 
     def get_summary(self) -> dict:
         """Return scientific aggregates collected during this campaign's run.

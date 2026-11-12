@@ -90,7 +90,8 @@ workflows by hand:
   they ran, or on what the workflow reports, and launches a workflow only if its
   expected cost still fits the campaign's spending limit;
 - a workflow type can wait for another to succeed (dependencies);
-- state is checkpointed, and a restarted campaign continues;
+- state is checkpointed, and a restarted campaign continues: it adopts command-line
+  workflows that are still running and charges the work lost with the others;
 - the outcome — counts, spending, the controller's summary — goes back to the
   caller, which can analyse it and plan the next campaign (for example, drop
   workflow types that never succeeded, or adjust parameters and limits).

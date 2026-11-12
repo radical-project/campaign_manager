@@ -25,6 +25,7 @@ import logging
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from .types import (
     RESOURCE_KEYS,
@@ -140,6 +141,16 @@ class SchedulingPolicy:
     def on_outcome(self, request: LaunchRequest, result: WorkflowResult) -> None:
         """Called after every workflow completes.  Override to update learned state."""
         pass
+
+    def state(self) -> Any:
+        """What this policy has learned, saved in the campaign checkpoint (R1).
+
+        Return something JSON-serializable, or None (default: nothing to save).
+        """
+        return None
+
+    def restore(self, state: Any) -> None:
+        """Load what ``state()`` returned, when a campaign restarts from a checkpoint."""
 
     # Sizing settings, used by the default size(); set them on an instance.
     size_margin: float = 0.25  # learned cost × (1 + margin) when a range is given
@@ -292,6 +303,21 @@ class BanditSchedulingPolicy(SchedulingPolicy):
         mean = float(stats["mean"])
         c_eff = self._exploration if c is None else c
         return mean + c_eff * math.sqrt(math.log(self._total_pulls) / n)
+
+    def state(self) -> dict:
+        """Arm statistics and cost means, for the checkpoint (R1)."""
+        return {
+            "arms": {k: dict(v) for k, v in self._arms.items()},
+            "total_pulls": self._total_pulls,
+            "cost_mean": {k: dict(v) for k, v in self._cost_mean.items()},
+        }
+
+    def restore(self, state: dict) -> None:
+        if not isinstance(state, dict):
+            return
+        self._arms = {k: dict(v) for k, v in (state.get("arms") or {}).items()}
+        self._total_pulls = int(state.get("total_pulls", 0))
+        self._cost_mean = {k: dict(v) for k, v in (state.get("cost_mean") or {}).items()}
 
     def _relative_cost(self, spent: dict[str, float]) -> float:
         """The workflow's spending ÷ the campaign's mean so far, averaged over dimensions.
