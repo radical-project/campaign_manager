@@ -23,6 +23,7 @@ that must land first.
 | 3 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) | |
 | 4 | U1 | Change a running workflow's allocation | Not started (decided: not for now) | |
 | 4 | U5 | Per-workflow enforcement lags by one check | Decided: workflows check their own limit | |
+| 4 | U7 | Elastic workflows: start with less when the budget is short | Not started | |
 | 4 | L1 | Launch fewer workflows when the backend is backlogged | Not started | task counts from Delta runs |
 | 4 | H1 | On-completion hooks can enqueue requests | Not started | |
 | 4 | A1 | Per-dimension prices | Not started | |
@@ -32,12 +33,12 @@ that must land first.
 
 ---
 
-## Per-workflow allocations (U1, U5)
+## Per-workflow allocations (U1, U5, U7)
 
 Each workflow gets an allocation when it starts — a spending limit and the CPUs and
 GPUs it may use at once (`Allocation`) — sized by `SchedulingPolicy.size()`
-from the controller's intent (`LaunchRequest.spending_limit` / `resources` /
-`bounds`), passed to the workflow and enforced by AuCaM. Current behaviour:
+from the controller's amount (`LaunchRequest.spending_limit` / `resources`),
+the type's starting values and what AuCaM learned, passed to the workflow and enforced by AuCaM. Current behaviour:
 [budgets and spending](budget.md) §4 and the developer guide, "How much each workflow gets".
 
 - **U1 — change a running workflow's allocation.** An allocation is fixed at
@@ -59,6 +60,18 @@ from the controller's intent (`LaunchRequest.spending_limit` / `resources` /
   receives it) and stop itself, as the example campaigns do (budget.md §4,
   developer guide §9). Revisit — checking on every report, or a faster check
   loop — if a real campaign needs a tighter bound.
+- **U7 — elastic workflows.** AuCaM gives a workflow its full amount or
+  nothing: if the amount does not fit the remaining budget or the free
+  capacity, the request waits, or is dropped once nothing else runs. Some
+  workflows can do useful work with less — an LLM agent with a token budget,
+  adaptive sampling, an optimizer that stops when its limit is reached — and
+  for them a smaller amount near the end of a campaign is better than none.
+  Plan: a type-level minimum, e.g. `WorkflowConfig(elastic={"cpu_hours": 0.5})`,
+  below which the workflow is not worth starting; `size()` gives what is left,
+  down to that minimum, and the workflow receives the amount it got and sizes
+  its work to fit. An earlier version had ranges (`bounds`) for this; they were
+  removed because no campaign needed them and they made sizing harder to
+  follow. Revisit when a real campaign has such a workflow.
 
 ## Other planned features
 

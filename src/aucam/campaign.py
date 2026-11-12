@@ -233,7 +233,6 @@ def _request_record(req: LaunchRequest) -> QueuedRequestRecord:
         requester=req.requester,
         spending_limit=dict(req.spending_limit) if req.spending_limit is not None else None,
         resources=dict(req.resources) if req.resources is not None else None,
-        bounds={k: list(v) for k, v in req.bounds.items()} if req.bounds else None,
     )
 
 
@@ -251,7 +250,6 @@ def _request_from_record(rec: QueuedRequestRecord) -> LaunchRequest:
         requester=rec.requester,
         spending_limit=rec.spending_limit,
         resources=rec.resources,
-        bounds={k: tuple(v) for k, v in rec.bounds.items()} if rec.bounds else None,
     )
 
 
@@ -268,7 +266,6 @@ class _WorkflowInstance:
         "over_budget",
         "resources",
         "over_resources",
-        "capped",
         "peak_use",
         "cancel_mode",
         "cancel_handle",
@@ -285,7 +282,6 @@ class _WorkflowInstance:
         request: LaunchRequest,
         spending_limit: dict[str, float] | None = None,
         resources: dict[str, float] | None = None,
-        capped: bool = False,
     ) -> None:
         self.wf_id = wf_id
         self.workflow_type = workflow_type
@@ -299,11 +295,9 @@ class _WorkflowInstance:
         self.spending_limit: dict[str, float] = dict(spending_limit or {})
         self.over_budget = False
         # Resources the run may use at once; over_resources is set when AuCaM
-        # cancels it for using more.  capped: the scheduler gave it less
-        # spending than requested.
+        # cancels it for using more.
         self.resources: dict[str, float] = dict(resources or {})
         self.over_resources = False
-        self.capped = capped
         # Most CPUs / GPUs seen in use at once (task telemetry or reports), U2.
         self.peak_use: dict[str, float] = {}
         # P1: None until a cancel starts; "graceful" once CANCEL was sent and
@@ -1012,11 +1006,6 @@ class _CampaignInstance:
             free=self._free_capacity(),
             capacity=dict(self.spec.budget.capacity),
         )
-        # The type's ranges (WorkflowConfig.bounds) apply unless the request
-        # gives its own for the same key.
-        bounds = {**wfc.bounds, **(request.bounds or {})}
-        if bounds != (request.bounds or {}):
-            request = dataclasses.replace(request, bounds=bounds)
         alloc = self._policy.size(request, ctx)
         if alloc is None:
             return None
@@ -1242,7 +1231,6 @@ class _CampaignInstance:
             f"id={wf_id} requester={request.requester}"
             + (f" spending_limit={limit}" if limit else "")
             + (f" resources={resources}" if resources else "")
-            + (" (capped to the remaining budget)" if alloc.capped else "")
         )
 
         self._wf_tags[wf_id] = wf_id
@@ -1256,7 +1244,6 @@ class _CampaignInstance:
             request=request,
             spending_limit=limit,
             resources=resources,
-            capped=alloc.capped,
         )
         self._active[wf_id] = inst
         # Use learned cost estimate for in-flight tracking once enough completions
@@ -1448,7 +1435,6 @@ class _CampaignInstance:
             over_budget=_inst.over_budget,
             resources=dict(_inst.resources),
             over_resources=_inst.over_resources,
-            capped=_inst.capped,
             cancel=_inst.cancel_mode if rc == -1 else None,
         )
 
@@ -1683,7 +1669,6 @@ class _CampaignInstance:
                 requester="cm:recovery",
                 spending_limit=orig.spending_limit if orig is not None else None,
                 resources=orig.resources if orig is not None else None,
-                bounds=orig.bounds if orig is not None else None,
             )
             self.enqueue(req)
 
@@ -1805,10 +1790,9 @@ class _CampaignInstance:
             if counts.get(req.workflow_type, 0) >= caps.get(req.workflow_type, per_type_cap):
                 return "skip"  # this type is full; others may still fit
             alloc = self._size(req)
-            if (alloc is None or alloc.capped) and (self._active or not allow_capped):
+            if alloc is None and self._active:
                 # It does not fit now, but running workflows hold their full
-                # limits and give back what they do not use: wait for them
-                # rather than drop it or start it with less than it should get.
+                # limits and give back what they do not use: wait for them.
                 unfit.add(id(req))
                 if id(req) not in self._unfit_logged:
                     self._unfit_logged.add(id(req))
@@ -1869,48 +1853,41 @@ class _CampaignInstance:
             launched += 1
             return "launched"
 
-        # First only requests that fit with their full allocation; if none
-        # does and nothing is running, one may start capped to what is left.
-        allow_capped = False
-        for allow_capped in (False, True):  # noqa: B007 — read by _try()
-            if allow_capped and (launched or self._active):
+        queued_ids = {id(r) for r in self._queue.candidates()}  # not launched or dropped
+        # CRITICAL requests always go first, no policy consultation.
+        for req in (r for r in critical if id(r) in queued_ids):
+            if _try(req) == "full":
                 break
-            unfit.clear()
-            queued_ids = {id(r) for r in self._queue.candidates()}  # not launched or dropped
-            # CRITICAL requests always go first, no policy consultation.
-            for req in (r for r in critical if id(r) in queued_ids):
-                if _try(req) == "full":
-                    break
 
-            # The policy selects from normal candidates for the remaining slots.
-            # If some of its picks did not fit, it is asked again without them,
-            # so a cheaper request can take the slot.
-            pending = [r for r in normal if id(r) in queued_ids]
-            while pending and len(self._active) < max_concurrent:
-                ctx = SchedulingContext(
-                    running_by_type=self._running_by_type(),
-                    max_concurrency=max_concurrent,
-                    max_concurrency_per_type=self.spec.budget.max_concurrency_per_workflow,
-                    max_running_by_type=caps,
-                    telemetry=self._last_telemetry,
-                    history=list(self._history),
-                    policy_cycles=self._policy_cycles,
-                    campaign_name=self.name,
-                    budget_remaining_fraction=1.0 - self._allocator.spending_fraction(self.name),
-                )
-                selected = self._policy.select(pending, ctx)
-                if not selected:
+        # The policy selects from normal candidates for the remaining slots.
+        # If some of its picks did not fit, it is asked again without them,
+        # so a cheaper request can take the slot.
+        pending = [r for r in normal if id(r) in queued_ids]
+        while pending and len(self._active) < max_concurrent:
+            ctx = SchedulingContext(
+                running_by_type=self._running_by_type(),
+                max_concurrency=max_concurrent,
+                max_concurrency_per_type=self.spec.budget.max_concurrency_per_workflow,
+                max_running_by_type=caps,
+                telemetry=self._last_telemetry,
+                history=list(self._history),
+                policy_cycles=self._policy_cycles,
+                campaign_name=self.name,
+                budget_remaining_fraction=1.0 - self._allocator.spending_fraction(self.name),
+            )
+            selected = self._policy.select(pending, ctx)
+            if not selected:
+                break
+            outcomes = []
+            for req in selected:
+                r = _try(req)
+                if r == "full":
                     break
-                outcomes = []
-                for req in selected:
-                    r = _try(req)
-                    if r == "full":
-                        break
-                    outcomes.append(r)
-                picked = {id(r) for r in selected}
-                pending = [r for r in pending if id(r) not in picked]
-                if not any(r in ("unfit", "dropped") for r in outcomes):
-                    break
+                outcomes.append(r)
+            picked = {id(r) for r in selected}
+            pending = [r for r in pending if id(r) not in picked]
+            if not any(r in ("unfit", "dropped") for r in outcomes):
+                break
 
         # Nothing running, and what was asked for no longer fits (dropped this
         # round, or every queued request too costly): the budget is spent.

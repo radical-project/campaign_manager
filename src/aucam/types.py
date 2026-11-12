@@ -57,12 +57,10 @@ class WorkflowResult:
     # AuCaM cancelled it for spending past that limit.
     spending_limit: dict = field(default_factory=dict)
     over_budget: bool = False
-    # The resources this run was given at once (e.g. {"cpus": 8, "gpus": 1}),
-    # whether AuCaM cancelled it for using more, and whether the scheduler gave
-    # it less than requested because the campaign budget was short.
+    # The resources it was given at once (e.g. {"cpus": 8, "gpus": 1}), and
+    # whether AuCaM cancelled it for using more.
     resources: dict = field(default_factory=dict)
     over_resources: bool = False
-    capped: bool = False
     # How a cancelled workflow ended (P1): "graceful" — it received CANCEL and
     # exited on its own within its grace period; "forced" — AuCaM cancelled it
     # (no grace period, or it did not exit in time).  None if not cancelled.
@@ -77,16 +75,11 @@ class LaunchRequest:
     campaign_name: str = ""  # stamped by _CampaignInstance.enqueue()
     context: dict = field(default_factory=dict)
     requester: str = "unknown"
-    # Spending limit for this run (e.g. {"cpu_hours": 2.0}); None uses the
-    # workflow type's WorkflowConfig.spending_limit.
+    # The controller's amount for this workflow: its spending limit (e.g.
+    # {"cpu_hours": 2.0}) and resources (e.g. {"cpus": 8}), used as given.
+    # None: the scheduler decides (SchedulingPolicy.size()).
     spending_limit: dict | None = None
-    # Resources this run may use at once (e.g. {"cpus": 8, "gpus": 1}); None
-    # uses WorkflowConfig.resources.
     resources: dict | None = None
-    # The controller's intent as ranges, key -> (min, max), for spending
-    # dimensions ("cpu_hours", ...) and resources ("cpus", "gpus").  The
-    # scheduling policy's size() picks the final amounts within them.
-    bounds: dict | None = None
 
     @classmethod
     def make(
@@ -98,7 +91,6 @@ class LaunchRequest:
         requester: str = "policy_agent",
         spending_limit: dict | None = None,
         resources: dict | None = None,
-        bounds: dict | None = None,
     ) -> LaunchRequest:
         return cls(
             workflow_type=workflow_type,
@@ -108,26 +100,20 @@ class LaunchRequest:
             requester=requester,
             spending_limit=spending_limit,
             resources=resources,
-            bounds=bounds,
         )
 
 
-# Resource keys (amounts in use at once); every other key in an allocation or in
-# LaunchRequest.bounds is a spending dimension (cpu_hours, gpu_hours, ...).
+# Resource keys (amounts in use at once); every other key in an allocation is a
+# spending dimension (cpu_hours, gpu_hours, ...).
 RESOURCE_KEYS = ("cpus", "gpus")
 
 
 @dataclass
 class Allocation:
-    """What one run is given: a spending limit and resources in use at once.
-
-    capped — the scheduler gave less spending than requested because the
-             campaign budget was short.
-    """
+    """What one workflow is given: a spending limit and resources in use at once."""
 
     spending_limit: dict[str, float] = field(default_factory=dict)
     resources: dict[str, float] = field(default_factory=dict)
-    capped: bool = False
 
 
 @dataclass

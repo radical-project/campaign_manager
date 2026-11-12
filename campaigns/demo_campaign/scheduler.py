@@ -226,8 +226,6 @@ class AllocationLearner(BanditSchedulingPolicy):
         spend = {}
         for key, value in base.spending_limit.items():
             amount = value * factor
-            lo, hi = (request.bounds or {}).get(key, (0.0, float("inf")))
-            amount = min(max(amount, lo), hi)
             if key in ctx.remaining and amount > ctx.remaining[key]:
                 amount = value  # the scaled amount does not fit: keep the default
             spend[key] = amount
@@ -237,7 +235,7 @@ class AllocationLearner(BanditSchedulingPolicy):
             logging.getLogger(__name__).info(
                 "[LEARN] %s: ×%g → %s=%.6g", request.workflow_type, factor, key, spend[key]
             )
-        return Allocation(spending_limit=spend, resources=base.resources, capped=base.capped)
+        return Allocation(spending_limit=spend, resources=base.resources)
 
 
 # ── Factory ────────────────────────────────────────────────────────────────────

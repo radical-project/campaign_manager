@@ -473,11 +473,9 @@ its allocation: a spending limit and the resources it may use at once.
 - **The inputs:**
   - the type's starting values: `WorkflowConfig.spending_limit` / `resources`
     (used as given for the first workflows of the type), its
-    `declared_spending`, and optional ranges, `WorkflowConfig.bounds`
-    (e.g. `{"cpu_hours": (0.5, 4), "cpus": (2, 8)}`);
-  - the controller's intent for one launch: `LaunchRequest.spending_limit` /
-    `resources` (always wins), or `LaunchRequest.bounds` (overrides the type's
-    range per key);
+    `declared_spending`;
+  - the controller's amount for one launch: `LaunchRequest.spending_limit` /
+    `resources` (always wins);
   - what AuCaM has learned about the type: its learned cost and peak resource
     use (`obs["learned_cost"]` shows the costs to a controller), and amounts
     raised after cancels at the limit.
@@ -494,20 +492,16 @@ its allocation: a spending limit and the resources it may use at once.
   3. after a workflow of the type was cancelled at its own limit, that limit
      + 25%, until learned values take over;
   4. the type's starting value, as given;
-  5. for spending, the type's `declared_spending` + 25%;
-  6. a range's maximum.
+  5. for spending, the type's `declared_spending` + 25%.
 
-  Then it keeps the amount within the range, and checks the remaining campaign
-  budget: an amount that does not fit is capped to what is left (`capped=True`
-  in the result; with `fair_share = True`, what is left ÷ the queued requests)
-  only within a range and not below its minimum. Otherwise `size()` returns
-  nothing: the request waits while other workflows run, and is dropped
+  Then it checks the remaining campaign budget: if the amount does not fit,
+  `size()` returns nothing: the request waits while other workflows run, and is dropped
   (`CampaignOutcome.unfit_dropped`) once nothing else runs. A workflow type with
   no starting value, no `declared_spending` and nothing learned gets no limit
   of its own; the campaign limit still applies (§9, budget.md §4).
 - **Give more to better types** by overriding the policy's `value(workflow_type,
-  ctx)`: `size()` multiplies the learned-cost amount of a spending range by it
-  (default 1.0), then keeps it within the range and the remaining budget. What
+  ctx)`: `size()` multiplies the learned-cost amount by it (default 1.0), then
+  checks it against the remaining budget. What
   "better" means is up to the campaign; `ctx.by_type` has each type's cost per
   completed workflow and mean score.
 - **Override `size()`** in your own `SchedulingPolicy` to decide differently;
@@ -563,8 +557,7 @@ CampaignBudget(
 workflow starts only if the resources it is given fit what is free (capacity
 minus what the running workflows were given); one that does not fit waits, and
 one that needs more than the whole capacity is dropped. A resource the capacity
-does not name counts as 0. Within a range (`bounds`), the scheduler gives a
-workflow no more than what is free. The controller sees it in
+does not name counts as 0. The controller sees it in
 `obs["budget"]["capacity"]`: `{key: {"total", "in_use", "free"}}`.
 
 A workflow type can set its own cap, `WorkflowConfig(..., max_running=1)`, for
@@ -705,7 +698,6 @@ Planned features and known problems: [known gaps](known-gaps.md).
 | `spent` | What the workflow was charged |
 | `spending_limit`, `over_budget` | The workflow's own spending limit (empty: none), and whether AuCaM cancelled it for exceeding it |
 | `resources`, `over_resources` | What the workflow could use at once, and whether AuCaM cancelled it for using more |
-| `capped` | The scheduler gave it less spending than requested, to fit the remaining budget |
 | `cancel` | For a cancelled workflow: `"graceful"` (it exited after CANCEL) or `"forced"`; otherwise `None` |
 | `resource_profile` | Measured CPU/memory use, when available |
 

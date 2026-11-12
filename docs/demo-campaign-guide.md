@@ -165,31 +165,14 @@ WorkflowConfig(
   `over_budget=True`, and `CampaignOutcome.budget_cancels` counts such
   workflows.
 
-`precise_sim` gives a range: whatever the scheduler picks — its estimate
-+ 25 % at first, then its learned cost + 25 % — is kept between the cost of
-one full run (0.003 CPU-hours) and 1.5 times that (0.0045):
-
-```python
-WorkflowConfig(
-    name="precise_sim",
-    # Spending limit between one full run's cost and 1.5x that.
-    bounds={"cpu_hours": (0.003, 0.0045)},
-    ...
-)
-```
-
-The range itself is fixed: it comes from the spec (or, for one workflow, from
-the controller's `LaunchRequest.bounds`). What changes is the limit the
-scheduler picks inside it, as it learns. In the default demo every
-`precise_sim` gets 0.00375 CPU-hours, inside the range; with `--policy learn`
-the range keeps the learner's ×0.5 at 0.003 and its ×1.5 at 0.0045.
+`precise_sim` sets no `spending_limit`: its first workflows get its
+`declared_spending` + 25 % (0.00375 CPU-hours), then its learned cost + 25 %.
 
 The controller can give one workflow a different limit than its type's:
 `LaunchRequest.make("precise_sim", spending_limit={"cpu_hours": 0.006})`.
 The resources work the same way: `WorkflowConfig(..., resources={"cpus": 2})`
 reaches the workflow as `context["resources"]`, and the workflow reports
-`cpus_in_use` in its metrics. The scheduler can also size both from ranges and
-the remaining budget; see the [developer guide](campaign-developer-guide.md),
+`cpus_in_use` in its metrics. For how the scheduler sizes both, see the [developer guide](campaign-developer-guide.md),
 "How much each workflow gets".
 
 ---

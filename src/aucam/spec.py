@@ -63,8 +63,7 @@ class WorkflowConfig(BaseModel):
     # its limit is held against the campaign's spending limit; the workflow
     # receives it (context["spending_limit"] for a Python workflow,
     # CM_SPENDING_LIMIT_<DIM> for a command-line one); and AuCaM cancels it once
-    # its spending so far exceeds the limit.  For a fixed amount, use a range
-    # with min = max (bounds).
+    # its spending so far exceeds the limit.
     spending_limit: dict[str, float] = {}
     # Starting resources each workflow of this type may use at once, e.g.
     # {"cpus": 8, "gpus": 1}: used until AuCaM has learned the type's peak use.
@@ -73,14 +72,6 @@ class WorkflowConfig(BaseModel):
     # and must size its tasks to them; AuCaM cancels a workflow that uses more
     # (measured from its running tasks, or reported as cpus_in_use / gpus_in_use).
     resources: dict[str, float] = {}
-    # Ranges, key -> (min, max), for a spending dimension or a resource, used for
-    # every launch of this type (a LaunchRequest's own bounds override them per
-    # key).  The scheduling policy's size() picks the amount: for spending, the
-    # type's learned cost x (1 + size_margin) once 3 workflows of the type have
-    # finished, the range's max before that; for a resource, the max.  Use it
-    # instead of spending_limit / resources for that key: an exact amount is
-    # kept as is.  See docs/budget.md, "Sizing each workflow".
-    bounds: dict[str, tuple[float, float]] = {}
     # Graceful cancel (P1): seconds this workflow gets to save its state and
     # exit after AuCaM sends it CANCEL (reporter.poll() returns
     # CampaignDecision.CANCEL; a command-line program reads it with
@@ -134,15 +125,6 @@ class WorkflowConfig(BaseModel):
     def _check_max_running(cls, v):
         if v is not None and v < 1:
             raise ValueError("max_running must be >= 1 (or None)")
-        return v
-
-    @field_validator("bounds")
-    @classmethod
-    def _check_bounds(cls, v):
-        for key, rng in v.items():
-            lo, hi = rng
-            if lo < 0 or hi < lo:
-                raise ValueError(f"bounds[{key!r}] must be (min, max) with 0 <= min <= max")
         return v
 
 

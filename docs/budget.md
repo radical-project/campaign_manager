@@ -282,13 +282,11 @@ How much a workflow gets is decided when it starts, by the scheduling policy's
    + 25 %, until learned costs take over;
 4. the type's starting value, `WorkflowConfig.spending_limit`, as given;
 5. the type's `declared_spending` + 25 % (the margin covers ordinary variation,
-   so most early workflows finish and learning can start);
-6. the maximum of a range (`bounds`), if only that is given.
+   so most early workflows finish and learning can start).
 
-The amount is kept within the range, if the request or type gives one. If it
-does not fit what is left in the campaign budget, it is capped to what is left
-only within a range (not below its minimum); otherwise the request waits while
-other workflows run, and is dropped once nothing else runs. Resources (`cpus`,
+If the amount does not fit what is left in the campaign budget, the request
+waits while other workflows run, and is dropped once nothing else runs.
+AuCaM never gives a workflow less than this amount to make it fit. Resources (`cpus`,
 `gpus`) follow the same order, with the type's learned peak use instead of
 learned cost and no declared step; AuCaM enforces them like the spending
 limit. A campaign can replace this rule with its own (developer guide, "How
@@ -400,7 +398,7 @@ but costs twice the average earns a third of the reward instead of a half.
 After 3 workflows of a type have completed (`CampaignSpec.min_cost_samples`),
 AuCaM uses their average actual cost as the estimate for new workflows of that
 type, instead of `declared_spending`, and their average peak CPUs / GPUs in use
-for resource ranges. Only completed workflows count, since cancelled and
+for its resources. Only completed workflows count, since cancelled and
 failed ones are partial.
 
 The averages, and the per-type totals in `obs["budget"]["by_type"]`, are saved

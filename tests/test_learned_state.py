@@ -59,7 +59,10 @@ def _spec(ctl, tmp_path=None, **kw):
         controller=ctl,
         workflows=[
             WorkflowConfig(
-                name="sim", block=sim, bounds={"cpu_hours": (1 / H, 10 / H), "cpus": (1, 16)}
+                name="sim",
+                block=sim,
+                spending_limit={"cpu_hours": 10 / H},
+                resources={"cpus": 16},
             )
         ],
         policy_interval_s=0.02,

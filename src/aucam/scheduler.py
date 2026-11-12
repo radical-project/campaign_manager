@@ -28,7 +28,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .types import (
-    RESOURCE_KEYS,
     Allocation,
     LaunchRequest,
     TelemetrySnapshot,
@@ -176,43 +175,35 @@ class SchedulingPolicy:
         """Load what ``state()`` returned, when a campaign restarts from a checkpoint."""
 
     # Sizing settings, used by the default size(); set them on an instance.
-    size_margin: float = 0.25  # learned cost × (1 + margin) when a range is given
-    fair_share: bool = False  # cap each run at remaining budget / queued requests
+    size_margin: float = 0.25  # learned cost (and declared) × (1 + margin)
 
     def value(self, workflow_type: str, ctx: SizingContext) -> float:
         """How much budget to give this type relative to its learned cost (default 1.0).
 
-        Placeholder for value-based sizing (U2): size() multiplies a spending
-        range's learned-cost amount by this factor, then keeps it within the
-        range and the remaining budget.  Override it to give more budget to
+        Placeholder for value-based sizing (U2): size() multiplies the
+        learned-cost amount by this factor.  Override it to give more budget to
         types with a better result per unit spent, e.g. from
         ``ctx.by_type[workflow_type]["cost_per_completed"]`` and ``["mean_score"]``.
         """
         return 1.0
 
     def size(self, request: LaunchRequest, ctx: SizingContext) -> Allocation | None:
-        """Decide what one run gets: its spending limit and its resources.
+        """Decide what one workflow gets: its spending limit and its resources.
 
-        Called when the request is about to launch.  Return None to drop the
-        request because it does not fit the remaining campaign budget.
-
-        Default rule, per spending dimension (first that applies):
+        Called when the request is about to launch.  Default rule, per spending
+        dimension, the first that applies:
           1. the request's own amount (the controller's intent) — as given;
           2. the type's learned cost × (1 + size_margin) × value(), once it has
              enough finished workflows (min_cost_samples);
           3. the raised amount, after a workflow of the type was cancelled at
              its own limit (that limit × (1 + size_margin));
           4. the type's starting value (WorkflowConfig.spending_limit) — as given;
-          5. the type's declared_spending × (1 + size_margin);
-          6. a range's maximum.
+          5. the type's declared_spending × (1 + size_margin).
         Resources follow the same order with learned peak use (rounded up) and
-        no declared step.  Every amount is then kept within its range (the
-        request's, else the type's ``bounds``).  Spending that does not fit
-        what is left in the campaign budget (or remaining / queued requests
-        with fair_share) is capped to it only where a range allows (not below
-        its minimum); otherwise size() returns None: the request does not fit.
+        no declared step.  Returns None if the spending does not fit what is
+        left in the campaign budget: the request waits while other workflows
+        run, and is dropped once nothing else runs.
         """
-        bounds = request.bounds or {}
         margin = 1.0 + self.size_margin
         requested = ctx.requested if ctx.requested is not None else ctx.proposal
         start = ctx.start if ctx.start is not None else Allocation()
@@ -224,7 +215,6 @@ class SchedulingPolicy:
             | set(ctx.raised)
             | set(start.spending_limit)
             | set(ctx.declared)
-            | {k for k in bounds if k not in RESOURCE_KEYS}
         ) - {"wall_hours"}
         for key in s_keys:
             if key in requested.spending_limit:
@@ -235,10 +225,8 @@ class SchedulingPolicy:
                 value = ctx.raised[key]
             elif key in start.spending_limit:
                 value = start.spending_limit[key]
-            elif key in ctx.declared:
-                value = ctx.declared[key] * margin
             else:
-                value = bounds[key][1]
+                value = ctx.declared[key] * margin
             spend[key] = float(value)
 
         res: dict[str, float] = {}
@@ -247,7 +235,6 @@ class SchedulingPolicy:
             | set(ctx.learned_resources)
             | set(ctx.raised_resources)
             | set(start.resources)
-            | {k for k in bounds if k in RESOURCE_KEYS}
         )
         for key in r_keys:
             if key in requested.resources:
@@ -256,42 +243,14 @@ class SchedulingPolicy:
                 value = math.ceil(ctx.learned_resources[key] * margin - 1e-9)
             elif key in ctx.raised_resources:
                 value = ctx.raised_resources[key]
-            elif key in start.resources:
-                value = start.resources[key]
             else:
-                value = bounds[key][1]
+                value = start.resources[key]
             res[key] = float(value)
 
-        for key, (lo, hi) in bounds.items():
-            target = res if key in RESOURCE_KEYS else spend
-            if key in target:
-                target[key] = min(max(target[key], float(lo)), float(hi))
-        # Within a range, take only what is free now (not below its minimum);
-        # the scheduler makes a request whose resources do not fit wait.
-        if ctx.capacity:
-            for key, value in list(res.items()):
-                free = float(ctx.free.get(key, 0.0))
-                if key in bounds and value > free >= float(bounds[key][0]):
-                    res[key] = float(math.floor(free + 1e-9))
-        capped = False
-        for key, value in list(spend.items()):
-            if key not in ctx.remaining:
-                continue
-            cap = ctx.remaining[key]
-            if self.fair_share:
-                cap = cap / max(1, ctx.queued)
-            if value > cap:
-                # Less than it should get is acceptable only within a range the
-                # request or its type gives; otherwise it does not fit (it waits,
-                # or is dropped when nothing else is running).
-                if key not in bounds:
-                    return None
-                lo = float(bounds[key][0])
-                if cap <= 0.0 or cap < lo:
-                    return None
-                spend[key] = cap
-                capped = True
-        return Allocation(spending_limit=spend, resources=res, capped=capped)
+        for key, value in spend.items():
+            if key in ctx.remaining and value > ctx.remaining[key] + 1e-12:
+                return None
+        return Allocation(spending_limit=spend, resources=res)
 
 
 class FIFOSchedulingPolicy(SchedulingPolicy):

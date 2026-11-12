@@ -35,17 +35,15 @@ CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
 H = 3600.0
 
 
-def test_request_record_roundtrip_keeps_amounts_and_ranges():
+def test_request_record_roundtrip_keeps_amounts():
     req = LaunchRequest.make(
         "sim",
         spending_limit={"cpu_hours": 2.0},
         resources={"cpus": 4},
-        bounds={"gpu_hours": (0.5, 1.0)},
     )
     back = _request_from_record(_request_record(req))
     assert back.spending_limit == {"cpu_hours": 2.0}
     assert back.resources == {"cpus": 4}
-    assert back.bounds == {"gpu_hours": (0.5, 1.0)}
 
     ckpt = CampaignCheckpoint(
         campaign_name="c",

@@ -86,13 +86,6 @@ def test_more_than_the_whole_capacity_is_dropped():
     assert ctl.results == [] and out.unfit_dropped == 1
 
 
-def test_a_range_takes_only_what_is_free():
-    ctl = Fill([LaunchRequest.make("w"), LaunchRequest.make("w")])
-    wfc = WorkflowConfig(name="w", block=work, launch_on_start=False, bounds={"cpus": (1, 4)})
-    _run(ctl, {"cpus": 5}, wfc)
-    assert sorted(r.resources["cpus"] for r in ctl.results) == [1, 4]
-
-
 def test_gpus_not_in_capacity_count_as_zero():
     ctl = Fill([LaunchRequest.make("w", resources={"gpus": 1})])
     wfc = WorkflowConfig(name="w", block=work, launch_on_start=False)

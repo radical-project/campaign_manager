@@ -64,28 +64,25 @@ def test_value_hook_scales_the_learned_amount():
         def value(self, workflow_type, ctx):
             return 2.0 if workflow_type == "good" else 1.0
 
-    req_good = LaunchRequest.make("good", bounds={"cpu_hours": (0.1, 10.0)})
-    req_other = LaunchRequest.make("other", bounds={"cpu_hours": (0.1, 10.0)})
+    req_good = LaunchRequest.make("good")
+    req_other = LaunchRequest.make("other")
     ctx = _ctx(learned_cost={"cpu_hours": 2.0})
     assert SchedulingPolicy().size(req_good, ctx).spending_limit["cpu_hours"] == 2.5
     assert Generous().size(req_good, ctx).spending_limit["cpu_hours"] == 5.0
     assert Generous().size(req_other, ctx).spending_limit["cpu_hours"] == 2.5
-    # Still kept within the range and the remaining budget.
-    small = LaunchRequest.make("good", bounds={"cpu_hours": (0.1, 4.0)})
-    assert Generous().size(small, ctx).spending_limit["cpu_hours"] == 4.0
-    capped = Generous().size(
-        req_good, _ctx(learned_cost={"cpu_hours": 2.0}, remaining={"cpu_hours": 3.0})
-    )
-    assert capped.spending_limit["cpu_hours"] == 3.0 and capped.capped
+    # Still subject to the remaining budget.
+    short = _ctx(learned_cost={"cpu_hours": 2.0}, remaining={"cpu_hours": 3.0})
+    assert Generous().size(req_good, short) is None  # 5.0 does not fit 3.0
 
 
-def test_resource_range_uses_learned_peak_use():
-    req = LaunchRequest.make("sim", bounds={"cpus": (1, 16)})
-    assert SchedulingPolicy().size(req, _ctx()).resources["cpus"] == 16  # not learned yet
-    alloc = SchedulingPolicy().size(req, _ctx(learned_resources={"cpus": 2.4}))
+def test_resources_use_learned_peak_use():
+    req = LaunchRequest.make("sim")
+    start = Allocation(resources={"cpus": 16})
+    assert (
+        SchedulingPolicy().size(req, _ctx(start=start)).resources["cpus"] == 16
+    )  # not learned yet
+    alloc = SchedulingPolicy().size(req, _ctx(start=start, learned_resources={"cpus": 2.4}))
     assert alloc.resources["cpus"] == 3  # ceil(2.4 × 1.25)
-    alloc = SchedulingPolicy().size(req, _ctx(learned_resources={"cpus": 0.2}))
-    assert alloc.resources["cpus"] == 1  # never below the range's minimum
 
 
 async def worker(reporter: WorkflowReporter, context: dict) -> None:
@@ -117,7 +114,7 @@ def test_campaign_learns_resource_size_from_reports():
             capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
         ),
         controller=ctl,
-        workflows=[WorkflowConfig(name="sim", block=worker, bounds={"cpus": (1, 16)})],
+        workflows=[WorkflowConfig(name="sim", block=worker, resources={"cpus": 16})],
         policy_interval_s=0.02,
         shutdown_timeout_s=5.0,
     )

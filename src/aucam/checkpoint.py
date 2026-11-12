@@ -53,11 +53,9 @@ class QueuedRequestRecord:
     enqueued_at: float
     context: dict
     requester: str
-    # The request's own amounts (None: the workflow type's), and ranges as
-    # {key: [min, max]}.
+    # The request's own amounts (None: the scheduler decides).
     spending_limit: dict | None = None
     resources: dict | None = None
-    bounds: dict | None = None
 
 
 @dataclass
@@ -134,8 +132,14 @@ def _to_json(ckpt: CampaignCheckpoint) -> dict[str, Any]:
     return d
 
 
+def _request(r: dict) -> QueuedRequestRecord:
+    """A request record; older checkpoints may carry ranges ("bounds"), now unused."""
+    r = {k: v for k, v in r.items() if k != "bounds"}
+    return QueuedRequestRecord(**r)
+
+
 def _from_json(d: dict[str, Any]) -> CampaignCheckpoint:
-    queue = [QueuedRequestRecord(**r) for r in d.get("queue", [])]
+    queue = [_request(r) for r in d.get("queue", [])]
     active = []
     for r in d.get("active", []):
         r = dict(r)
@@ -143,7 +147,7 @@ def _from_json(d: dict[str, Any]) -> CampaignCheckpoint:
         # derived concurrency "resources" dict; it is no longer used.
         r.pop("resources", None)
         if isinstance(r.get("request"), dict):
-            r["request"] = QueuedRequestRecord(**r["request"])
+            r["request"] = _request(r["request"])
         active.append(ActiveWorkflowRecord(**r))
     return CampaignCheckpoint(
         campaign_name=d["campaign_name"],
@@ -154,7 +158,7 @@ def _from_json(d: dict[str, Any]) -> CampaignCheckpoint:
         paused_wf_ids=d.get("paused_wf_ids", []),
         dep_satisfied=d.get("dep_satisfied", []),
         dep_triggered=d.get("dep_triggered", []),
-        dep_pending=[QueuedRequestRecord(**r) for r in d.get("dep_pending", [])],
+        dep_pending=[_request(r) for r in d.get("dep_pending", [])],
         spent=d.get("spent", {}),
         instances_run=d.get("instances_run", 0),
         completed=d.get("completed", 0),
