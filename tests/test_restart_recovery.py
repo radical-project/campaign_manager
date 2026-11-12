@@ -221,7 +221,8 @@ def test_checkpoint_records_running_workflows_spending(tmp_path: Path):
 
         def decide(self, obs: dict) -> PolicyResult:
             ck = read_checkpoint(checkpoint_path(str(tmp_path), "r1"))
-            if ck is not None and ck.active:
+            # Before the workflow's first report there is nothing to measure yet.
+            if ck is not None and ck.active and "cpu_hours" in ck.active[0].spent_so_far:
                 self.seen.append(ck.active[0].spent_so_far)
             return PolicyResult(terminate=len(self.seen) >= 5)
 
