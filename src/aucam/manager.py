@@ -153,6 +153,7 @@ class CampaignManager:
             resource_cancels=getattr(inst, "resource_cancels", 0),
             unfit_dropped=getattr(inst, "unfit_dropped", 0),
             controller_errors=getattr(inst, "controller_errors", 0),
+            model_usage=getattr(inst, "model_usage", {}),
             goals=list(getattr(inst, "goals", [])),
         )
 

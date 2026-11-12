@@ -231,6 +231,23 @@ class CampaignController:
         """
         return {}
 
+    async def decide_async(self, obs: dict) -> PolicyResult:
+        """Optional async decide(), for controllers that await a model or ADR (S1).
+
+        If a subclass overrides it, AuCaM awaits it instead of calling decide(),
+        with spec.decide_timeout_s as for decide(); on an error or timeout that
+        cycle uses the built-in rules.  Not overridden: decide() is used.
+        """
+        raise NotImplementedError
+
+    # Model usage (take_usage()) is charged to the campaign's ledger only if the
+    # campaign limits that dimension, or with charge_usage = True.
+    charge_usage: bool = False
+
+    def take_usage(self) -> dict[str, float]:
+        """Model usage since the last call, e.g. {"llm_tokens": 1200} (default: none)."""
+        return {}
+
     def progress(self, result: WorkflowResult) -> float:
         """How much this finished workflow moved the campaign toward its goal.
 

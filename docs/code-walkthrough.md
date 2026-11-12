@@ -14,7 +14,8 @@ planned work in [known gaps](known-gaps.md), and budget internals in
 | `src/aucam/manager.py` | `CampaignManager`: `run(spec)` (engine set-up, one campaign, its outcome), `stop()`, signal handling |
 | `src/aucam/campaign.py` | `_CampaignInstance`: everything that runs one campaign — launch, policy cycle, scheduler, accounting, dependencies, checkpoint, shutdown |
 | `src/aucam/controller.py` | `CampaignController` base class, `CancelRule`, `LaunchRule`, `Goal`, `PolicyResult` |
-| `src/aucam/scheduler.py` | `SchedulingPolicy` (FIFO base; `size()` sizes each workflow), `FIFOSchedulingPolicy`, `BanditSchedulingPolicy` (UCB1), `ADRSchedulingPolicy` / `LLMSchedulingPolicy` (stubs), `SchedulingContext`, `SizingContext` |
+| `src/aucam/scheduler.py` | `SchedulingPolicy` (FIFO base; `size()` sizes each workflow), `FIFOSchedulingPolicy`, `BanditSchedulingPolicy` (UCB1), `RankingSchedulingPolicy` and `LLMSchedulingPolicy` (AI ranking, `refresh()`), `SchedulingContext`, `SizingContext` |
+| `src/aucam/adr.py` | `ADRController`, `ADRSchedulingPolicy`: bridges to radical.adr policies |
 | `src/aucam/queue.py` | `WorkflowQueue`: priority heap with aging |
 | `src/aucam/budget.py` | `BudgetAllocator`: the campaign's spending ledger |
 | `src/aucam/spec.py` | `CampaignSpec`, `CampaignBudget`, `WorkflowConfig`, `WorkflowDependency` |
@@ -57,11 +58,12 @@ run()
 - **`_policy_loop()`** wakes every `policy_interval_s` or when a workflow
   finishes and calls `_run_policy_cycle()`:
   `_collect_live_reports()` → `_collect_telemetry()` → `controller.observe()`
-  → `_decide()` (the controller's `decide()`, or the built-in rules if it
-  raises or exceeds `decide_timeout_s`) → `_apply_auto_cancels()` (stale
+  → `_decide()` (the controller's `decide()` or awaited `decide_async()`, or
+  the built-in rules if it raises or exceeds `decide_timeout_s`) → `_apply_auto_cancels()` (stale
   reporter, wall time, per-workflow limits)
   → apply decisions (CANCEL / PAUSE / RESUME, `cancel_queued`, new requests,
-  goal changes) → write checkpoint → end if `terminate` (`controller_terminate`)
+  goal changes) → `_start_refresh()` (the policy's `refresh()` in the
+  background; model usage via `_collect_usage()`) → write checkpoint → end if `terminate` (`controller_terminate`)
   or all goals met (`goals_satisfied`).
 - **`_scheduler_loop()`** calls `_drain_queue()` whenever a slot frees up or a
   request arrives (at least every 2 s): stop if the spending limit is reached;
@@ -124,8 +126,8 @@ cancels the block when the grace period ends), go out with `write_signal()`.
 
 | To add | Implement | Pass it via |
 |---|---|---|
-| Decision logic | subclass `CampaignController` (`observe`, `decide`, `on_complete`, `progress`, `get_summary`, `goals`, `state` / `restore`) | `CampaignSpec.controller` |
-| Scheduling policy | subclass `SchedulingPolicy` (`select`; optionally `on_outcome`, `size`, `value`, `state` / `restore`) | `CampaignSpec.scheduling_policy` |
+| Decision logic | subclass `CampaignController` (`observe`, `decide` or `decide_async`, `on_complete`, `progress`, `get_summary`, `goals`, `state` / `restore`, `take_usage`) | `CampaignSpec.controller` |
+| Scheduling policy | subclass `SchedulingPolicy` (`select`; optionally `on_outcome`, `size`, `value`, `refresh`, `state` / `restore`, `take_usage`), or `RankingSchedulingPolicy` (`refresh` calls `set_ranking`) | `CampaignSpec.scheduling_policy` |
 | Data channel | the `DataBackend` protocol and a `WorkflowReporter` | `CampaignSpec.data_backend` |
 
 ## Tests

@@ -15,8 +15,9 @@ Scheduling policies for the demo campaign.
   adr           ADRSchedulingPolicy(rule_fn=_backpressure)
                 Backpressure rule: throttles sims when cancel rate > 60%.
 
-  llm           LLMSchedulingPolicy(model="llama3:8b")
-                LLM-guided ranking (STUB — falls back to FIFO today).
+  llm           LLMSchedulingPolicy(model=$AUCAM_LLM_MODEL or "llama3.1:8b")
+                Ranks types with a model at $AUCAM_LLM_ENDPOINT (OpenAI-compatible,
+                e.g. Ollama's http://localhost:11434/v1); without one, the bandit.
 
   custom        _RecencyBiasPolicy — subclass of SchedulingPolicy.
                 Shows how to implement select() + on_outcome() from scratch.
@@ -37,6 +38,7 @@ Reading order: _score_reward → science_bandit → _backpressure → adr_policy
 from __future__ import annotations
 
 import logging
+import os
 import random
 
 from src.aucam import (
@@ -260,8 +262,8 @@ def make_policy(name: str) -> SchedulingPolicy:
         # Low exploration — exploits faster once arms are characterised.
         return BanditSchedulingPolicy(exploration=0.5)
     if name == "llm":
-        # Stub: falls back to FIFO today; shows the LLMSchedulingPolicy API.
-        return LLMSchedulingPolicy(model="llama3:8b")
+        # Needs $AUCAM_LLM_ENDPOINT; without it, the fallback bandit decides.
+        return LLMSchedulingPolicy(model=os.environ.get("AUCAM_LLM_MODEL", "llama3.1:8b"))
     if name == "custom":
         return recency_policy()
     if name == "learn":

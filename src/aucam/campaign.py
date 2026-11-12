@@ -56,6 +56,12 @@ class _DecideTimeoutError(Exception):
     """decide() did not return within spec.decide_timeout_s."""
 
 
+def _retrieve(task: asyncio.Future) -> None:
+    """Done-callback: mark a background task's exception as seen (no warning at exit)."""
+    if not task.cancelled():
+        task.exception()
+
+
 def _call_in_thread(fn, *args) -> asyncio.Future:
     """Run fn(*args) in a daemon thread; return an asyncio future for its result.
 
@@ -367,6 +373,13 @@ class _CampaignInstance:
         self._unfit_logged: set[int] = set()  # id() of queued requests logged as not fitting
         self._controller_errors = 0  # cycles where decide()/observe() failed or timed out
         self._slow_decide: asyncio.Future | None = None  # decide() still running past its timeout
+        # S1: a scheduling policy's background refresh(), and model usage.
+        self._has_refresh = type(self._policy).refresh is not SchedulingPolicy.refresh
+        self._refresh_task: asyncio.Task | None = None
+        self._refresh_status: str | None = None  # ok / busy / timeout / error, for the log
+        self._refreshed_types: set[str] = set()  # types queued at some refresh()
+        self._last_obs: dict = {}
+        self._model_usage: dict[str, float] = {}
         self._policy_cancels = 0  # CANCEL from controller (not auto-cancel)
         self._auto_cancelled: set[str] = set()  # wf_ids auto-cancelled this policy cycle
         self._policy_cycles = 0
@@ -1768,6 +1781,10 @@ class _CampaignInstance:
         all_candidates = self._queue.candidates()
         if not all_candidates:
             return
+        if self._has_refresh and any(
+            r.workflow_type not in self._refreshed_types for r in all_candidates
+        ):
+            self._start_refresh()  # a type the policy has not seen yet
 
         # Separate CRITICAL (bypass policy) from normal candidates.
         critical = [r for r in all_candidates if r.priority == LaunchPriority.CRITICAL]
@@ -2450,7 +2467,19 @@ class _CampaignInstance:
         else:
             self._slow_decide = None
             try:
-                if timeout is None:
+                if type(ctrl).decide_async is not CampaignController.decide_async:
+                    # S1: an async decide (e.g. one that awaits a model or ADR).
+                    task = asyncio.ensure_future(ctrl.decide_async(obs))
+                    task.add_done_callback(_retrieve)
+                    if timeout is None:
+                        result = await task
+                    else:
+                        done, _ = await asyncio.wait({task}, timeout=timeout)
+                        if not done:
+                            self._slow_decide = task
+                            raise _DecideTimeoutError
+                        result = task.result()
+                elif timeout is None:
                     result = ctrl.decide(obs)
                 else:
                     fut = _call_in_thread(ctrl.decide, obs)
@@ -2528,6 +2557,8 @@ class _CampaignInstance:
             tasks=self._task_observation(),
         )
         result, decided_by = await self._decide(obs)
+        self._collect_usage(self.spec.controller)
+        self._last_obs = obs
         self._apply_auto_cancels(result, live_reports, now)
         if self._campaign_limit_hit(now):
             await self._shutdown(reason="spending_limit")
@@ -2541,6 +2572,7 @@ class _CampaignInstance:
             f"launches={len(result.launch_requests)} "
             f"terminate={result.terminate} "
             f"decide={decided_by}"
+            + (f" refresh={self._refresh_status}" if self._has_refresh else "")
             + (
                 f" tasks: waiting={obs['tasks']['waiting']} "
                 f"submitted={obs['tasks']['submitted']} running={obs['tasks']['running']}"
@@ -2608,6 +2640,8 @@ class _CampaignInstance:
                 )
             self.enqueue(req)
 
+        self._start_refresh()
+
         if result.goals:
             by_name = {g.name: g for g in self._goals}
             for g in result.goals:
@@ -2639,6 +2673,88 @@ class _CampaignInstance:
             logger.info(f"[CM] {self.name}: all goals satisfied")
             await self._shutdown(reason="goals_satisfied")
 
+    # ── S1: background refresh() and model usage ────────────────────────────
+
+    def _scheduling_context(self, max_concurrent: int) -> SchedulingContext:
+        return SchedulingContext(
+            running_by_type=self._running_by_type(),
+            max_concurrency=max_concurrent,
+            max_concurrency_per_type=self.spec.budget.max_concurrency_per_workflow,
+            max_running_by_type=self._type_caps(),
+            telemetry=self._last_telemetry,
+            history=list(self._history),
+            policy_cycles=self._policy_cycles,
+            campaign_name=self.name,
+            budget_remaining_fraction=1.0 - self._allocator.spending_fraction(self.name),
+        )
+
+    def _start_refresh(self) -> None:
+        """Run the scheduling policy's refresh() in the background (one at a time)."""
+        if not self._has_refresh or self._done:
+            return
+        if self._refresh_task is not None and not self._refresh_task.done():
+            self._refresh_status = "busy"
+            return
+        queued = self._queue.candidates()
+        self._refreshed_types |= {r.workflow_type for r in queued}
+        ctx = self._scheduling_context(self.spec.budget.max_concurrent_workflows)
+        self._refresh_task = asyncio.ensure_future(self._refresh(ctx, queued, self._last_obs))
+
+    async def _refresh(self, ctx: SchedulingContext, queued: list, obs: dict) -> None:
+        policy = self._policy
+        try:
+            await asyncio.wait_for(policy.refresh(ctx, queued, obs), policy.refresh_timeout_s)
+            self._refresh_status = "ok"
+        except TimeoutError:
+            self._refresh_status = "timeout"
+            logger.warning(
+                "[POLICY-%s] scheduling policy refresh() took longer than %g s — cancelled",
+                self.name,
+                policy.refresh_timeout_s,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self._refresh_status = "error"
+            logger.warning(
+                "[POLICY-%s] scheduling policy refresh() raised %s: %s",
+                self.name,
+                type(exc).__name__,
+                exc,
+            )
+        finally:
+            self._collect_usage(policy)
+        self._slot_event.set()  # let the scheduler use the new result
+
+    def _collect_usage(self, obj: Any) -> None:
+        """Add the model usage obj reports (take_usage()); charge it if opted in (S1)."""
+        try:
+            usage = {k: float(v) for k, v in (obj.take_usage() or {}).items() if v}
+        except Exception:
+            logger.warning("[CM] %s.take_usage() raised", type(obj).__name__, exc_info=True)
+            return
+        if not usage:
+            return
+        for k, v in usage.items():
+            self._model_usage[k] = self._model_usage.get(k, 0.0) + v
+        limits = self.spec.budget.spending or {}
+        charged = {
+            k: v for k, v in usage.items() if k in limits or getattr(obj, "charge_usage", False)
+        }
+        if charged:
+            self._allocator.record(self.name, charged)
+        logger.info(
+            "[SPEND] model usage  by=%s  %s%s",
+            type(obj).__name__,
+            "  ".join(f"{k}={v:.6g}" for k, v in usage.items()),
+            "  (charged)" if charged else "",
+        )
+
+    @property
+    def model_usage(self) -> dict[str, float]:
+        """Model usage reported by the policy and controller (S1)."""
+        return dict(self._model_usage)
+
     def _check_goals(self, obs: dict) -> bool:
         for goal in self._goals:
             value = obs.get(goal.metric)
@@ -2656,6 +2772,10 @@ class _CampaignInstance:
         self._done = True
         self._exit_reason = reason
         self._slot_event.set()  # wake scheduler so it exits promptly
+
+        for task in (self._refresh_task, self._slow_decide):
+            if task is not None and not task.done():
+                task.cancel()
 
         # Purge the launch queue immediately — no new workflows should start
         # after termination, and LaunchRules may have pre-filled it.

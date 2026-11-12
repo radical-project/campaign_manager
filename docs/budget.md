@@ -16,6 +16,8 @@ are implementation notes for developers.
 - **Budget dimension** — what is counted, e.g. `cpu_hours` or `gpu_hours`
   (resource-hours: 2 GPUs for 1 hour = 2 GPU-hours), or any other quantity a
   workflow reports, such as `llm_tokens`. Each dimension is limited separately.
+  The tokens an AI scheduling policy or controller uses are charged only if
+  the campaign limits `llm_tokens` (developer guide §8, "AI policies").
 - **Spending limit** — the most a campaign may spend over its lifetime, per
   dimension.
 - **Estimate** — how much one workflow of a given type is expected to cost. It

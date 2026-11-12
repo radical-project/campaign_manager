@@ -20,7 +20,6 @@ that must land first.
 
 | Priority | ID | Item | Status | Needs |
 |---|---|---|---|---|
-| 3 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) | |
 | 4 | U1 | Change a running workflow's allocation | Not started (decided: not for now) | |
 | 4 | U5 | Per-workflow enforcement lags by one check | Decided: workflows check their own limit | |
 | 4 | U7 | Elastic workflows: start with less when the budget is short | Not started | |
@@ -82,8 +81,6 @@ the type's starting values and what AuCaM learned, passed to the workflow and en
 
 - **H1 — hooks.** Let `WorkflowConfig.on_completion` hooks enqueue requests.
 - **A1 — accounting.** Per-dimension prices for comparing dimensions.
-- **S1 — scheduling.** `ADRSchedulingPolicy` and `LLMSchedulingPolicy` are
-  stubs that fall back to FIFO.
 - **L1 — load-aware launching.** Today the controller sees AsyncFlow task
   counts (`obs["tasks"]`: waiting, submitted, running) and each policy-cycle log
   line shows them, but nothing acts on them. Plan: an opt-in setting for the

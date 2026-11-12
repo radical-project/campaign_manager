@@ -301,6 +301,7 @@ Subclass `CampaignController` and override what you need:
 | `progress(result)` → `float` | Each finished workflow | How much it moved the campaign toward its goal: 1.0 for a successful `goal_type` workflow, else 0; override for a richer measure or partial credit (§8, "Progress and credit") |
 | `is_goal_reached()` → `bool` | By the default `decide()` | `goal_n` completions of `goal_type` |
 | `goals()` → `list[Goal]` | At start | `[]` |
+| `decide_async(obs)` → `PolicyResult` | Instead of `decide`, if overridden | For a decide that awaits a model or ADR; same timeout and fallback as `decide` |
 | `get_summary()` → `dict` | When the campaign ends | `{}`; returned in `CampaignOutcome.summary` |
 | `state()` → JSON-serializable / `restore(state)` | Every checkpoint / on restart | Saves and restores the `completed` / `cancelled` / `failed` counters; extend to keep your own state (e.g. the best score) across a restart |
 
@@ -344,7 +345,10 @@ in a thread, and cycles where it has not returned in time use the built-in rules
 until it does. Each policy-cycle log line says which decide was used —
 `decide=controller`, or `decide=fallback(error|timeout|busy)` — and
 `CampaignOutcome.controller_errors` counts the cycles that failed. The same
-applies to `observe()`: if it raises, the base `observe()` is used.
+applies to `observe()`: if it raises, the base `observe()` is used. A
+controller whose decision is async (it awaits a model or ADR) overrides
+`decide_async(obs)` instead; AuCaM awaits it with the same timeout and
+fallback, without a thread. `ADRController` (§8, "AI policies") is one.
 
 Example — a controller that tracks the best score and stops on a target:
 
@@ -463,12 +467,63 @@ than `age_threshold_s` become HIGH).
 |---|---|
 | `BanditSchedulingPolicy` (default) | UCB1 over workflow types. Reward 1 for a completed workflow, 0 for cancelled or failed (`reward_fn=` to change). Explores less as the campaign's budget is used up. With `cost_aware=True`, the reward is divided by 1 + `cost_weight` × the workflow's cost relative to the campaign's average, so cheaper types that succeed as often are preferred. |
 | `FIFOSchedulingPolicy` | Queue order |
-| `ADRSchedulingPolicy`, `LLMSchedulingPolicy` | Stubs; behave as FIFO |
+| `LLMSchedulingPolicy`, `ADRSchedulingPolicy` | A language model or an ADR policy ranks the workflow types; see "AI policies" below |
 
 Pass a policy instance as `scheduling_policy=`, or `None` for a new bandit.
 An instance passed to the specs of several campaigns keeps what it learned. With `checkpoint_dir`, what it learned is also saved in the checkpoint: a policy returns it from `state()` (JSON-serializable) and loads it in `restore(state)`; the bandit does both.
 
 ![Bandit and budget](figures/aucam_bandit_budget.png)
+
+### AI policies
+
+`select()` and `size()` run every time a slot frees up, so they must be fast.
+A policy that asks a language model or ADR does so in `refresh(ctx, queued,
+obs)`: AuCaM runs it in the background once per policy cycle (and when a
+workflow type it has not seen is queued), cancels it after
+`refresh_timeout_s` (default 60 s), and `select()` / `size()` use its latest
+result. The policy-cycle log line shows `refresh=ok|busy|timeout|error`.
+
+The built-in AI policies subclass `RankingSchedulingPolicy`: `refresh()`
+produces a ranking of workflow types, `{"rank": ["b", "a"], "value": {"b":
+1.5}}`. While it is at most `max_age_cycles` (default 3) cycles old, queued
+requests start in ranked order, within the free slots and caps, and `size()`
+multiplies a type's learned-cost amount by its `value`. Before the first
+ranking, or after errors, the `fallback` policy decides (default: a bandit).
+
+- **`LLMSchedulingPolicy(model=..., endpoint=...)`** sends a model a short
+  JSON summary of the campaign — queued and running types, caps, budget,
+  per-type results, learned costs (`render()`, which you can override) — and
+  reads the ranking from its reply. `endpoint` is any OpenAI-compatible API,
+  e.g. Ollama's `http://localhost:11434/v1` (default: `$AUCAM_LLM_ENDPOINT` or
+  `$OPENAI_BASE_URL`; key: `api_key=` or `$AUCAM_LLM_API_KEY` /
+  `$OPENAI_API_KEY`). `client=` replaces the built-in HTTP client, e.g. with a
+  stub in tests.
+- **`ADRController(policy)`** makes the campaign's decisions with a radical.adr
+  `Policy` (`pip install -e ../radical.adr`): every cycle AuCaM awaits
+  `policy.decide(obs)` and applies the Decision — spawn → launch request
+  (`task_name` is the workflow type, `task_kwargs` its context), cancel →
+  CANCEL, goals, stop → end the campaign. Its `launch` / `rules` only decide
+  in cycles where the ADR policy fails or times out.
+- **`ADRSchedulingPolicy(controller=adr_controller)`** ranks from the
+  Decision's `directives`, so one ADR call per cycle serves both. Without an
+  `ADRController`, `ADRSchedulingPolicy(policy=adr_policy)` calls its own.
+
+```python
+adr_ctl = ADRController(MyADRPolicy(), goal_type="analysis", goal_n=50)
+spec = CampaignSpec(
+    ...,
+    controller=adr_ctl,
+    scheduling_policy=ADRSchedulingPolicy(controller=adr_ctl),
+    decide_timeout_s=30.0,
+)
+```
+
+**Model usage.** A policy or controller reports what its model calls used
+with `take_usage()` — `LLMSchedulingPolicy` reports `{"llm_tokens": …}`.
+AuCaM adds it up in `CampaignOutcome.model_usage` and logs `[SPEND] model
+usage`; it charges it to the campaign's ledger only if the campaign limits
+that dimension (`CampaignBudget(spending={"llm_tokens": 2e6})`) or the object
+sets `charge_usage=True`.
 
 ### How much each workflow gets
 
@@ -662,7 +717,9 @@ async def main() -> None:
 `budget_cancels` / `resource_cancels` (workflows cancelled for exceeding their own
 spending limit or resources), `unfit_dropped` (requests that did not fit the
 remaining budget), `controller_errors` (policy cycles where `decide()` or
-`observe()` failed or timed out, §5). `goals`: the goals when it ended, including the controller's changes.
+`observe()` failed or timed out, §5), `model_usage` (tokens and other model use
+reported by the policy and controller, §8). `goals`: the goals when it ended,
+including the controller's changes.
 
 ### Config-driven runners
 
@@ -732,7 +789,9 @@ Everything is in `src.aucam`: `CampaignManager`, `CampaignSpec`,
 `CampaignDecision`, `LaunchRequest`, `LaunchPriority`, `WorkflowReporter`,
 `WorkflowReport`, `WorkflowResult`, `CampaignOutcome`,
 `BanditSchedulingPolicy`, `FIFOSchedulingPolicy`, `SchedulingPolicy`,
-`SchedulingContext`, `SizingContext`, `Allocation`, `AllocationRecord`, `LocalDictBackend`, `RhapsodyRedisBackend`,
+`SchedulingContext`, `SizingContext`, `Allocation`, `AllocationRecord`,
+`RankingSchedulingPolicy`, `LLMSchedulingPolicy`, `ADRSchedulingPolicy`,
+`ADRController`, `LocalDictBackend`, `RhapsodyRedisBackend`,
 `RadexDragonBackend`, `TelemetrySnapshot`, `QueueSnapshot`, `BlockProfiler`,
 `TaskProfiler`, checkpoint helpers. The command-line reporting client is
 `src.aucam_client`.

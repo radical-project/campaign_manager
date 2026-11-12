@@ -9,8 +9,8 @@ acts on them.
 What AuCaM does:
 
 - **Steers the campaign from live results** — a controller (built-in rules,
-  or your own code, which may call an LLM or ADR) decides which workflows to launch and which to cancel,
-  every policy cycle and whenever a workflow finishes.
+  an ADR policy, or your own code) decides which workflows to launch and which
+  to cancel, every policy cycle and whenever a workflow finishes.
 - **Learns what to run** — the scheduler (a UCB1 bandit) favours
   workflow types that complete and explores less as the budget runs down.
 - **Learns how much each workflow gets** — every workflow starts with its own

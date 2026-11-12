@@ -1,5 +1,6 @@
 """AuCaM — Autonomous Campaign Manager."""
 
+from .adr import ADRController, ADRSchedulingPolicy
 from .budget import BudgetAllocator
 from .checkpoint import CampaignCheckpoint, checkpoint_path, read_checkpoint, write_checkpoint
 from .controller import (
@@ -22,13 +23,14 @@ from .profiler import BlockProfiler, TaskProfiler
 from .queue import WorkflowQueue
 from .reporter import WorkflowReport, WorkflowReporter
 from .scheduler import (
-    ADRSchedulingPolicy,
     BanditSchedulingPolicy,
     FIFOSchedulingPolicy,
     LLMSchedulingPolicy,
+    RankingSchedulingPolicy,
     SchedulingContext,
     SchedulingPolicy,
     SizingContext,
+    parse_ranking,
 )
 from .spec import CampaignBudget, CampaignSpec, WorkflowConfig, WorkflowDependency
 from .types import (
@@ -64,10 +66,13 @@ __all__ = [
     "CampaignOutcome",
     "CampaignSpec",
     "DataBackend",
+    "ADRController",
     "ADRSchedulingPolicy",
     "BanditSchedulingPolicy",
     "FIFOSchedulingPolicy",
     "LLMSchedulingPolicy",
+    "RankingSchedulingPolicy",
+    "parse_ranking",
     "SchedulingContext",
     "SizingContext",
     "Allocation",

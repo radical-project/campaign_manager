@@ -12,6 +12,8 @@ arrive as CRITICAL priority and bypass this rule entirely.
 
 from __future__ import annotations
 
+import os
+
 from src.aucam import (
     ADRSchedulingPolicy,
     BanditSchedulingPolicy,
@@ -70,7 +72,8 @@ def make_policy(name: str) -> SchedulingPolicy:
     if name == "adr":
         return ADRSchedulingPolicy(rule_fn=_adr_rule)
     if name == "llm":
-        return LLMSchedulingPolicy(model="claude-haiku-4-5-20251001")
+        # Needs $AUCAM_LLM_ENDPOINT (OpenAI-compatible); without it, the bandit decides.
+        return LLMSchedulingPolicy(model=os.environ.get("AUCAM_LLM_MODEL", "llama3.1:8b"))
     return FIFOSchedulingPolicy()  # "fifo"
 
 
@@ -88,4 +91,5 @@ def print_policy_summary(policy: SchedulingPolicy, name: str) -> None:
     elif isinstance(policy, ADRSchedulingPolicy):
         print("  adr rule_fn : _adr_rule (throttle sims when cancel rate > 60%)")
     elif isinstance(policy, LLMSchedulingPolicy):
-        print("  llm model   : stub — fell back to FIFO (not yet implemented)")
+        state = f"last ranking {policy.ranking}" if policy.ranking else "no ranking (bandit)"
+        print(f"  llm model   : {policy.model} @ {policy.endpoint or 'no endpoint'}; {state}")

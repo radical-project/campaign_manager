@@ -21,8 +21,12 @@ fresh.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import math
+import os
+import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -177,6 +181,29 @@ class SchedulingPolicy:
 
     def restore(self, state: Any) -> None:
         """Load what ``state()`` returned, when a campaign restarts from a checkpoint."""
+
+    # ── AI policies (S1): decide ahead, apply fast ──────────────────────────
+    # select() and size() run every time a slot frees up, so they must be fast.
+    # A policy that needs a slow call (an LLM, ADR) makes it in refresh(), which
+    # AuCaM runs in the background once per policy cycle, and when a workflow
+    # type it has not seen is queued; select() / size() then use its result.
+
+    refresh_timeout_s: float = 60.0  # a refresh() still running after this is cancelled
+    # Model usage (take_usage()) is charged to the campaign's ledger only if the
+    # campaign limits that dimension, or with charge_usage = True.
+    charge_usage: bool = False
+
+    async def refresh(self, ctx: SchedulingContext, queued: list[LaunchRequest], obs: dict) -> None:
+        """Optional: compute decisions ahead for select() / size() (default: nothing).
+
+        ``queued`` are the waiting requests, ``obs`` the controller's last
+        observation (budget, by_type, learned costs, …).  An exception or a
+        timeout only means select() keeps using what it had, or its fallback.
+        """
+
+    def take_usage(self) -> dict[str, float]:
+        """Model usage since the last call, e.g. {"llm_tokens": 1200} (default: none)."""
+        return {}
 
     # Sizing settings, used by the default size(); set them on an instance.
     size_margin: float = 0.25  # learned cost (and declared) × (1 + margin)
@@ -455,83 +482,179 @@ class BanditSchedulingPolicy(SchedulingPolicy):
 
 
 # ---------------------------------------------------------------------------
-# ADR policy — RADICAL Autonomous Decision Runtime (stub)
+# AI policies (S1) — a ranking of workflow types, computed in refresh()
 # ---------------------------------------------------------------------------
 
 
-class ADRSchedulingPolicy(SchedulingPolicy):
+def parse_ranking(data: Any, known: set[str] | None = None) -> tuple[list[str], dict[str, float]]:
+    """Read ``{"rank": [type, ...], "value": {type: factor}}`` from a model or ADR.
+
+    Types not in ``known`` (when given) are dropped; factors are clamped to
+    0.1–10.  Raises ValueError if ``rank`` is missing or not a list.
     """
-    RADICAL Autonomous Decision Runtime (ADR) scheduling policy.
+    if not isinstance(data, dict) or not isinstance(data.get("rank"), list):
+        raise ValueError(f"expected {{'rank': [...]}}, got {str(data)[:200]!r}")
+    rank: list[str] = []
+    for t in data["rank"]:
+        t = str(t)
+        if (known is None or t in known) and t not in rank:
+            rank.append(t)
+    factors: dict[str, float] = {}
+    for t, v in (data.get("value") or {}).items():
+        if known is None or t in known:
+            try:
+                factors[str(t)] = min(10.0, max(0.1, float(v)))
+            except (TypeError, ValueError):
+                continue
+    return rank, factors
 
-    Designed to integrate with the RADICAL-ADR policy engine: it maintains
-    a running observation window and supports an optional rule-override hook
-    that fires before the learned policy, letting the campaign inject hard
-    constraints (e.g. "never launch hog_worker while GPU utilisation > 80%").
 
-    NOT YET IMPLEMENTED — currently falls back to FIFO with a one-time WARNING.
-    Use BanditSchedulingPolicy for learned scheduling today.
+class RankingSchedulingPolicy(SchedulingPolicy):
+    """Base for AI scheduling policies: refresh() ranks workflow types, select() applies it.
 
-    Parameters
-    ----------
-    rule_fn : Callable[[list[LaunchRequest], SchedulingContext], list[LaunchRequest] | None]
-        Optional override hook.  Called before ADR logic on every tick.
-        Return a non-None list to short-circuit ADR; return None to defer.
+    A subclass computes the ranking in ``refresh()`` (an LLM, ADR, …) and
+    calls ``set_ranking()``.  While the ranking is at most ``max_age_cycles``
+    policy cycles old, select() starts queued requests in ranked order (types
+    it does not name last, in queue order), within the free slots and per-type
+    caps, and value() returns the factors given with it (size() multiplies a
+    type's learned-cost amount by them).  Without a fresh ranking — before
+    the first, or after errors — the ``fallback`` policy decides (default: a
+    new BanditSchedulingPolicy), and it always learns from outcomes.
     """
 
     def __init__(
         self,
         *,
-        rule_fn: Callable[[list[LaunchRequest], SchedulingContext], list[LaunchRequest] | None]
-        | None = None,
+        fallback: SchedulingPolicy | None = None,
+        max_age_cycles: int = 3,
+        refresh_timeout_s: float = 60.0,
     ) -> None:
-        self._rule_fn = rule_fn
-        self._warned = False
+        self.fallback = fallback if fallback is not None else BanditSchedulingPolicy()
+        self.max_age_cycles = max_age_cycles
+        self.refresh_timeout_s = refresh_timeout_s
+        self.ranking: list[str] | None = None
+        self.factors: dict[str, float] = {}
+        self._ranked_cycle = -(10**9)
+        self._cycle = 0  # latest policy cycle seen
+
+    def set_ranking(self, ranking: list[str], factors: dict[str, float] | None, cycle: int) -> None:
+        self.ranking = list(ranking)
+        self.factors = dict(factors or {})
+        self._ranked_cycle = self._cycle = cycle
+
+    def fresh(self) -> bool:
+        """True while the ranking is at most max_age_cycles policy cycles old."""
+        return self.ranking is not None and self._cycle - self._ranked_cycle <= self.max_age_cycles
 
     def select(
-        self,
-        candidates: list[LaunchRequest],
-        ctx: SchedulingContext,
+        self, candidates: list[LaunchRequest], ctx: SchedulingContext
     ) -> list[LaunchRequest]:
-        if not self._warned:
-            logger.warning(
-                "[ADR] ADRSchedulingPolicy is a stub — falling back to FIFO. "
-                "Use BanditSchedulingPolicy for learned scheduling."
-            )
-            self._warned = True
-        if self._rule_fn is not None:
-            override = self._rule_fn(candidates, ctx)
-            if override is not None:
-                return override
-        return super().select(candidates, ctx)
+        self._cycle = max(self._cycle, ctx.policy_cycles)
+        if not self.fresh():
+            return self.fallback.select(candidates, ctx)
+        order = {t: i for i, t in enumerate(self.ranking or [])}
+        ranked = sorted(candidates, key=lambda r: order.get(r.workflow_type, len(order)))
+        return SchedulingPolicy.select(self, ranked, ctx)
+
+    def value(self, workflow_type: str, ctx: SizingContext) -> float:
+        if self.fresh():
+            return self.factors.get(workflow_type, 1.0)
+        return self.fallback.value(workflow_type, ctx)
+
+    def on_outcome(self, request: LaunchRequest, result: WorkflowResult) -> None:
+        self.fallback.on_outcome(request, result)
+
+    def state(self) -> Any:
+        return {"fallback": self.fallback.state()}
+
+    def restore(self, state: Any) -> None:
+        if isinstance(state, dict) and state.get("fallback") is not None:
+            self.fallback.restore(state["fallback"])
 
 
-# ---------------------------------------------------------------------------
-# LLM policy — LLM-guided scheduling (stub)
-# ---------------------------------------------------------------------------
+_LLM_SYSTEM_PROMPT = """\
+You help schedule an HPC science campaign. Workflows of several types wait in a
+queue; each time a slot frees up, the queued requests start in the order of
+your ranking of their types. Rank the types so the campaign reaches its goal
+sooner within its budget: favour types that complete often, score well and
+cost little, but keep trying a type that has little history. You may also
+give a factor per type (0.1-10, default 1) to scale the budget a workflow of
+that type gets.
+Reply with JSON only: {"rank": ["best_type", ...], "value": {"type": 1.0}}"""
 
 
-class LLMSchedulingPolicy(SchedulingPolicy):
-    """
-    LLM-guided scheduling policy.
+def _openai_chat(endpoint: str, api_key: str | None) -> Callable:
+    """A client for an OpenAI-compatible chat-completions endpoint (stdlib only)."""
+    url = endpoint.rstrip("/") + "/chat/completions"
 
-    On each scheduling tick, serializes the candidates and SchedulingContext
-    into a prompt and asks an LLM to rank and select which workflows to launch
-    next.  Model-agnostic: any OpenAI-compatible endpoint is supported.
+    def _post(body: dict, timeout: float) -> dict:
+        req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST")
+        req.add_header("Content-Type", "application/json")
+        if api_key:
+            req.add_header("Authorization", f"Bearer {api_key}")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            return json.loads(resp.read())
 
-    NOT YET IMPLEMENTED — currently falls back to FIFO with a one-time WARNING.
+    async def chat(messages, *, model, max_tokens, temperature, timeout=60.0):
+        body = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        data = await asyncio.to_thread(_post, body, timeout)
+        return data["choices"][0]["message"]["content"], data.get("usage") or {}
+
+    return chat
+
+
+def _json_from(text: str) -> Any:
+    """The first JSON object in a model's reply (it may add text or code fences)."""
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        for k in range(start, len(text)):
+            depth += {"{": 1, "}": -1}.get(text[k], 0)
+            if depth == 0:
+                try:
+                    return json.loads(text[start : k + 1])
+                except ValueError:
+                    break
+        start = text.find("{", start + 1)
+    raise ValueError(f"no JSON object in the model's reply: {text[:200]!r}")
+
+
+class LLMSchedulingPolicy(RankingSchedulingPolicy):
+    """Ranks workflow types with a language model, once per policy cycle (S1).
+
+    In refresh() it sends the model a short summary of the campaign — queued
+    and running types, caps, budget, per-type results and learned costs
+    (``render()``) — and reads back ``{"rank": [...], "value": {...}}``.
+    select() / size() apply it while it is fresh; otherwise, and if the model
+    fails, times out or answers something unusable, ``fallback`` decides.
 
     Parameters
     ----------
     model : str
-        Model identifier passed to the endpoint (required; e.g. ``"llama3:8b"``).
+        Model name passed to the endpoint, e.g. ``"llama3.1:8b"``.
     endpoint : str | None
-        Base URL of an OpenAI-compatible chat-completions API.
-        ``None`` must be set before use; there is no built-in default provider.
-    system_prompt : str | None
-        Custom system prompt prepended to the per-tick observation.  The
-        built-in default describes AuCaM scheduling semantics.
-    max_tokens : int
-        Maximum tokens to request from the model per scheduling tick.
+        Base URL of an OpenAI-compatible API, e.g. ``"http://localhost:11434/v1"``
+        (Ollama) or a hosted one.  Default: ``$AUCAM_LLM_ENDPOINT`` or
+        ``$OPENAI_BASE_URL``.  Without one (and no ``client``) the policy only
+        uses its fallback, with a warning.
+    api_key : str | None
+        Default: ``$AUCAM_LLM_API_KEY`` or ``$OPENAI_API_KEY``.
+    client : async callable, optional
+        ``await client(messages, model=, max_tokens=, temperature=)`` →
+        ``(text, usage)``, instead of the built-in HTTP client (e.g. for tests
+        or another SDK).
+    system_prompt, max_tokens, temperature
+        Sent with every request.
+    fallback, max_age_cycles, refresh_timeout_s
+        See RankingSchedulingPolicy.
+    charge_usage : bool
+        Charge the tokens used (``llm_tokens``) to the campaign's ledger even
+        if the campaign does not limit them.
     """
 
     def __init__(
@@ -539,24 +662,88 @@ class LLMSchedulingPolicy(SchedulingPolicy):
         *,
         model: str,
         endpoint: str | None = None,
+        api_key: str | None = None,
+        client: Callable | None = None,
         system_prompt: str | None = None,
         max_tokens: int = 512,
+        temperature: float = 0.0,
+        fallback: SchedulingPolicy | None = None,
+        max_age_cycles: int = 3,
+        refresh_timeout_s: float = 60.0,
+        charge_usage: bool = False,
     ) -> None:
-        self._model = model
-        self._endpoint = endpoint
-        self._system_prompt = system_prompt
-        self._max_tokens = max_tokens
+        super().__init__(
+            fallback=fallback, max_age_cycles=max_age_cycles, refresh_timeout_s=refresh_timeout_s
+        )
+        self.model = model
+        self.endpoint = (
+            endpoint or os.environ.get("AUCAM_LLM_ENDPOINT") or os.environ.get("OPENAI_BASE_URL")
+        )
+        key = api_key or os.environ.get("AUCAM_LLM_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        self._client = client or (_openai_chat(self.endpoint, key) if self.endpoint else None)
+        self.system_prompt = system_prompt or _LLM_SYSTEM_PROMPT
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.charge_usage = charge_usage
+        self._tokens = 0.0
         self._warned = False
 
-    def select(
-        self,
-        candidates: list[LaunchRequest],
-        ctx: SchedulingContext,
-    ) -> list[LaunchRequest]:
-        if not self._warned:
-            logger.warning(
-                "[LLM] LLMSchedulingPolicy is a stub (model=%s) — falling back to FIFO.",
-                self._model,
-            )
-            self._warned = True
-        return super().select(candidates, ctx)
+    def render(self, ctx: SchedulingContext, queued: list[LaunchRequest], obs: dict) -> str:
+        """The campaign summary sent to the model; override to add your own data."""
+        budget = obs.get("budget") or {}
+        types = sorted(
+            {r.workflow_type for r in queued}
+            | set(ctx.running_by_type)
+            | set(budget.get("by_type") or {})
+        )
+        queued_n: dict[str, int] = {}
+        for r in queued:
+            queued_n[r.workflow_type] = queued_n.get(r.workflow_type, 0) + 1
+        summary = {
+            "types": types,
+            "queued": queued_n,
+            "running": dict(ctx.running_by_type),
+            "max_running": {t: ctx.cap(t) for t in types},
+            "budget_remaining_fraction": round(ctx.budget_remaining_fraction, 3),
+            "budget": {k: budget.get(k) for k in ("limits", "spent", "burn") if budget.get(k)},
+            "by_type": budget.get("by_type") or {},
+            "learned_cost": obs.get("learned_cost") or {},
+            "policy_cycle": ctx.policy_cycles,
+        }
+        return json.dumps(summary, default=str)
+
+    async def refresh(self, ctx: SchedulingContext, queued: list[LaunchRequest], obs: dict) -> None:
+        self._cycle = max(self._cycle, ctx.policy_cycles)
+        if self._client is None:
+            if not self._warned:
+                logger.warning(
+                    "[LLM] no endpoint (endpoint=, $AUCAM_LLM_ENDPOINT or $OPENAI_BASE_URL)"
+                    " — using the fallback policy"
+                )
+                self._warned = True
+            return
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": self.render(ctx, queued, obs)},
+        ]
+        text, usage = await self._client(
+            messages, model=self.model, max_tokens=self.max_tokens, temperature=self.temperature
+        )
+        usage = usage or {}
+        self._tokens += float(
+            usage.get("total_tokens")
+            or (usage.get("prompt_tokens") or 0) + (usage.get("completion_tokens") or 0)
+        )
+        budget = obs.get("budget") or {}
+        known = (
+            {r.workflow_type for r in queued}
+            | set(ctx.running_by_type)
+            | set(budget.get("by_type") or {})
+        )
+        rank, factors = parse_ranking(_json_from(text), known)
+        self.set_ranking(rank, factors, ctx.policy_cycles)
+        logger.info("[LLM] rank=%s value=%s", rank, factors)
+
+    def take_usage(self) -> dict[str, float]:
+        tokens, self._tokens = self._tokens, 0.0
+        return {"llm_tokens": tokens} if tokens else {}

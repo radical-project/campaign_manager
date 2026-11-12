@@ -76,8 +76,10 @@ controller or the scheduling policy with its own.
   this is a UCB1 (Upper Confidence Bound) bandit over workflow types: it
   balances *exploring* (trying types it knows little about) with *exploiting*
   (launching the types that complete most often), and explores less as the
-  budget runs down. FIFO is also built in, and a campaign can plug
-  in its own policy. The policy also decides how much each workflow gets when
+  budget runs down. FIFO is also built in, as are policies that ask a
+  language model or an ADR policy to rank the workflow types (in the
+  background, so launches never wait for them), and a campaign can plug in
+  its own policy. The policy also decides how much each workflow gets when
   it starts — its spending limit and CPUs / GPUs: by default its type's
   starting value, then what earlier workflows of the type used + 25 %.
 
