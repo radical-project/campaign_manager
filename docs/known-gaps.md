@@ -24,7 +24,6 @@ that must land first.
 | 3 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) | |
 | 3 | R1 | Restart: rejoin running workflows, keep goals | Not started | |
 | 3 | R2 | Restart: dependency state | Partial | |
-| 3 | B3 | Learned cost estimates (follow-ups: setting, checkpoint) | Done, two follow-ups | with R1 |
 | 3 | W1 | Concurrency cap per workflow type | Not started | |
 | 3 | U3 | Example campaigns use their resource allocation | Not started | |
 | 3 | U5 | Per-workflow enforcement lags by one check | Open | |
@@ -37,7 +36,7 @@ that must land first.
 
 ---
 
-## Budget burn-down (B0, B3)
+## Budget burn-down (B0)
 
 Goal: the budget becomes a decision input — AuCaM forecasts the campaign's
 spending, launches only what fits, cancels workflows that spend without
@@ -54,10 +53,6 @@ update `budget.md` and the developer guide.
   dimensions are never charged and a limit on them is not enforced. Fix: for
   such workflows, still charge the reported totals of the dimensions other
   than CPU and GPU hours. `[SPEND]` logs also show only CPU/GPU.
-- **B3 — learned costs, follow-ups.** Implemented (`_learned_cost()`,
-  `_update_type_cost()`, `_estimates`). Missing: make the threshold (3 workflows)
-  a `CampaignSpec.min_cost_samples` setting; save `_type_cost_stats` in the
-  checkpoint.
 
 ## Per-workflow allocations (U1, U3–U5)
 

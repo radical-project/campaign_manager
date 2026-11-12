@@ -86,6 +86,13 @@ class CampaignCheckpoint:
     policy_cancels: int = 0
     policy_cycles: int = 0
 
+    # What was learned about each workflow type (B3): mean spending and peak
+    # resource use of successful workflows ({type: {dim: {"n", "mean"}}}), and
+    # per-type outcome totals (obs["budget"]["by_type"]).
+    type_cost_stats: dict[str, dict] = field(default_factory=dict)
+    type_resource_stats: dict[str, dict] = field(default_factory=dict)
+    type_totals: dict[str, dict] = field(default_factory=dict)
+
 
 # ── Serialization ─────────────────────────────────────────────────────────────
 
@@ -125,6 +132,9 @@ def _from_json(d: dict[str, Any]) -> CampaignCheckpoint:
         controller_errors=d.get("controller_errors", 0),
         policy_cancels=d.get("policy_cancels", 0),
         policy_cycles=d.get("policy_cycles", 0),
+        type_cost_stats=d.get("type_cost_stats", {}),
+        type_resource_stats=d.get("type_resource_stats", {}),
+        type_totals=d.get("type_totals", {}),
     )
 
 

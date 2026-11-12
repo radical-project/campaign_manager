@@ -174,6 +174,10 @@ class CampaignSpec(BaseModel):
     max_queue_depth: int = 50
     age_threshold_s: float = 300.0
     shutdown_timeout_s: float = 120.0
+    # Finished successful workflows of a type needed before AuCaM uses their
+    # mean spending (learned cost) and peak resource use instead of the
+    # declared amounts or a range's maximum (B3).
+    min_cost_samples: int = 3
     # Default WorkflowConfig.cancel_grace_s for workflow types that set none
     # (P1).  0: cancel at once.
     cancel_grace_s: float = 0.0
@@ -199,6 +203,13 @@ class CampaignSpec(BaseModel):
     idle_exit_s: float | Literal["auto"] | None = "auto"
 
     model_config = {"arbitrary_types_allowed": True}
+
+    @field_validator("min_cost_samples")
+    @classmethod
+    def _check_min_cost_samples(cls, v):
+        if v < 1:
+            raise ValueError("min_cost_samples must be >= 1")
+        return v
 
     @field_validator("idle_exit_s")
     @classmethod

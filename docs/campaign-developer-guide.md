@@ -461,7 +461,8 @@ its allocation: a spending limit and the resources it may use at once.
   inherits from `SchedulingPolicy`. By default `size()`:
   - keeps exact amounts as they are;
   - for a spending range, uses the type's learned cost + 25% (`size_margin`),
-    or the range's maximum until 3 workflows of the type have finished;
+    or the range's maximum until 3 workflows of the type have finished
+    (`CampaignSpec.min_cost_samples`);
   - for a resource range, uses the type's peak use + 25% rounded up (the most
     CPUs / GPUs its successful workflows used at once, from task telemetry or
     `cpus_in_use` / `gpus_in_use` reports), or the range's maximum until 3
@@ -597,6 +598,7 @@ Planned features and known problems: [known gaps](known-gaps.md).
 | `shutdown_timeout_s` | 120.0 | Grace period for running workflows at shutdown |
 | `decide_timeout_s` | `None` | Longest `decide()` may take; slower cycles use the built-in rules (§5) |
 | `cancel_grace_s` | 0.0 | Default grace period for a graceful cancel (§6) |
+| `min_cost_samples` | 3 | Successful workflows of a type before its learned cost and resource use are used (§8) |
 | `idle_exit_s` | `"auto"` | §6 |
 | `max_queue_depth` | 50 | Above this, a warning is logged (requests are still queued) |
 | `age_threshold_s` | 300.0 | NORMAL requests waiting longer become HIGH |

@@ -353,14 +353,14 @@ but costs twice the average earns a third of the reward instead of a half.
 
 ## 6. Learned cost estimates
 
-After 3 workflows of a type have completed, AuCaM uses their average actual
-cost as the estimate for new workflows of that type, instead of
-`declared_spending`. Only completed workflows count, since cancelled and
+After 3 workflows of a type have completed (`CampaignSpec.min_cost_samples`),
+AuCaM uses their average actual cost as the estimate for new workflows of that
+type, instead of `declared_spending`, and their average peak CPUs / GPUs in use
+for resource ranges. Only completed workflows count, since cancelled and
 failed ones are partial.
 
-Limits of the current version: the number of workflows (3) is fixed, and the
-averages are not saved in checkpoints, so after a restart estimates start
-again from `declared_spending`.
+The averages, and the per-type totals in `obs["budget"]["by_type"]`, are saved
+in the checkpoint: a restarted campaign keeps using what it learned.
 
 ---
 
@@ -401,7 +401,6 @@ after the workflow has ended go into the ledger but not into `spent`.)
 | ID | Feature | Status |
 |---|---|---|
 | B0 | Any budget dimension | Partial: limits, in-flight and methods B/C accept any dimension; method A charges only CPU/GPU hours; `[SPEND]` logs show only CPU/GPU |
-| B3 | Learned cost estimates | Done (§6); count not configurable, not checkpointed |
 
 ---
 

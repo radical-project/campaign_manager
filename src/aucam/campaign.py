@@ -430,13 +430,15 @@ class _CampaignInstance:
         self,
         wf_type: str,
         declared: dict[str, float],
-        min_samples: int = 3,
+        min_samples: int | None = None,
     ) -> dict[str, float]:
         """Return the in-flight cost estimate for a workflow type.
 
         Uses the mean actual cost once ``min_samples`` completions are observed;
         falls back to ``declared`` before that threshold.
         """
+        if min_samples is None:
+            min_samples = self.spec.min_cost_samples
         stats = self._type_cost_stats.get(wf_type, {})
         result = dict(declared)
         for key, s in stats.items():
@@ -915,7 +917,8 @@ class _CampaignInstance:
         """Ask the scheduling policy what this run gets (None: drop the request)."""
         wfc = self._wf_config(request.workflow_type)
         stats = self._type_cost_stats.get(request.workflow_type, {})
-        learned = {k: s["mean"] for k, s in stats.items() if s["n"] >= 3}
+        n_min = self.spec.min_cost_samples
+        learned = {k: s["mean"] for k, s in stats.items() if s["n"] >= n_min}
         rstats = self._type_resource_stats.get(request.workflow_type, {})
         burn = self._allocator.campaign_view(self.name)["burn"]
         ctx = SizingContext(
@@ -923,7 +926,7 @@ class _CampaignInstance:
             learned_cost=learned,
             remaining={k: v["remaining"] for k, v in burn.items()},
             queued=len(self._queue) + 1,
-            learned_resources={k: s["mean"] for k, s in rstats.items() if s["n"] >= 3},
+            learned_resources={k: s["mean"] for k, s in rstats.items() if s["n"] >= n_min},
             by_type=self._by_type(),
         )
         # The type's ranges (WorkflowConfig.bounds) apply unless the request
@@ -1338,6 +1341,9 @@ class _CampaignInstance:
             controller_errors=self._controller_errors,
             policy_cancels=self._policy_cancels,
             policy_cycles=self._policy_cycles,
+            type_cost_stats=self._type_cost_stats,
+            type_resource_stats=self._type_resource_stats,
+            type_totals=self._type_totals,
         )
 
     def _checkpoint_path(self):
@@ -1378,6 +1384,10 @@ class _CampaignInstance:
         self._policy_cancels = ckpt.policy_cancels
         self._policy_cycles = ckpt.policy_cycles
         self._allocator.restore(self.name, ckpt.spent)
+        # What was learned about each workflow type (B3).
+        self._type_cost_stats = {k: dict(v) for k, v in ckpt.type_cost_stats.items()}
+        self._type_resource_stats = {k: dict(v) for k, v in ckpt.type_resource_stats.items()}
+        self._type_totals = {k: dict(v) for k, v in ckpt.type_totals.items()}
 
         # Re-push queued requests
         for rec in ckpt.queue:
@@ -2103,9 +2113,9 @@ class _CampaignInstance:
             # learned_cost: workflow_type → mean spending of its successful
             # workflows, per dimension, once 3 have finished (B3).
             learned_cost={
-                wt: {k: s["mean"] for k, s in st.items() if s["n"] >= 3}
+                wt: {k: s["mean"] for k, s in st.items() if s["n"] >= self.spec.min_cost_samples}
                 for wt, st in self._type_cost_stats.items()
-                if any(s["n"] >= 3 for s in st.values())
+                if any(s["n"] >= self.spec.min_cost_samples for s in st.values())
             },
             # wf_spend: wf_id → spending so far per dimension (best source
             # available); used by CostCancelRule.
