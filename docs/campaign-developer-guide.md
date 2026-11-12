@@ -577,12 +577,17 @@ A custom scheduling policy reads the caps with `ctx.cap(workflow_type)`.
   descriptions), or from the spending it reports (cumulative `cpu_hours`,
   `gpu_hours`, …), or by prorating its `declared_spending` by its actual run
   time.
-- **Limit.** AuCaM adds the expected cost of running workflows to what is
-  already spent and launches a request only if its own cost still fits; one
-  that does not fit stays queued, and a cheaper one may start. Running
-  workflows finish; the campaign ends (`spending_limit`) when nothing is
-  running and nothing queued fits. Give every workflow type a
-  `declared_spending` or a `spending_limit`, or it is not counted in advance.
+- **Limit.** Every workflow gets its own spending limit when it starts (below),
+  held against the campaign while it runs; a request starts only if its limit
+  fits what is left, and one that does not stays queued while a cheaper one
+  may start. A workflow that spends past its own limit is cancelled. If actual
+  spending still goes past the campaign limit (a workflow type with no
+  estimate has no limit of its own), AuCaM cancels the running workflows
+  (`on_limit="cancel"`, the default; `"finish"` lets them finish). The campaign
+  ends with `spending_limit` when nothing is running and nothing queued fits.
+  Give every workflow type a starting `spending_limit` or a `declared_spending`,
+  so its workflows get a limit from the start. Details:
+  [budgets and spending](budget.md) §4.
 - **Resources per workflow.** `WorkflowConfig.resources={"cpus": 8, "gpus": 1}`
   (or `LaunchRequest.resources`) is what one workflow may use at once. The workflow
   gets it (`context["resources"]`, `CM_RESOURCES_<KEY>`) and must size its tasks

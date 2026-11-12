@@ -21,10 +21,14 @@ are implementation notes for developers.
 - **Estimate** — how much one workflow of a given type is expected to cost. It
   starts as the workflow's `declared_spending` and is replaced by the average
   actual cost once a few workflows of that type have finished (§6).
+- **Workflow limit** — the most one workflow may spend. Every workflow gets one
+  when it starts, from its type's starting value or estimate + 25 %, then from
+  the learned cost (§4); AuCaM cancels a workflow that spends past it.
 - **Spent** — what AuCaM has actually charged so far.
-- **In-flight** — what running workflows are still expected to cost and is not
-  in *spent* yet. Counting it lets AuCaM stop launching *before* running
-  workflows push a campaign over its limit.
+- **In-flight** — what running workflows are held at and is not in *spent*
+  yet: their limits (a workflow without one: its estimate). Counting it lets
+  AuCaM launch only what fits, so running workflows cannot push a campaign
+  over its limit.
 - **Ledger** — the single place where all of the above is kept
   (`BudgetAllocator`, §8).
 

@@ -51,8 +51,8 @@ outcome = await cm.run(spec)  # returns when the campaign ends
 - **Campaign Manager** — sets up execution, runs the campaign and returns its
   outcome. The caller can then call `run()` again with the next spec.
 - **Budget ledger** (`BudgetAllocator`) — the campaign's limits, actual
-  spending and the expected cost of its running workflows. Used to stop
-  launching at the spending limit.
+  spending and what its running workflows are held at (their own limits).
+  Used to launch only what fits the spending limit.
 - **Data backend** — the channel through which workflows report to AuCaM (a
   score and metrics). An in-process store for local runs; Redis or Dragon for
   multi-node runs.
@@ -87,8 +87,9 @@ workflows by hand:
 - the bandit shifts launches toward workflow types that complete;
 - AuCaM records what each workflow costs (CPU-hours, GPU-hours or another unit
   such as LLM tokens), based on the resources its tasks requested and how long
-  they ran, or on what the workflow reports, and launches a workflow only if its
-  expected cost still fits the campaign's spending limit;
+  they ran, or on what the workflow reports; it gives each workflow its own
+  spending limit when it starts, and launches it only if that limit still fits
+  the campaign's spending limit;
 - a workflow type can wait for another to succeed (dependencies);
 - state is checkpointed, and a restarted campaign continues: it adopts command-line
   workflows that are still running and charges the work lost with the others;
@@ -147,10 +148,13 @@ best score). The caller can use it to plan the next campaign.
 A campaign limits how many workflows run at once (`max_concurrent_workflows`
 in total, and `max_concurrency_per_workflow` or a type's own `max_running` for
 each workflow type) and can
-set a spending limit. AuCaM adds what has been spent to the expected cost of
-the workflows still running, and starts a new workflow only if its own expected
-cost still fits. If running workflows cost more than expected and actual
-spending goes past the limit, AuCaM cancels them and ends the campaign
+set a spending limit. Every workflow gets its own spending limit when it
+starts — the controller's amount, what AuCaM has learned about its type, or
+the type's starting value — held against the campaign while it runs. A new
+workflow starts only if its limit fits what is left, and a workflow that
+spends past its own limit is cancelled. A workflow type with no estimate has
+no limit of its own; if actual spending still goes past the campaign limit,
+AuCaM cancels the running workflows and ends the campaign
 (`CampaignBudget.on_limit="cancel"`, the default), or lets them finish
 (`"finish"`).
 
