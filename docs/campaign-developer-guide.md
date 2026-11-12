@@ -539,6 +539,13 @@ every finished workflow as an `AllocationRecord`: what it got
 The history reaches a learner as `ctx.allocations` in `size()` and a
 controller as `obs["allocations"]`, and is saved in the checkpoint.
 
+A campaign's own sizing rule overrides `size()` and uses it. The demo's
+`AllocationLearner` (`campaigns/demo_campaign/scheduler.py`,
+`run_campaign.py --policy learn`) is a small example: for each sim type it
+scales AuCaM's default amount by ×0.5, ×1 or ×1.5, tries each a few times,
+and then keeps the factor whose workflows brought the most progress (their
+own plus credit) per hour of run time, skipping records still pending.
+
 ---
 
 ## 9. Budgets and limits

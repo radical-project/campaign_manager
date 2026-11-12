@@ -24,18 +24,30 @@ Scheduling policies for the demo campaign.
 
   fifo          FIFOSchedulingPolicy() — queue order, no learning.
 
+  learn         AllocationLearner — the bandit, plus a learner for how much each
+                workflow gets: it tries ×0.5, ×1 and ×1.5 of the default
+                spending limit per workflow type and keeps the one with the
+                most progress per hour (from the allocation history).
+
 Reading order: _score_reward → science_bandit → _backpressure → adr_policy
-               → _RecencyBiasPolicy → recency_policy → make_policy
+               → _RecencyBiasPolicy → recency_policy → AllocationLearner
+               → make_policy
 """
 
 from __future__ import annotations
 
+import logging
+import random
+
 from src.aucam import (
     ADRSchedulingPolicy,
+    Allocation,
     BanditSchedulingPolicy,
     FIFOSchedulingPolicy,
+    LaunchRequest,
     LLMSchedulingPolicy,
     SchedulingPolicy,
+    SizingContext,
     WorkflowResult,
 )
 from src.aucam.scheduler import SchedulingContext
@@ -154,6 +166,80 @@ def recency_policy() -> _RecencyBiasPolicy:
     return _RecencyBiasPolicy()
 
 
+# ── Learning how much each workflow gets ────────────────────────────────────────
+
+
+class AllocationLearner(BanditSchedulingPolicy):
+    """Learns, per workflow type, how much spending each workflow should get.
+
+    A campaign's own sizing rule overrides ``size()``.  This one starts from
+    AuCaM's default amount (starting value, then learned cost + 25 %) and
+    scales the spending limit by one of ``FACTORS``: each factor is tried
+    ``MIN_TRIALS`` times, then the one with the most progress per hour of the
+    workflow's run time is used, with an occasional other one (``EPSILON``).
+
+    Progress per hour comes from the allocation history (``ctx.allocations``):
+    a workflow's own progress plus the credit passed back to it — a sim gets
+    credit when the analysis it triggered completes.  Records still pending
+    (their analysis has not finished) are not used yet.
+    """
+
+    FACTORS = (0.5, 1.0, 1.5)
+    MIN_TRIALS = 2
+    EPSILON = 0.15
+
+    def __init__(self, types: tuple[str, ...] | None = None) -> None:
+        super().__init__()
+        self.types = types  # workflow types to learn for; None: all
+        # (workflow type, limit given) → the factor it was given with
+        self._issued: dict[tuple[str, float], float] = {}
+
+    def _rates(self, wf_type: str, ctx: SizingContext) -> dict[float, list[float]]:
+        """Progress per hour of finished workflows of this type, by factor."""
+        rates: dict[float, list[float]] = {f: [] for f in self.FACTORS}
+        for rec in ctx.allocations:
+            if rec.workflow_type != wf_type or rec.pending or not rec.spending_limit:
+                continue
+            limit = round(next(iter(rec.spending_limit.values())), 12)
+            factor = self._issued.get((wf_type, limit))
+            if factor is not None:
+                hours = max(rec.wall_time_s, 1e-6) / 3600.0
+                rates[factor].append(rec.total_progress / hours)
+        return rates
+
+    def _choose(self, wf_type: str, ctx: SizingContext) -> float:
+        rates = self._rates(wf_type, ctx)
+        untried = [f for f in self.FACTORS if len(rates[f]) < self.MIN_TRIALS]
+        if untried:
+            return untried[0]
+        if random.random() < self.EPSILON:
+            return random.choice(self.FACTORS)
+        return max(self.FACTORS, key=lambda f: sum(rates[f]) / len(rates[f]))
+
+    def size(self, request: LaunchRequest, ctx: SizingContext) -> Allocation | None:
+        base = super().size(request, ctx)
+        if base is None or (ctx.requested is not None and ctx.requested.spending_limit):
+            return base  # nothing to scale, or the controller set the amount
+        if self.types is not None and request.workflow_type not in self.types:
+            return base
+        factor = self._choose(request.workflow_type, ctx)
+        spend = {}
+        for key, value in base.spending_limit.items():
+            amount = value * factor
+            lo, hi = (request.bounds or {}).get(key, (0.0, float("inf")))
+            amount = min(max(amount, lo), hi)
+            if key in ctx.remaining and amount > ctx.remaining[key]:
+                amount = value  # the scaled amount does not fit: keep the default
+            spend[key] = amount
+        if spend:
+            key = next(iter(spend))
+            self._issued[(request.workflow_type, round(spend[key], 12))] = factor
+            logging.getLogger(__name__).info(
+                "[LEARN] %s: ×%g → %s=%.6g", request.workflow_type, factor, key, spend[key]
+            )
+        return Allocation(spending_limit=spend, resources=base.resources, capped=base.capped)
+
+
 # ── Factory ────────────────────────────────────────────────────────────────────
 
 
@@ -176,4 +262,7 @@ def make_policy(name: str) -> SchedulingPolicy:
         return LLMSchedulingPolicy(model="llama3:8b")
     if name == "custom":
         return recency_policy()
+    if name == "learn":
+        # The sims: how long they may run decides whether they converge.
+        return AllocationLearner(types=("fast_sim", "precise_sim"))
     return FIFOSchedulingPolicy()  # "fifo"

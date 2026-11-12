@@ -48,6 +48,7 @@ python run_campaign.py --policy science       # reward = final score
 python run_campaign.py --policy bandit_tight  # low exploration, faster exploitation
 python run_campaign.py --policy custom        # recency-bias subclass of SchedulingPolicy
 python run_campaign.py --policy fifo          # no learning; queue order
+python run_campaign.py --policy learn         # also learns how much each sim gets
 python run_campaign.py -v                     # verbose: every launch and policy cycle
 ```
 
@@ -341,6 +342,7 @@ Accessible directly from `spec.controller.get_summary()` after `cm.run()` return
 | `bandit_tight` | `BanditSchedulingPolicy(exploration=0.5)` | Less exploration, faster exploitation |
 | `custom` | `_RecencyBiasPolicy` | `SchedulingPolicy` subclass: `select()` + `on_outcome()` |
 | `fifo` | `FIFOSchedulingPolicy()` | Queue order, no learning |
+| `learn` | `AllocationLearner` | The bandit, plus a learner for each sim's spending limit: overrides `size()`, tries ×0.5, ×1 and ×1.5 of the default amount and keeps the one with the most progress per hour (from `ctx.allocations`). In this mode a sim triggers an analysis only if its final score reaches 0.75, so a sim given too little budget to converge brings no progress. The log shows `[LEARN] fast_sim: ×1 → cpu_hours=…` |
 
 **Custom subclass pattern:**
 

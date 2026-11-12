@@ -60,6 +60,23 @@ def test_demo_campaign(monkeypatch, flags, check):
     assert check(outcome), outcome
 
 
+def test_demo_learns_how_much_each_sim_gets(monkeypatch, caplog):
+    mod = _demo_module()
+    monkeypatch.setattr(
+        mod.ShowcaseController, "is_goal_reached", CampaignController.is_goal_reached
+    )
+    spec = mod.build_spec(
+        "demo", goal_analyses=8, policy=mod.make_policy("learn"), analysis_threshold=0.75
+    )
+    with caplog.at_level("INFO"):
+        outcome = asyncio.run(asyncio.wait_for(CampaignManager().run(spec), timeout=120))
+    assert outcome.exit_reason == "controller_terminate"
+    tried = {
+        line.split("×")[1].split()[0] for line in caplog.text.splitlines() if "[LEARN]" in line
+    }
+    assert {"0.5", "1"} <= tried  # it tried smaller and default amounts
+
+
 def _hpc(config: str) -> dict[str, int]:
     proc = subprocess.run(
         [sys.executable, "run_campaign.py", "--campaign-config", f"campaign_configs/{config}"],

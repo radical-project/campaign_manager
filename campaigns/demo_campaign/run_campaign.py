@@ -279,8 +279,15 @@ def build_spec(
     policy=None,
     overspend: bool = False,
     overcpu: bool = False,
+    analysis_threshold: float | None = None,
 ) -> CampaignSpec:
     """Wire workflows, dependencies, controller, budget, and policy into one spec."""
+
+    def _dep(r: WorkflowResult) -> bool:
+        if r.returncode != 0:
+            return False
+        return analysis_threshold is None or (r.final_score or 0.0) >= analysis_threshold
+
     return CampaignSpec(
         name=name,
         budget=CampaignBudget(
@@ -339,8 +346,11 @@ def build_spec(
         ],
         dependencies=[
             # Each successful sim triggers one analysis run.
-            WorkflowDependency(source="fast_sim", target="analysis"),
-            WorkflowDependency(source="precise_sim", target="analysis"),
+            # Each successful sim triggers an analysis — with --policy learn,
+            # only one whose final score reaches analysis_threshold, so a sim
+            # given too little budget to converge does not count toward the goal.
+            WorkflowDependency(source="fast_sim", target="analysis", condition=_dep),
+            WorkflowDependency(source="precise_sim", target="analysis", condition=_dep),
         ],
         scheduling_policy=policy,  # None → new BanditSchedulingPolicy per campaign
         policy_interval_s=0.5,
@@ -362,6 +372,9 @@ async def run(args: argparse.Namespace) -> None:
         policy=policy,
         overspend=args.overspend,
         overcpu=args.overcpu,
+        # learn: an analysis only for a sim that reached 0.75, so how much a sim
+        # is given matters for reaching the goal.
+        analysis_threshold=0.75 if args.policy == "learn" else None,
     )
 
     t0 = time.monotonic()
@@ -405,7 +418,7 @@ def main() -> None:
     p.add_argument("--max-concurrent", type=int, default=4, help="max concurrent workflows")
     p.add_argument(
         "--policy",
-        choices=["bandit", "science", "fifo", "bandit_tight", "custom"],
+        choices=["bandit", "science", "fifo", "bandit_tight", "custom", "learn"],
         default="bandit",
         help="scheduling policy (see scheduler.py)",
     )
