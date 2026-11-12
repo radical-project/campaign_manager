@@ -113,6 +113,10 @@ class CampaignCheckpoint:
     # Amounts raised after cancels at a workflow's own limit:
     # {"spending": {type: {dim: amount}}, "resources": {type: {key: amount}}}.
     type_raised: dict[str, dict] = field(default_factory=dict)
+    # The allocation history (AllocationRecord as dicts) and credit for
+    # workflows not finished yet: {wf_id: amount}.
+    allocations: list[dict] = field(default_factory=list)
+    pending_credit: dict[str, float] = field(default_factory=dict)
 
     # R1: the campaign's goals as they are now (including changes the
     # controller made while it ran), and the scheduling policy's and the
@@ -168,6 +172,8 @@ def _from_json(d: dict[str, Any]) -> CampaignCheckpoint:
         type_resource_stats=d.get("type_resource_stats", {}),
         type_totals=d.get("type_totals", {}),
         type_raised=d.get("type_raised", {}),
+        allocations=d.get("allocations", []),
+        pending_credit=d.get("pending_credit", {}),
         goals=d.get("goals"),
         policy_state=d.get("policy_state"),
         controller_state=d.get("controller_state"),

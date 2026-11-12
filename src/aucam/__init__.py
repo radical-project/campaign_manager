@@ -34,6 +34,7 @@ from .spec import CampaignBudget, CampaignSpec, WorkflowConfig, WorkflowDependen
 from .types import (
     RESOURCE_KEYS,
     Allocation,
+    AllocationRecord,
     CampaignDecision,
     CampaignOutcome,
     LaunchPriority,
@@ -70,6 +71,7 @@ __all__ = [
     "SchedulingContext",
     "SizingContext",
     "Allocation",
+    "AllocationRecord",
     "RESOURCE_KEYS",
     "RadexDragonBackend",
     "RadexDragonReporter",

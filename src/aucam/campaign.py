@@ -39,6 +39,7 @@ from .spec import CampaignSpec, WorkflowConfig
 from .types import (
     RESOURCE_KEYS,
     Allocation,
+    AllocationRecord,
     CampaignDecision,
     LaunchPriority,
     LaunchRequest,
@@ -391,6 +392,11 @@ class _CampaignInstance:
         # Amounts raised after a workflow of the type was cancelled at its own
         # limit, until learned values take over: {type: {key: amount}}.
         self._type_raised: dict[str, dict[str, float]] = {}
+        # Allocation history (step 2 of the allocation design note): one record
+        # per finished workflow, and credit waiting for workflows not finished.
+        self._allocations: list[AllocationRecord] = []
+        self._alloc_by_id: dict[str, AllocationRecord] = {}
+        self._pending_credit: dict[str, float] = {}
         self._type_raised_res: dict[str, dict[str, float]] = {}
         # Per-type peak CPUs / GPUs in use at once, successful workflows (U2):
         # {workflow_type: {key: {"n": int, "mean": float}}}
@@ -1002,6 +1008,7 @@ class _CampaignInstance:
             },
             raised=dict(self._type_raised.get(request.workflow_type, {})),
             raised_resources=dict(self._type_raised_res.get(request.workflow_type, {})),
+            allocations=self._allocation_history(),
         )
         # The type's ranges (WorkflowConfig.bounds) apply unless the request
         # gives its own for the same key.
@@ -1021,6 +1028,82 @@ class _CampaignInstance:
             k: float(v) for k, v in alloc.resources.items() if v is not None and float(v) > 0
         }
         return alloc
+
+    def _record_allocation(
+        self, inst: _WorkflowInstance, result: WorkflowResult, spent: dict[str, float]
+    ) -> None:
+        """Add a finished workflow to the allocation history; pass its progress back."""
+        try:
+            progress = float(
+                getattr(self.spec.controller, "progress", lambda r: 0.0)(result) or 0.0
+            )
+        except Exception:
+            logger.warning("[CM] controller.progress() raised", exc_info=True)
+            progress = 0.0
+        rc = result.returncode
+        if rc == 0:
+            outcome = "completed"
+        elif rc == -1:
+            outcome = (
+                "cancelled_at_limit" if inst.over_budget or inst.over_resources else "cancelled"
+            )
+        else:
+            outcome = "failed"
+        rec = AllocationRecord(
+            workflow_id=inst.wf_id,
+            workflow_type=inst.workflow_type,
+            outcome=outcome,
+            wall_time_s=result.wall_time_s,
+            spending_limit=dict(inst.spending_limit),
+            resources=dict(inst.resources),
+            spent={k: v for k, v in (spent or {}).items() if k != "wall_hours"},
+            source=(inst.request.context or {}).get("source"),
+            progress=progress,
+            finished_at=time.time(),
+        )
+        self._allocations.append(rec)
+        self._alloc_by_id[rec.workflow_id] = rec
+        # Credit that arrived before this workflow finished; then pass it, and
+        # this workflow's own progress, to the workflows that led to it.
+        early = self._pending_credit.pop(rec.workflow_id, 0.0)
+        rec.credit += early
+        if early + progress > 0:
+            self._credit(rec.source, early + progress)
+
+    def _credit(self, wf_id: str | None, amount: float) -> None:
+        """Give ``amount`` to ``wf_id`` and every workflow before it in the chain."""
+        seen: set[str] = set()
+        while wf_id and wf_id not in seen:
+            seen.add(wf_id)
+            rec = self._alloc_by_id.get(wf_id)
+            if rec is None:
+                # Not finished yet (e.g. a controller launch it named as source):
+                # it gets the credit, and passes it on, when it finishes.
+                self._pending_credit[wf_id] = self._pending_credit.get(wf_id, 0.0) + amount
+                return
+            rec.credit += amount
+            wf_id = rec.source
+
+    def _allocation_history(self) -> list[AllocationRecord]:
+        """The history, with ``pending`` set for records whose chain is still open."""
+        open_ids: set[str] = set()
+
+        def _walk(source: str | None) -> None:
+            while source and source not in open_ids:
+                open_ids.add(source)
+                rec = self._alloc_by_id.get(source)
+                source = rec.source if rec is not None else None
+
+        for inst in self._active.values():
+            _walk((inst.request.context or {}).get("source"))
+        for req in self._queue.candidates():
+            _walk((req.context or {}).get("source"))
+        for reqs in self._dep_pending.values():
+            for req in reqs:
+                _walk((req.context or {}).get("source"))
+        for rec in self._allocations:
+            rec.pending = rec.workflow_id in open_ids and not self._done
+        return list(self._allocations)
 
     def _raise_after_limit_cancel(self, inst: _WorkflowInstance) -> None:
         """A workflow cancelled at its own limit: give the next of its type more.
@@ -1367,6 +1450,7 @@ class _CampaignInstance:
         self.spec.controller.on_complete(result)
         self._record_type_totals(result, actual_spent)
         self._raise_after_limit_cancel(_inst)
+        self._record_allocation(_inst, result, actual_spent)
         self._history.append(result)
         if len(self._history) > self._history_max:
             self._history.pop(0)
@@ -1401,6 +1485,8 @@ class _CampaignInstance:
                     self._dep_satisfied.add(dep.target)
                     held = self._dep_pending.pop(dep.target, [])
                     for req in held:
+                        # The completion that released it led to it (credit chain).
+                        req.context.setdefault("source", result.workflow_id)
                         self._queue.push(req)
                     if held:
                         # Held requests represent pending work; no extra request.
@@ -1467,6 +1553,8 @@ class _CampaignInstance:
             type_resource_stats=self._type_resource_stats,
             type_totals=self._type_totals,
             type_raised={"spending": self._type_raised, "resources": self._type_raised_res},
+            allocations=[dataclasses.asdict(r) for r in self._allocations],
+            pending_credit=dict(self._pending_credit),
             goals=[dataclasses.asdict(g) for g in self._goals],
             policy_state=_jsonable(self._policy.state(), "scheduling policy"),
             controller_state=_jsonable(
@@ -1526,6 +1614,9 @@ class _CampaignInstance:
         self._type_cost_stats = {k: dict(v) for k, v in ckpt.type_cost_stats.items()}
         self._type_resource_stats = {k: dict(v) for k, v in ckpt.type_resource_stats.items()}
         self._type_totals = {k: dict(v) for k, v in ckpt.type_totals.items()}
+        self._allocations = [AllocationRecord(**r) for r in ckpt.allocations]
+        self._alloc_by_id = {r.workflow_id: r for r in self._allocations}
+        self._pending_credit = dict(ckpt.pending_credit)
         raised = ckpt.type_raised or {}
         self._type_raised = {k: dict(v) for k, v in (raised.get("spending") or {}).items()}
         self._type_raised_res = {k: dict(v) for k, v in (raised.get("resources") or {}).items()}
@@ -2394,6 +2485,8 @@ class _CampaignInstance:
         obs = self._observe(
             queue_snapshot=self._queue.snapshot(),
             budget=self._budget_view(),
+            # allocations: the allocation history (AllocationRecord as dicts).
+            allocations=[dataclasses.asdict(r) for r in self._allocation_history()],
             running=self._running_by_type(),
             live_reports=live_reports,
             telemetry=telemetry,

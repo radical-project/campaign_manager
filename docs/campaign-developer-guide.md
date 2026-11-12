@@ -292,6 +292,7 @@ Subclass `CampaignController` and override what you need:
 | `observe(queue_snapshot, budget, running, **kw)` → `dict` | Each policy cycle | Passes the inputs through |
 | `decide(obs)` → `PolicyResult` | Each policy cycle, after `observe` | Applies the rules |
 | `on_complete(result)` | Each finished workflow | Counts `completed` / `cancelled` / `failed` per type — call `super()` |
+| `progress(result)` → `float` | Each finished workflow | How much it moved the campaign toward its goal: 1.0 for a successful `goal_type` workflow, else 0; override for a richer measure or partial credit (§8, "Progress and credit") |
 | `is_goal_reached()` → `bool` | By the default `decide()` | `goal_n` completions of `goal_type` |
 | `goals()` → `list[Goal]` | At start | `[]` |
 | `get_summary()` → `dict` | When the campaign ends | `{}`; returned in `CampaignOutcome.summary` |
@@ -307,6 +308,7 @@ The observation has these keys (plus any your `observe()` adds):
 | `live_reports` | `{wf_id: WorkflowReport}` — latest report of each running workflow |
 | `wf_types` | `{wf_id: workflow_type}` |
 | `wf_spend` | `{wf_id: {dim: spending so far}}` — CPU/GPU hours, the campaign's limited dimensions and the workflow's own; a dimension with no source is absent |
+| `allocations` | The allocation history: one dict per finished workflow — `workflow_type`, `spending_limit`, `resources`, `wall_time_s`, `spent`, `outcome`, `source`, `progress`, `credit`, `pending` (§8) |
 | `learned_cost` | `{workflow_type: {dim: mean spending of its successful workflows}}`, for types with 3 or more |
 | `telemetry` | `TelemetrySnapshot`: run times, node readings, spending, live use estimates |
 | `tasks` | AsyncFlow task counts for this campaign: `waiting` (not yet handed to the backend), `submitted` (waiting in the backend), `running`. `None` without telemetry (`enable_telemetry=True`). |
@@ -507,8 +509,33 @@ its allocation: a spending limit and the resources it may use at once.
   "better" means is up to the campaign; `ctx.by_type` has each type's cost per
   completed workflow and mean score.
 - **Override `size()`** in your own `SchedulingPolicy` to decide differently;
-  `ctx` (`SizingContext`) has the proposal, learned costs and resource use,
-  remaining budget, queue length and per-type results (`by_type`).
+  `ctx` (`SizingContext`) has the request's and the type's amounts, learned
+  costs and resource use, remaining budget, queue length, per-type results
+  (`by_type`) and the allocation history (`allocations`, below).
+
+#### Progress and credit
+
+To learn how much to give each workflow so the campaign reaches its goal
+sooner, a learner needs to know what each allocation achieved. AuCaM records
+every finished workflow as an `AllocationRecord`: what it got
+(`spending_limit`, `resources`), its run time and spending, how it ended
+(`completed`, `cancelled_at_limit`, `cancelled`, `failed`), and its progress:
+
+- **`progress`** — the controller's `progress(result)`: how much the workflow
+  moved the campaign toward its goal. By default 1.0 for a successful workflow
+  of `goal_type`, else 0. Override it for a richer measure, or to give an
+  intermediate step partial credit.
+- **`credit`** — most workflows are steps toward a result, not results: a sim
+  counts only through the analysis it triggers. So when a workflow makes
+  progress, every workflow that led to it gets the same amount as credit. The
+  chain is `LaunchRequest.context["source"]`: dependency launches set it
+  (including requests a dependency held), and a controller sets it for its own
+  launches, e.g. `LaunchRequest.make("refine", context={"source": wf_id})`.
+- **`pending`** — credit arrives late: a record is pending while workflows it
+  led to are still queued or running.
+
+The history reaches a learner as `ctx.allocations` in `size()` and a
+controller as `obs["allocations"]`, and is saved in the checkpoint.
 
 ---
 

@@ -121,7 +121,7 @@ def test_limit_raised_after_cancels_until_it_fits(tmp_path: Path):
     )
     limits = _run(ctl, wfc, tmp_path)
     assert limits[0] == 2.0 and len(limits) >= 4
-    for prev, nxt in zip(limits, limits[1:]):
+    for prev, nxt in zip(limits, limits[1:], strict=False):
         assert abs(nxt - prev * 1.25) < 1e-3
     # Cancelled at its limit until one is given enough to finish.
     assert [r.over_budget for r in ctl.results] == [True] * (len(limits) - 1) + [False]

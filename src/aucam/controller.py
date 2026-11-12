@@ -231,6 +231,17 @@ class CampaignController:
         """
         return {}
 
+    def progress(self, result: WorkflowResult) -> float:
+        """How much this finished workflow moved the campaign toward its goal.
+
+        Default: 1.0 for a successful workflow of ``goal_type``, 0 otherwise.
+        Override for a richer measure (e.g. the improvement of the best score)
+        or to give partial credit to an intermediate step.  The workflows that
+        led to this one get the same amount as credit (AllocationRecord.credit).
+        """
+        goal_type = vars(self).get("_goal_type")
+        return 1.0 if result.returncode == 0 and result.workflow_type == goal_type else 0.0
+
     def is_goal_reached(self) -> bool:
         """Return True when the campaign goal has been met.
         Default: goal_n completions of goal_type.

@@ -99,6 +99,9 @@ class SizingContext:
                    × (1 + size_margin) where the type gives none.
     raised       — spending / resources raised after a workflow of this type was
                    cancelled at its own limit, until learned values take over.
+    allocations  — the allocation history: one AllocationRecord per finished
+                   workflow (allocation, run time, spending, outcome, source,
+                   progress, credit, pending).
     """
 
     proposal: Allocation
@@ -112,6 +115,9 @@ class SizingContext:
     declared: dict[str, float] = field(default_factory=dict)
     raised: dict[str, float] = field(default_factory=dict)
     raised_resources: dict[str, float] = field(default_factory=dict)
+    # Every finished workflow so far, oldest first (AllocationRecord): what it
+    # got, how it ended, its progress and credit.  For learners overriding size().
+    allocations: list = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

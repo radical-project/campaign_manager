@@ -131,6 +131,41 @@ class Allocation:
 
 
 @dataclass
+class AllocationRecord:
+    """One finished workflow, for learning how much each workflow should get.
+
+    outcome  — "completed", "cancelled_at_limit" (it spent past its own limit or
+               used more resources than given), "cancelled" or "failed".
+    source   — the workflow that led to this one (LaunchRequest.context
+               ["source"]: a dependency trigger, or set by the controller).
+    progress — how much it moved the campaign toward its goal itself
+               (CampaignController.progress()).
+    credit   — the progress of the workflows it led to, passed back along the
+               chain (full credit to every earlier step); grows as they finish.
+    pending  — True while workflows it led to are still queued or running, so
+               its credit is not final yet.
+    """
+
+    workflow_id: str
+    workflow_type: str
+    outcome: str
+    wall_time_s: float
+    spending_limit: dict = field(default_factory=dict)
+    resources: dict = field(default_factory=dict)
+    spent: dict = field(default_factory=dict)
+    source: str | None = None
+    progress: float = 0.0
+    credit: float = 0.0
+    pending: bool = False
+    finished_at: float = 0.0
+
+    @property
+    def total_progress(self) -> float:
+        """Its own progress plus the credit passed back to it."""
+        return self.progress + self.credit
+
+
+@dataclass
 class QueueSnapshot:
     total_queued: int
     by_priority: dict[str, int]
