@@ -142,8 +142,10 @@ WorkflowConfig(
     # AuCaM charges it, prorated by actual wall time, if the workflow reports
     # no spending. fast_sim reports cpu_hours, so here it is only a fallback.
     declared_spending={"wall_hours": 6 * STEP_S / H, "cpu_hours": 6 * FAST_STEP_CPU_H},
-    # Allowed: the most one workflow may spend (9 steps, 1.5x expected).
-    # Passed to the workflow; AuCaM cancels the workflow if it spends more.
+    # Allowed, at first: the most one workflow may spend (9 steps, 1.5x
+    # expected), until 3 fast_sims have finished; then AuCaM gives each their
+    # average spending + 25 %. Passed to the workflow; AuCaM cancels the
+    # workflow if it spends more.
     spending_limit={"cpu_hours": 9 * FAST_STEP_CPU_H},
 )
 ```
@@ -151,16 +153,19 @@ WorkflowConfig(
 - **`declared_spending`** is what one workflow is expected to cost, with its
   expected wall time (`wall_hours`). AuCaM uses it when a workflow reports no
   spending: it charges the declared amount prorated by actual wall time (half
-  the declared time, half the cost). For a type without a `spending_limit`, it
-  is also what AuCaM holds against the campaign's limit while the workflow runs.
-- **`spending_limit`** is what one workflow may spend. AuCaM holds it against
-  the campaign's limit while the workflow runs, passes it to the workflow, and
-  cancels the workflow if its reported spending goes past it. The
-  `WorkflowResult` then has `over_budget=True`, and
-  `CampaignOutcome.budget_cancels` counts such workflows.
+  the declared time, half the cost). For a type without a `spending_limit`, the
+  first workflows get `declared_spending` + 25 % as their limit.
+- **`spending_limit`** is the starting limit: what each of the first workflows
+  of the type may spend. Once 3 have finished, AuCaM gives each new one the
+  type's average spending + 25 % instead (and 25 % more after a workflow is
+  cancelled at its limit). AuCaM holds the limit against the campaign's limit
+  while the workflow runs, passes it to the workflow, and cancels the workflow
+  if its reported spending goes past it. The `WorkflowResult` then has
+  `over_budget=True`, and `CampaignOutcome.budget_cancels` counts such
+  workflows.
 
-`precise_sim` gives a range instead of a fixed limit, so the scheduler sets
-each workflow's limit from what earlier ones spent:
+`precise_sim` gives a range instead of a starting limit: the scheduler starts
+at its maximum and keeps every later, learned limit within it:
 
 ```python
 WorkflowConfig(

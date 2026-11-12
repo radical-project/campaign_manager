@@ -91,6 +91,14 @@ class SizingContext:
                    of this type, once at least 3 have finished (empty before).
     by_type      — per workflow type: finished counts, spending, cost per
                    completed workflow, mean score (as obs["budget"]["by_type"]).
+    requested    — the request's own exact amounts (the controller's intent for
+                   this workflow); None: treat ``proposal`` as requested.
+    start        — the type's starting values (WorkflowConfig.spending_limit /
+                   resources), used until it has learned values.
+    declared     — the type's declared_spending (no wall_hours); starting value
+                   × (1 + size_margin) where the type gives none.
+    raised       — spending / resources raised after a workflow of this type was
+                   cancelled at its own limit, until learned values take over.
     """
 
     proposal: Allocation
@@ -99,6 +107,11 @@ class SizingContext:
     queued: int
     learned_resources: dict[str, float] = field(default_factory=dict)
     by_type: dict[str, dict] = field(default_factory=dict)
+    requested: Allocation | None = None
+    start: Allocation | None = None
+    declared: dict[str, float] = field(default_factory=dict)
+    raised: dict[str, float] = field(default_factory=dict)
+    raised_resources: dict[str, float] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -173,36 +186,76 @@ class SchedulingPolicy:
         Called when the request is about to launch.  Return None to drop the
         request because it does not fit the remaining campaign budget.
 
-        Default:
-          - an explicit amount (the request's, else the type's default) is kept;
-          - a key with only a range (LaunchRequest.bounds or WorkflowConfig.bounds)
-            gets, for spending, the learned cost × (1 + size_margin) × value(),
-            or the range's maximum before costs are learned; for a resource, the
-            learned peak use × (1 + size_margin) rounded up, or the range's
-            maximum before it is learned;
-          - every amount is kept within its range;
-          - spending is capped at what is left in the campaign budget (and at
-            remaining / queued requests with fair_share); a cap below the
-            range's minimum drops the request.
+        Default rule, per spending dimension (first that applies):
+          1. the request's own amount (the controller's intent) — as given;
+          2. the type's learned cost × (1 + size_margin) × value(), once it has
+             enough finished workflows (min_cost_samples);
+          3. the raised amount, after a workflow of the type was cancelled at
+             its own limit (that limit × (1 + size_margin));
+          4. the type's starting value (WorkflowConfig.spending_limit) — as given;
+          5. the type's declared_spending × (1 + size_margin);
+          6. a range's maximum.
+        Resources follow the same order with learned peak use (rounded up) and
+        no declared step.  Every amount is then kept within its range (the
+        request's, else the type's ``bounds``).  Spending that does not fit
+        what is left in the campaign budget (or remaining / queued requests
+        with fair_share) is capped to it only where a range allows (not below
+        its minimum); otherwise size() returns None: the request does not fit.
         """
-        spend = dict(ctx.proposal.spending_limit)
-        res = dict(ctx.proposal.resources)
         bounds = request.bounds or {}
+        margin = 1.0 + self.size_margin
+        requested = ctx.requested if ctx.requested is not None else ctx.proposal
+        start = ctx.start if ctx.start is not None else Allocation()
+
+        spend: dict[str, float] = {}
+        s_keys = (
+            set(requested.spending_limit)
+            | set(ctx.learned_cost)
+            | set(ctx.raised)
+            | set(start.spending_limit)
+            | set(ctx.declared)
+            | {k for k in bounds if k not in RESOURCE_KEYS}
+        ) - {"wall_hours"}
+        for key in s_keys:
+            if key in requested.spending_limit:
+                value = requested.spending_limit[key]
+            elif key in ctx.learned_cost:
+                value = ctx.learned_cost[key] * margin * self.value(request.workflow_type, ctx)
+            elif key in ctx.raised:
+                value = ctx.raised[key]
+            elif key in start.spending_limit:
+                value = start.spending_limit[key]
+            elif key in ctx.declared:
+                value = ctx.declared[key] * margin
+            else:
+                value = bounds[key][1]
+            spend[key] = float(value)
+
+        res: dict[str, float] = {}
+        r_keys = (
+            set(requested.resources)
+            | set(ctx.learned_resources)
+            | set(ctx.raised_resources)
+            | set(start.resources)
+            | {k for k in bounds if k in RESOURCE_KEYS}
+        )
+        for key in r_keys:
+            if key in requested.resources:
+                value = requested.resources[key]
+            elif key in ctx.learned_resources:
+                value = math.ceil(ctx.learned_resources[key] * margin - 1e-9)
+            elif key in ctx.raised_resources:
+                value = ctx.raised_resources[key]
+            elif key in start.resources:
+                value = start.resources[key]
+            else:
+                value = bounds[key][1]
+            res[key] = float(value)
+
         for key, (lo, hi) in bounds.items():
             target = res if key in RESOURCE_KEYS else spend
             if key in target:
-                value = target[key]
-            elif key not in RESOURCE_KEYS and key in ctx.learned_cost:
-                value = (
-                    ctx.learned_cost[key]
-                    * (1.0 + self.size_margin)
-                    * self.value(request.workflow_type, ctx)
-                )
-            elif key in RESOURCE_KEYS and key in ctx.learned_resources:
-                value = math.ceil(ctx.learned_resources[key] * (1.0 + self.size_margin) - 1e-9)
-            else:
-                value = hi
-            target[key] = min(max(float(value), float(lo)), float(hi))
+                target[key] = min(max(target[key], float(lo)), float(hi))
         capped = False
         for key, value in list(spend.items()):
             if key not in ctx.remaining:
@@ -211,7 +264,12 @@ class SchedulingPolicy:
             if self.fair_share:
                 cap = cap / max(1, ctx.queued)
             if value > cap:
-                lo = float(bounds[key][0]) if key in bounds else 0.0
+                # Less than it should get is acceptable only within a range the
+                # request or its type gives; otherwise it does not fit (it waits,
+                # or is dropped when nothing else is running).
+                if key not in bounds:
+                    return None
+                lo = float(bounds[key][0])
                 if cap <= 0.0 or cap < lo:
                     return None
                 spend[key] = cap

@@ -38,6 +38,7 @@ def cfg(name: str, cpu_s: float) -> WorkflowConfig:
         name=name,
         block=make(cpu_s),
         declared_spending={"wall_hours": 0.1 / H, "cpu_hours": cpu_s / H},
+        spending_limit={"cpu_hours": cpu_s / H},  # starting limit = its cost
     )
 
 
@@ -107,7 +108,7 @@ def test_cheaper_request_starts_when_the_expensive_one_does_not_fit(caplog):
         ctl, out = _run([cfg("big", 8.0), cfg("small", 1.0)], reqs, 10.0)
     assert sorted(ctl.launched) == ["big", "small", "small"]
     assert out.exit_reason == "spending_limit"
-    assert "WAIT big: cpu_hours cost" in caplog.text
+    assert "WAIT big" in caplog.text
     assert out.spent["cpu_hours"] * H <= 10.0 + 1e-9
 
 

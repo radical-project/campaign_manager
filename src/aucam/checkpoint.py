@@ -110,6 +110,9 @@ class CampaignCheckpoint:
     type_cost_stats: dict[str, dict] = field(default_factory=dict)
     type_resource_stats: dict[str, dict] = field(default_factory=dict)
     type_totals: dict[str, dict] = field(default_factory=dict)
+    # Amounts raised after cancels at a workflow's own limit:
+    # {"spending": {type: {dim: amount}}, "resources": {type: {key: amount}}}.
+    type_raised: dict[str, dict] = field(default_factory=dict)
 
     # R1: the campaign's goals as they are now (including changes the
     # controller made while it ran), and the scheduling policy's and the
@@ -164,6 +167,7 @@ def _from_json(d: dict[str, Any]) -> CampaignCheckpoint:
         type_cost_stats=d.get("type_cost_stats", {}),
         type_resource_stats=d.get("type_resource_stats", {}),
         type_totals=d.get("type_totals", {}),
+        type_raised=d.get("type_raised", {}),
         goals=d.get("goals"),
         policy_state=d.get("policy_state"),
         controller_state=d.get("controller_state"),

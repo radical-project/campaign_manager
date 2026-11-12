@@ -193,13 +193,12 @@ def test_paused_workflow_gets_cancel_through_wait_for_resume():
 
 
 def test_campaign_limit_cancels_running_workflows():
-    # Two workflows each declared 4 CPU·s (fit a 10 CPU·s limit) but each
-    # would really spend 20; the limit stops both near 10.
+    # Two workflows with no estimate (so no limit of their own) that would
+    # each spend 20 CPU·s; the campaign limit stops both near 10.
     wfs = [
         WorkflowConfig(
             name=n,
             block=worker(True, steps=40, cpu_per_step=0.5 / H),
-            declared_spending={"cpu_hours": 4.0 / H},
             cancel_grace_s=1.0,
         )
         for n in ("a", "b")
@@ -212,12 +211,9 @@ def test_campaign_limit_cancels_running_workflows():
 
 
 def test_on_limit_finish_lets_them_finish():
+    # No estimate at all: the only workflows without a limit of their own.
     wfs = [
-        WorkflowConfig(
-            name=n,
-            block=worker(True, steps=20, step_s=0.01, cpu_per_step=0.5 / H),
-            declared_spending={"cpu_hours": 4.0 / H},
-        )
+        WorkflowConfig(name=n, block=worker(True, steps=20, step_s=0.01, cpu_per_step=0.5 / H))
         for n in ("a", "b")
     ]
     ctl = CancelAfter(["a", "b"], after_s=99)

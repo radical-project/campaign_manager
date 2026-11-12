@@ -60,9 +60,15 @@ def test_amounts_stay_within_the_range() -> None:
     assert a.spending_limit == {"cpu_hours": 4.0} and a.resources == {"cpus": 8.0}
 
 
-def test_capped_at_the_remaining_budget() -> None:
-    a = SchedulingPolicy().size(_req(), _ctx({"cpu_hours": 5.0}, remaining={"cpu_hours": 1.5}))
+def test_capped_at_the_remaining_budget_within_a_range() -> None:
+    req = _req({"cpu_hours": (1.0, 5.0)})
+    a = SchedulingPolicy().size(req, _ctx({"cpu_hours": 5.0}, remaining={"cpu_hours": 1.5}))
     assert a.spending_limit == {"cpu_hours": 1.5} and a.capped
+
+
+def test_without_a_range_a_request_that_does_not_fit_gets_none() -> None:
+    a = SchedulingPolicy().size(_req(), _ctx({"cpu_hours": 5.0}, remaining={"cpu_hours": 1.5}))
+    assert a is None  # it waits, or is dropped when nothing else runs
 
 
 def test_dropped_when_the_minimum_does_not_fit() -> None:
@@ -73,7 +79,8 @@ def test_dropped_when_the_minimum_does_not_fit() -> None:
 def test_fair_share_splits_the_remaining_budget() -> None:
     p = SchedulingPolicy()
     p.fair_share = True
-    a = p.size(_req(), _ctx({"cpu_hours": 5.0}, remaining={"cpu_hours": 4.0}, queued=4))
+    req = _req({"cpu_hours": (0.5, 5.0)})
+    a = p.size(req, _ctx({"cpu_hours": 5.0}, remaining={"cpu_hours": 4.0}, queued=4))
     assert a.spending_limit == {"cpu_hours": 1.0} and a.capped
 
 
@@ -163,7 +170,7 @@ def test_run_is_capped_at_the_campaign_budget() -> None:
     wf = WorkflowConfig(name="quick", block=quick, launch_on_start=False)
     ctl, _ = _run(
         [wf],
-        [LaunchRequest.make("quick", spending_limit={"cpu_hours": 5.0})],
+        [LaunchRequest.make("quick", bounds={"cpu_hours": (0.5, 5.0)})],
         spending={"cpu_hours": 1.0},
     )
     (r,) = ctl.results

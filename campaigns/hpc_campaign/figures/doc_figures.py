@@ -2,9 +2,9 @@
 """
 Figures for the AuCaM docs, from real (short, synthetic) AuCaM runs.
 
-  budget   — one campaign with a spending limit: spent + in-flight vs. the
-             limit over time; launching stops at the limit, the campaign ends
-             with exit reason spending_limit.  → docs/figures/aucam_budget_burn.png
+  budget   — how AuCaM keeps a campaign within its spending limit: (A) with
+             per-workflow limits, (B) without, where the campaign limit
+             cancels running workflows.  → docs/figures/aucam_budget_burn.png
   bandit   — one campaign, two workflow types; the bandit learns which one
              completes and explores less as the budget is used up.
              → docs/figures/aucam_bandit_budget.png
@@ -61,26 +61,42 @@ def declared(cpus: float, wall_s: float) -> dict[str, float]:
 # ── 1. Campaign spending limit ─────────────────────────────────────────────────
 
 
-async def exp_budget() -> dict:
-    """Workflows of 2 CPUs × ~1 s (declared 1 s), limit 24 CPU·s, 3 at once."""
+async def _budget_case(with_estimate: bool) -> dict:
+    """One campaign, limit 24 CPU·s, up to 3 workflows of 2 CPUs at once.
+
+    Each workflow wants to work 0.7–2.5 s (1.4–5 CPU·s) and reports its CPU·s
+    every 0.1 s.
+      with_estimate — declared at 1 s (2 CPU·s): every workflow gets a limit
+                      (2.5 CPU·s, then raised after cancels, then learned),
+                      held against the campaign; AuCaM cancels one that
+                      passes it.
+      without       — no estimate, so no limit of its own: when actual spending
+                      passes the campaign limit, AuCaM cancels the running
+                      workflows (on_limit="cancel").
+    """
     t0 = time.monotonic()
     samples: list[dict] = []
     runs: list[dict] = []
+    cpus, step = 2.0, 0.1
 
     async def sim(reporter: WorkflowReporter) -> None:
-        dur = random.uniform(0.7, 1.4)
-        await asyncio.sleep(dur)
-        await reporter.emit(score=1.0)
+        dur = random.uniform(0.7, 2.5)
+        start = time.monotonic()
+        while (el := time.monotonic() - start) < dur:
+            await asyncio.sleep(step)
+            await reporter.emit(score=1.0, metrics={"cpu_hours": cpus * (el + step) / H})
 
     class Ctrl(CampaignController):
         def decide(self, obs: dict) -> PolicyResult:
             b = obs["budget"]
+            spent = cpu_s(b["spent"].get("cpu_hours", 0.0))
+            used = spent + sum(cpu_s(w.get("cpu_hours", 0.0)) for w in obs["wf_spend"].values())
             samples.append(
                 {
                     "t": time.monotonic() - t0,
-                    "spent": cpu_s(b["spent"].get("cpu_hours", 0.0)),
+                    "spent": spent,
                     "in_flight": cpu_s(b["in_flight"].get("cpu_hours", 0.0)),
-                    "running": sum(obs["running"].values()),
+                    "used": used,
                 }
             )
             return super().decide(obs)
@@ -93,6 +109,7 @@ async def exp_budget() -> dict:
                     "start": end - result.wall_time_s,
                     "end": end,
                     "rc": result.returncode,
+                    "over_budget": result.over_budget,
                     "cpu_s": cpu_s(result.spent.get("cpu_hours", 0.0)),
                 }
             )
@@ -104,25 +121,35 @@ async def exp_budget() -> dict:
             max_concurrent_workflows=3,
             max_concurrency_per_workflow=3,
             spending={"cpu_hours": limit / H},
+            on_limit="cancel",
         ),
         controller=Ctrl(launch=["sim"]),
-        workflows=[WorkflowConfig(name="sim", block=sim, declared_spending=declared(2, 1.0))],
+        workflows=[
+            WorkflowConfig(
+                name="sim",
+                block=sim,
+                declared_spending=declared(cpus, 1.0) if with_estimate else {},
+            )
+        ],
         policy_interval_s=0.1,
+        # B: nothing learned during the run either, so no workflow has a limit.
+        min_cost_samples=3 if with_estimate else 1000,
     )
     o = await CampaignManager().run(spec)
-    outcome = {
-        "exit_reason": o.exit_reason,
-        "elapsed": time.monotonic() - t0,
-        "spent": cpu_s(o.spent.get("cpu_hours", 0.0)),
-    }
     return {
         "limit": limit,
         "samples": samples,
         "runs": runs,
-        "outcome": outcome,
-        "exit_reason": outcome["exit_reason"],
-        "declared": 2.0,
+        "exit_reason": o.exit_reason,
+        "elapsed": time.monotonic() - t0,
+        "spent": cpu_s(o.spent.get("cpu_hours", 0.0)),
+        "budget_cancels": o.budget_cancels,
     }
+
+
+async def exp_budget() -> dict:
+    """Panel A: every workflow gets a limit; panel B: no estimate, the campaign limit cancels."""
+    return {"a": await _budget_case(True), "b": await _budget_case(False)}
 
 
 # ── 2. Bandit and budget ───────────────────────────────────────────────────────
@@ -265,70 +292,94 @@ C_SPENT, C_FLIGHT, C_LIMIT, C_ANN = "#4a6fa5", "#9fc0e6", "#cf222e", "#57606a"
 C_GOOD, C_POOR = "#1a7f37", "#cf222e"
 
 
-def plot_budget(d: dict, plt) -> None:
-    fig, ax = plt.subplots(figsize=(10, 4.6))
+def _plot_budget_panel(ax, d: dict, title: str) -> None:
     t = [s["t"] for s in d["samples"]]
-    spent = [s["spent"] for s in d["samples"]]
-    inflight = [s["in_flight"] for s in d["samples"]]
     ax.stackplot(
         t,
-        spent,
-        inflight,
+        [s["spent"] for s in d["samples"]],
+        [s["in_flight"] for s in d["samples"]],
         colors=[C_SPENT, C_FLIGHT],
         step="post",
-        labels=["spent (charged)", "in-flight (expected cost of running workflows)"],
+        labels=["spent (charged)", "in-flight (held for running workflows)"],
     )
-    ax.axhline(d["limit"], color=C_LIMIT, ls="--", lw=1.5)
-    ax.text(
-        0.1,
-        d["limit"] + 0.4,
-        f"campaign spending limit = {d['limit']:.0f} CPU·s",
-        color=C_LIMIT,
-        fontsize=9,
+    ax.step(
+        t,
+        [s["used"] for s in d["samples"]],
+        where="post",
+        color="black",
+        lw=1.2,
+        label="actual: spent + used so far by running workflows",
     )
-    last_start = max(r["start"] for r in d["runs"])
+    limit = d["limit"]
+    ax.axhline(limit, color=C_LIMIT, ls="--", lw=1.5)
+    ax.text(0.05, limit + 0.5, f"campaign limit = {limit:.0f} CPU·s", color=C_LIMIT, fontsize=9)
     for r in d["runs"]:
-        ax.plot([r["start"]], [-0.9], marker="|", color=C_ANN, ms=8)
-    ax.axvline(last_start, color=C_ANN, ls=":", lw=1)
-    top = d["limit"] * 1.22
+        ax.plot([r["start"]], [-1.0], marker="|", color=C_ANN, ms=8)
+        if r["over_budget"]:
+            ax.plot([r["end"]], [-1.0], marker="x", color=C_LIMIT, ms=6)
+        elif r["rc"] == -1:
+            ax.plot([r["end"]], [-1.0], marker="o", mfc="none", color=C_LIMIT, ms=6)
+    end = d["elapsed"]
+    ax.axvline(end, color=C_ANN, ls=":", lw=1)
+    final = d["spent"]
     ax.text(
-        last_start - 0.05,
-        top,
-        "last launch: spent + in-flight\nreached the limit",
+        end - 0.05,
+        limit * 1.18,
+        f"ends: {d['exit_reason']}\nfinal spent {final:.1f} CPU·s",
         fontsize=8.5,
         color=C_ANN,
         ha="right",
         va="center",
     )
-    end = d["outcome"]["elapsed"]
-    ax.axvline(end, color=C_ANN, ls=":", lw=1)
-    ax.text(end + 0.05, top, f"ends:\n{d['exit_reason']}", fontsize=8.5, color=C_ANN, va="center")
-    final = d["outcome"]["spent"]
-    if final > d["limit"]:
-        ax.text(
-            end - 0.1,
-            final + 0.3,
-            f"final {final:.1f} CPU·s: runs took longer than declared",
-            fontsize=8,
-            color=C_ANN,
-            ha="right",
-            va="bottom",
-        )
-    ax.text(0.1, -2.2, "| = workflow launches", fontsize=8, color=C_ANN)
-    ax.set_xlim(0, end + 0.9)
-    ax.set_ylim(-2.8, d["limit"] * 1.32)
-    ax.set_xlabel("time (s)")
+    ax.set_xlim(0, end + 0.3)
+    ax.set_ylim(-2.6, limit * 1.32)
     ax.set_ylabel("CPU-seconds")
-    ax.set_title(
-        f"Campaign spending limit — {len(d['runs'])} workflows of 2 CPUs × 0.7–1.4 s, "
-        "up to 3 at once",
-        loc="left",
-        fontsize=11,
+    ax.set_title(title, loc="left", fontsize=10.5)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+
+
+def plot_budget(d: dict, plt) -> None:
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(10, 8.4))
+    a, b = d["a"], d["b"]
+    _plot_budget_panel(
+        a1,
+        a,
+        "A — every workflow gets a limit (estimate + 25 %, raised 25 % after each cancel at it, "
+        "then\nlearned cost + 25 %), held against the campaign; one that passes it is cancelled (×)",
     )
-    ax.legend(loc="center left", fontsize=9, frameon=False, bbox_to_anchor=(0, 0.62))
-    for s in ("top", "right"):
-        ax.spines[s].set_visible(False)
-    fig.tight_layout()
+    _plot_budget_panel(
+        a2,
+        b,
+        "B — safety net: workflows with no estimate (and nothing learned yet) have no limit of their "
+        'own;\nwhen actual spending passes the campaign limit, AuCaM cancels them (on_limit="cancel")',
+    )
+    from matplotlib.lines import Line2D  # noqa: PLC0415
+
+    handles, labels = a1.get_legend_handles_labels()
+    handles += [
+        Line2D([], [], marker="|", ls="none", color=C_ANN, ms=8),
+        Line2D([], [], marker="x", ls="none", color=C_LIMIT, ms=6),
+        Line2D([], [], marker="o", mfc="none", ls="none", color=C_LIMIT, ms=6),
+    ]
+    labels += ["a workflow starts", "cancelled at its own limit", "cancelled at the campaign limit"]
+    fig.legend(
+        handles,
+        labels,
+        loc="lower center",
+        ncol=3,
+        fontsize=8.5,
+        frameon=False,
+        bbox_to_anchor=(0.5, 0.0),
+    )
+    a2.set_xlabel("time (s)")
+    fig.suptitle(
+        "Campaign spending limit — workflows of 2 CPUs × 0.7–2.5 s, up to 3 at once",
+        x=0.01,
+        ha="left",
+        fontsize=11.5,
+    )
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
     fig.savefig(FIG_DIR / "aucam_budget_burn.png", dpi=150)
 
 

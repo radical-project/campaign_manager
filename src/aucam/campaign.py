@@ -7,6 +7,7 @@ import dataclasses
 import inspect
 import json
 import logging
+import math
 import shlex
 import threading
 import time
@@ -387,6 +388,10 @@ class _CampaignInstance:
         # {workflow_type: {"completed", "cancelled", "failed": int,
         #                  "spent": {dim: float}, "score_sum": float, "score_n": int}}
         self._type_totals: dict[str, dict] = {}
+        # Amounts raised after a workflow of the type was cancelled at its own
+        # limit, until learned values take over: {type: {key: amount}}.
+        self._type_raised: dict[str, dict[str, float]] = {}
+        self._type_raised_res: dict[str, dict[str, float]] = {}
         # Per-type peak CPUs / GPUs in use at once, successful workflows (U2):
         # {workflow_type: {key: {"n": int, "mean": float}}}
         self._type_resource_stats: dict[str, dict[str, dict]] = {}
@@ -970,6 +975,7 @@ class _CampaignInstance:
         learned = {k: s["mean"] for k, s in stats.items() if s["n"] >= n_min}
         rstats = self._type_resource_stats.get(request.workflow_type, {})
         burn = self._allocator.campaign_view(self.name)["burn"]
+        own_res = request.resources or {}
         ctx = SizingContext(
             proposal=self._proposal(wfc, request),
             learned_cost=learned,
@@ -977,6 +983,25 @@ class _CampaignInstance:
             queued=len(self._queue) + 1,
             learned_resources={k: s["mean"] for k, s in rstats.items() if s["n"] >= n_min},
             by_type=self._by_type(),
+            requested=Allocation(
+                spending_limit={
+                    k: float(v) for k, v in (request.spending_limit or {}).items() if v is not None
+                },
+                resources={k: float(v) for k, v in own_res.items() if v is not None},
+            ),
+            start=Allocation(
+                spending_limit={
+                    k: float(v) for k, v in wfc.spending_limit.items() if v is not None
+                },
+                resources={k: float(v) for k, v in wfc.resources.items() if v is not None},
+            ),
+            declared={
+                k: float(v)
+                for k, v in wfc.declared_spending.items()
+                if k != "wall_hours" and v is not None
+            },
+            raised=dict(self._type_raised.get(request.workflow_type, {})),
+            raised_resources=dict(self._type_raised_res.get(request.workflow_type, {})),
         )
         # The type's ranges (WorkflowConfig.bounds) apply unless the request
         # gives its own for the same key.
@@ -996,6 +1021,27 @@ class _CampaignInstance:
             k: float(v) for k, v in alloc.resources.items() if v is not None and float(v) > 0
         }
         return alloc
+
+    def _raise_after_limit_cancel(self, inst: _WorkflowInstance) -> None:
+        """A workflow cancelled at its own limit: give the next of its type more.
+
+        Its limit (or resources) × (1 + size_margin), until the type has
+        learned values (a successful workflow's cost) — otherwise a starting
+        value that is too low gets every workflow cancelled and nothing learned.
+        """
+        margin = 1.0 + float(getattr(self._policy, "size_margin", 0.25))
+        if inst.over_budget:
+            raised = self._type_raised.setdefault(inst.workflow_type, {})
+            for k, v in inst.spending_limit.items():
+                raised[k] = max(raised.get(k, 0.0), v * margin)
+            logger.info(
+                f"[SCHEDULER-{self.name}] {inst.workflow_type}: cancelled at its limit — "
+                f"next ones get {raised}"
+            )
+        if inst.over_resources:
+            raised_r = self._type_raised_res.setdefault(inst.workflow_type, {})
+            for k, v in inst.resources.items():
+                raised_r[k] = max(raised_r.get(k, 0.0), float(math.ceil(v * margin - 1e-9)))
 
     def _record_type_totals(self, result: WorkflowResult, spent: dict[str, float]) -> None:
         """Add one finished workflow to its type's totals (B1, ``budget["by_type"]``)."""
@@ -1320,6 +1366,7 @@ class _CampaignInstance:
             self._policy.on_outcome(_inst.request, result)
         self.spec.controller.on_complete(result)
         self._record_type_totals(result, actual_spent)
+        self._raise_after_limit_cancel(_inst)
         self._history.append(result)
         if len(self._history) > self._history_max:
             self._history.pop(0)
@@ -1419,6 +1466,7 @@ class _CampaignInstance:
             type_cost_stats=self._type_cost_stats,
             type_resource_stats=self._type_resource_stats,
             type_totals=self._type_totals,
+            type_raised={"spending": self._type_raised, "resources": self._type_raised_res},
             goals=[dataclasses.asdict(g) for g in self._goals],
             policy_state=_jsonable(self._policy.state(), "scheduling policy"),
             controller_state=_jsonable(
@@ -1478,6 +1526,9 @@ class _CampaignInstance:
         self._type_cost_stats = {k: dict(v) for k, v in ckpt.type_cost_stats.items()}
         self._type_resource_stats = {k: dict(v) for k, v in ckpt.type_resource_stats.items()}
         self._type_totals = {k: dict(v) for k, v in ckpt.type_totals.items()}
+        raised = ckpt.type_raised or {}
+        self._type_raised = {k: dict(v) for k, v in (raised.get("spending") or {}).items()}
+        self._type_raised_res = {k: dict(v) for k, v in (raised.get("resources") or {}).items()}
         # Goals as they were (with the controller's changes), and what the
         # scheduling policy and the controller learned (R1).
         if ckpt.goals is not None:
@@ -1648,6 +1699,18 @@ class _CampaignInstance:
             if counts.get(req.workflow_type, 0) >= caps.get(req.workflow_type, per_type_cap):
                 return "skip"  # this type is full; others may still fit
             alloc = self._size(req)
+            if (alloc is None or alloc.capped) and (self._active or not allow_capped):
+                # It does not fit now, but running workflows hold their full
+                # limits and give back what they do not use: wait for them
+                # rather than drop it or start it with less than it should get.
+                unfit.add(id(req))
+                if id(req) not in self._unfit_logged:
+                    self._unfit_logged.add(id(req))
+                    logger.info(
+                        f"[SCHEDULER-{self.name}] WAIT {req.workflow_type}: its allocation "
+                        f"does not fit what is left while others run; stays queued"
+                    )
+                return "unfit"
             if alloc is None:
                 self._queue.remove_request(req)
                 self._unfit_logged.discard(id(req))
@@ -1677,40 +1740,48 @@ class _CampaignInstance:
             launched += 1
             return "launched"
 
-        # CRITICAL requests always go first, no policy consultation.
-        for req in critical:
-            if _try(req) == "full":
+        # First only requests that fit with their full allocation; if none
+        # does and nothing is running, one may start capped to what is left.
+        allow_capped = False
+        for allow_capped in (False, True):  # noqa: B007 — read by _try()
+            if allow_capped and (launched or self._active):
                 break
-
-        # The policy selects from normal candidates for the remaining slots.  If
-        # some of its picks did not fit the budget, it is asked again without
-        # them, so a cheaper request can take the slot.
-        pending = list(normal)
-        while pending and len(self._active) < max_concurrent:
-            ctx = SchedulingContext(
-                running_by_type=self._running_by_type(),
-                max_concurrency=max_concurrent,
-                max_concurrency_per_type=self.spec.budget.max_concurrency_per_workflow,
-                max_running_by_type=caps,
-                telemetry=self._last_telemetry,
-                history=list(self._history),
-                policy_cycles=self._policy_cycles,
-                campaign_name=self.name,
-                budget_remaining_fraction=1.0 - self._allocator.spending_fraction(self.name),
-            )
-            selected = self._policy.select(pending, ctx)
-            if not selected:
-                break
-            outcomes = []
-            for req in selected:
-                r = _try(req)
-                if r == "full":
+            unfit.clear()
+            queued_ids = {id(r) for r in self._queue.candidates()}  # not launched or dropped
+            # CRITICAL requests always go first, no policy consultation.
+            for req in (r for r in critical if id(r) in queued_ids):
+                if _try(req) == "full":
                     break
-                outcomes.append(r)
-            picked = {id(r) for r in selected}
-            pending = [r for r in pending if id(r) not in picked]
-            if not any(r in ("unfit", "dropped") for r in outcomes):
-                break
+
+            # The policy selects from normal candidates for the remaining slots.
+            # If some of its picks did not fit, it is asked again without them,
+            # so a cheaper request can take the slot.
+            pending = [r for r in normal if id(r) in queued_ids]
+            while pending and len(self._active) < max_concurrent:
+                ctx = SchedulingContext(
+                    running_by_type=self._running_by_type(),
+                    max_concurrency=max_concurrent,
+                    max_concurrency_per_type=self.spec.budget.max_concurrency_per_workflow,
+                    max_running_by_type=caps,
+                    telemetry=self._last_telemetry,
+                    history=list(self._history),
+                    policy_cycles=self._policy_cycles,
+                    campaign_name=self.name,
+                    budget_remaining_fraction=1.0 - self._allocator.spending_fraction(self.name),
+                )
+                selected = self._policy.select(pending, ctx)
+                if not selected:
+                    break
+                outcomes = []
+                for req in selected:
+                    r = _try(req)
+                    if r == "full":
+                        break
+                    outcomes.append(r)
+                picked = {id(r) for r in selected}
+                pending = [r for r in pending if id(r) not in picked]
+                if not any(r in ("unfit", "dropped") for r in outcomes):
+                    break
 
         # Nothing running, and what was asked for no longer fits (dropped this
         # round, or every queued request too costly): the budget is spent.

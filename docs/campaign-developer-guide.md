@@ -466,35 +466,41 @@ An instance passed to the specs of several campaigns keeps what it learned. With
 When a request is about to start, the policy's `size(request, ctx)` decides
 its allocation: a spending limit and the resources it may use at once.
 
-- **The intent** comes from the workflow type or from the controller:
-  - the type: `WorkflowConfig.spending_limit` / `resources` (exact amounts) or
-    `WorkflowConfig.bounds` (ranges, e.g. `{"cpu_hours": (0.5, 4), "cpus": (2, 8)}`),
-    used for every launch of the type, including `launch=[...]`, `LaunchRule`
-    and dependency launches;
-  - the controller, for one launch: `LaunchRequest.spending_limit` /
-    `resources`, or `LaunchRequest.bounds`, which override the type's per key.
-
-  For the policy to size an amount from learned cost, give a range, not an
-  exact amount, for that key. A custom controller that wants to choose an
-  exact amount itself can read the learned costs in `obs["learned_cost"]`
-  (`{workflow_type: {dim: mean spending of its successful workflows}}`, once 3
-  have finished).
+- **The inputs:**
+  - the type's starting values: `WorkflowConfig.spending_limit` / `resources`
+    (used as given for the first workflows of the type), its
+    `declared_spending`, and optional ranges, `WorkflowConfig.bounds`
+    (e.g. `{"cpu_hours": (0.5, 4), "cpus": (2, 8)}`);
+  - the controller's intent for one launch: `LaunchRequest.spending_limit` /
+    `resources` (always wins), or `LaunchRequest.bounds` (overrides the type's
+    range per key);
+  - what AuCaM has learned about the type: its learned cost and peak resource
+    use (`obs["learned_cost"]` shows the costs to a controller), and amounts
+    raised after cancels at the limit.
 - **The scheduling policy decides the amount.** When the scheduler is about to
   start a request, it calls the policy's `size()`, which every built-in policy
-  inherits from `SchedulingPolicy`. By default `size()`:
-  - keeps exact amounts as they are;
-  - for a spending range, uses the type's learned cost + 25% (`size_margin`),
-    or the range's maximum until 3 workflows of the type have finished
-    (`CampaignSpec.min_cost_samples`);
-  - for a resource range, uses the type's peak use + 25% rounded up (the most
-    CPUs / GPUs its successful workflows used at once, from task telemetry or
-    `cpus_in_use` / `gpus_in_use` reports), or the range's maximum until 3
-    workflows of the type have finished;
-  - caps spending at what is left in the campaign budget (the workflow's
-    result then has `capped=True`), or, with `fair_share = True`, at what is left ÷
-    the number of queued requests;
-  - returns nothing when even the range's minimum does not fit, and the
-    scheduler then drops the request (`CampaignOutcome.unfit_dropped`).
+  inherits from `SchedulingPolicy`. By default `size()` gives, per dimension,
+  the first that applies:
+  1. the controller's amount for this workflow;
+  2. the type's learned cost + 25% (`size_margin`), once 3 workflows of the
+     type have finished (`CampaignSpec.min_cost_samples`); for resources, its
+     peak use + 25% rounded up (the most CPUs / GPUs its successful workflows
+     used at once, from task telemetry or `cpus_in_use` / `gpus_in_use`
+     reports);
+  3. after a workflow of the type was cancelled at its own limit, that limit
+     + 25%, until learned values take over;
+  4. the type's starting value, as given;
+  5. for spending, the type's `declared_spending` + 25%;
+  6. a range's maximum.
+
+  Then it keeps the amount within the range, and checks the remaining campaign
+  budget: an amount that does not fit is capped to what is left (`capped=True`
+  in the result; with `fair_share = True`, what is left ÷ the queued requests)
+  only within a range and not below its minimum. Otherwise `size()` returns
+  nothing: the request waits while other workflows run, and is dropped
+  (`CampaignOutcome.unfit_dropped`) once nothing else runs. A workflow type with
+  no starting value, no `declared_spending` and nothing learned gets no limit
+  of its own; the campaign limit still applies (§9, budget.md §4).
 - **Give more to better types** by overriding the policy's `value(workflow_type,
   ctx)`: `size()` multiplies the learned-cost amount of a spending range by it
   (default 1.0), then keeps it within the range and the remaining budget. What

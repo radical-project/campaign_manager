@@ -56,18 +56,22 @@ class WorkflowConfig(BaseModel):
     # workflow runs (until learned costs replace it) and prorates actual
     # spending when nothing better is measured.  See docs/budget.md.
     declared_spending: dict[str, float] = {}
-    # Spending limit for each run of this type, per dimension (e.g.
-    # {"cpu_hours": 2.0}).  A LaunchRequest can override it for one run.  While
-    # the run is going, the limit is held against the campaign's spending limit;
-    # the workflow receives it (context["spending_limit"] for a Python workflow,
-    # CM_SPENDING_LIMIT_<DIM> for a command-line one); and AuCaM cancels the run
-    # once its spending so far exceeds the limit.  Empty: no per-run limit.
+    # Starting spending limit for workflows of this type, per dimension (e.g.
+    # {"cpu_hours": 2.0}): used as given until AuCaM has learned the type's cost
+    # (then learned cost + size_margin).  Empty: declared_spending + size_margin.
+    # A LaunchRequest can set an amount for one workflow.  While a workflow runs,
+    # its limit is held against the campaign's spending limit; the workflow
+    # receives it (context["spending_limit"] for a Python workflow,
+    # CM_SPENDING_LIMIT_<DIM> for a command-line one); and AuCaM cancels it once
+    # its spending so far exceeds the limit.  For a fixed amount, use a range
+    # with min = max (bounds).
     spending_limit: dict[str, float] = {}
-    # Resources each run of this type may use at once, e.g. {"cpus": 8, "gpus": 1}.
-    # A LaunchRequest can override it.  The workflow receives it
+    # Starting resources each workflow of this type may use at once, e.g.
+    # {"cpus": 8, "gpus": 1}: used until AuCaM has learned the type's peak use.
+    # A LaunchRequest can set them for one workflow.  The workflow receives them
     # (context["resources"], or CM_RESOURCES_<KEY> for a command-line program)
-    # and must size its tasks to it; AuCaM cancels a run that uses more (measured
-    # from its running tasks, or reported as cpus_in_use / gpus_in_use).
+    # and must size its tasks to them; AuCaM cancels a workflow that uses more
+    # (measured from its running tasks, or reported as cpus_in_use / gpus_in_use).
     resources: dict[str, float] = {}
     # Ranges, key -> (min, max), for a spending dimension or a resource, used for
     # every launch of this type (a LaunchRequest's own bounds override them per
