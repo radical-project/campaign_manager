@@ -22,8 +22,8 @@ that must land first.
 |---|---|---|---|---|
 | 3 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) | |
 | 3 | R1 | Restart: rejoin running workflows, keep goals | Not started | |
-| 3 | U5 | Per-workflow enforcement lags by one check | Open | |
 | 4 | U1 | Change a running workflow's allocation | Not started (decided: not for now) | |
+| 4 | U5 | Per-workflow enforcement lags by one check | Decided: workflows check their own limit | |
 | 4 | L1 | Launch fewer workflows when the backend is backlogged | Not started | task counts from Delta runs |
 | 4 | H1 | On-completion hooks can enqueue requests | Not started | |
 | 4 | A1 | Per-dimension prices | Not started | |
@@ -54,8 +54,11 @@ from the controller's intent (`LaunchRequest.spending_limit` / `resources` /
   X1; otherwise only from what the workflow reports, and a workflow that
   reports nothing is not checked. A graceful cancel adds up to the type's
   `cancel_grace_s` of spending. The same lag applies to the campaign limit
-  with `on_limit="cancel"`. Possible fix: a workflow checks its own limit
-  (it receives it) and stops itself, as the example campaigns do.
+  with `on_limit="cancel"`. Decided: keep AuCaM's per-cycle check as the
+  safety net and document that a workflow should check its own limit (it
+  receives it) and stop itself, as the example campaigns do (budget.md §4,
+  developer guide §9). Revisit — checking on every report, or a faster check
+  loop — if a real campaign needs a tighter bound.
 
 ## Other planned features
 

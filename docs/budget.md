@@ -240,7 +240,10 @@ for every workflow of a type, or `LaunchRequest.spending_limit` for one workflow
   `CampaignOutcome.budget_cancels` counts such workflows.
 
 The check runs once per policy cycle, so a workflow can overshoot its limit by
-what it spends in one `policy_interval_s`.
+what it spends in one `policy_interval_s` (more if it reports rarely, plus its
+grace period if it has one). AuCaM's check is the safety net: a workflow that
+must stay within its limit should check it itself — it receives the limit —
+and stop before a step that would pass it, as all the example campaigns do.
 
 ### Sizing each workflow
 

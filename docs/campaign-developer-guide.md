@@ -523,7 +523,10 @@ A custom scheduling policy reads the caps with `ctx.cap(workflow_type)`.
   while the workflow runs, passed to the workflow (`context["spending_limit"]`, or
   `CM_SPENDING_LIMIT_<DIM>` for a command-line program), and enforced: AuCaM
   cancels a workflow once its spending so far exceeds it (`over_budget=True` in its
-  result).
+  result). AuCaM checks once per policy cycle, so a workflow can go over by what
+  it spends in one cycle; to stay within its limit, a workflow should track its
+  own spending and stop before a step that would pass the limit (see the demo's
+  `make_sim()`).
 - **In the observation:** `obs["budget"]` has `limits`, `spent`, `in_flight`,
   `burn[dim]` (`remaining`, `fraction_left`, `rate_per_hour`, `projected`,
   `hours_to_limit`) and `by_type` (per type: counts, spending, cost per
