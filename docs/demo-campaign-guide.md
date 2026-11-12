@@ -165,22 +165,24 @@ WorkflowConfig(
   `over_budget=True`, and `CampaignOutcome.budget_cancels` counts such
   workflows.
 
-`precise_sim` gives a range instead of a starting limit: the scheduler starts
-at its maximum and keeps every later, learned limit within it:
+`precise_sim` gives a range: whatever the scheduler picks — its estimate
++ 25 % at first, then its learned cost + 25 % — is kept between the cost of
+one full run (0.003 CPU-hours) and 1.5 times that (0.0045):
 
 ```python
 WorkflowConfig(
     name="precise_sim",
-    # Up to 15 steps until 3 precise_sims have finished, then their
-    # average spending + 25 %, never below 10 steps.
-    bounds={"cpu_hours": (10 * PRECISE_STEP_CPU_H, 15 * PRECISE_STEP_CPU_H)},
+    # Spending limit between one full run's cost and 1.5x that.
+    bounds={"cpu_hours": (0.003, 0.0045)},
     ...
 )
 ```
 
-With `--goal-analyses 12` the run is long enough to see it: the first
-`precise_sim` workflows are launched with `spending_limit={'cpu_hours': 0.0045}`,
-later ones with `0.00375` (12.5 steps).
+The range itself is fixed: it comes from the spec (or, for one workflow, from
+the controller's `LaunchRequest.bounds`). What changes is the limit the
+scheduler picks inside it, as it learns. In the default demo every
+`precise_sim` gets 0.00375 CPU-hours, inside the range; with `--policy learn`
+the range keeps the learner's ×0.5 at 0.003 and its ×1.5 at 0.0045.
 
 The controller can give one workflow a different limit than its type's:
 `LaunchRequest.make("precise_sim", spending_limit={"cpu_hours": 0.006})`.
