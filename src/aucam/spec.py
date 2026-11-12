@@ -93,6 +93,10 @@ class WorkflowConfig(BaseModel):
     # aucam_client.Reporter.poll_signal() (needs a remote DataBackend).
     supports_pause: bool = False
     launch_on_start: bool = True
+    # Most workflows of this type running at once (W1); None:
+    # CampaignBudget.max_concurrency_per_workflow.  max_concurrent_workflows
+    # still caps the whole campaign.
+    max_running: int | None = None
     max_wall_time_s: float | None = None
     # Auto-cancel if the workflow's reporter goes silent longer than this.
     # Only checked for workflows that have emitted at least one report.
@@ -120,6 +124,13 @@ class WorkflowConfig(BaseModel):
             raise ValueError(
                 f"WorkflowConfig '{self.name}': block and launch_cmd are mutually exclusive"
             )
+
+    @field_validator("max_running")
+    @classmethod
+    def _check_max_running(cls, v):
+        if v is not None and v < 1:
+            raise ValueError("max_running must be >= 1 (or None)")
+        return v
 
     @field_validator("bounds")
     @classmethod

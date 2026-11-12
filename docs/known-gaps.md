@@ -23,7 +23,6 @@ that must land first.
 | 3 | B0 | Any budget dimension (e.g. `llm_tokens`) | Partial | with X1 |
 | 3 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) | |
 | 3 | R1 | Restart: rejoin running workflows, keep goals | Not started | |
-| 3 | W1 | Concurrency cap per workflow type | Not started | |
 | 3 | U3 | Example campaigns use their resource allocation | Not started | |
 | 3 | U5 | Per-workflow enforcement lags by one check | Open | |
 | 4 | U1 | Change a running workflow's allocation | Not started (decided: not for now) | |
@@ -104,14 +103,6 @@ from the controller's intent (`LaunchRequest.spending_limit` / `resources` /
   task counts from Delta runs. Limits: only AsyncFlow tasks are counted, so a
   command-line workflow is one task; a running workflow's own burst of tasks
   is not slowed, only new launches.
-- **W1 — concurrency cap per workflow type.** `CampaignBudget.max_concurrency_per_workflow`
-  is one number applied to every workflow type, so a long, expensive
-  simulation and a short analysis get the same cap. Plan: an optional cap on
-  each type, e.g. `WorkflowConfig(name="precise_sim", ..., max_running=2)`;
-  `max_concurrency_per_workflow` becomes the default for types that set none,
-  and `max_concurrent_workflows` stays the cap for the whole campaign. The
-  scheduler and `SchedulingContext.max_concurrency_per_type` need the
-  per-type values.
 
 ## Known problems
 

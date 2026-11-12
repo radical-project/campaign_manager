@@ -49,7 +49,10 @@ class SchedulingContext:
 
     running_by_type       — {workflow_type: count} currently active in this campaign.
     max_concurrency       — campaign-level concurrent-workflow cap.
-    max_concurrency_per_type — per-workflow-type cap (from CampaignBudget).
+    max_concurrency_per_type — default per-workflow-type cap
+                           (CampaignBudget.max_concurrency_per_workflow).
+    max_running_by_type   — caps of types that set their own
+                           (WorkflowConfig.max_running); use ``cap(type)``.
     telemetry             — node resources + live wall times (last policy-cycle snapshot).
     history               — recent WorkflowResults from this campaign, newest last.
     policy_cycles         — how many policy cycles have elapsed.
@@ -64,6 +67,11 @@ class SchedulingContext:
     policy_cycles: int
     campaign_name: str
     budget_remaining_fraction: float = 1.0
+    max_running_by_type: dict[str, int] = field(default_factory=dict)
+
+    def cap(self, workflow_type: str) -> int:
+        """How many workflows of this type may run at once (W1)."""
+        return self.max_running_by_type.get(workflow_type, self.max_concurrency_per_type)
 
 
 @dataclass
@@ -124,7 +132,7 @@ class SchedulingPolicy:
         for req in candidates:
             if len(selected) >= slots:
                 break
-            if running.get(req.workflow_type, 0) < ctx.max_concurrency_per_type:
+            if running.get(req.workflow_type, 0) < ctx.cap(req.workflow_type):
                 selected.append(req)
                 running[req.workflow_type] = running.get(req.workflow_type, 0) + 1
         return selected
@@ -323,7 +331,7 @@ class BanditSchedulingPolicy(SchedulingPolicy):
         running = dict(ctx.running_by_type)
         eligible: list[tuple[float, int, LaunchRequest]] = []
         for idx, req in enumerate(candidates):
-            if running.get(req.workflow_type, 0) < ctx.max_concurrency_per_type:
+            if running.get(req.workflow_type, 0) < ctx.cap(req.workflow_type):
                 ucb = self._ucb(self._arm_key(req), c=c_eff)
                 # idx as tiebreaker preserves original queue order for equal UCB
                 eligible.append((ucb, idx, req))
@@ -349,7 +357,7 @@ class BanditSchedulingPolicy(SchedulingPolicy):
             if len(selected) >= slots:
                 break
             t = running.get(req.workflow_type, 0)
-            if t < ctx.max_concurrency_per_type:
+            if t < ctx.cap(req.workflow_type):
                 selected.append(req)
                 running[req.workflow_type] = t + 1
                 if ucb < float("inf"):

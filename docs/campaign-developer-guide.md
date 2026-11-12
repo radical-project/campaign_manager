@@ -102,6 +102,7 @@ WorkflowConfig(
     task_description={"ranks": 4, "cores_per_rank": 8},  # launch_cmd: resource request
     env={"OMP_NUM_THREADS": "8"},  # launch_cmd: extra environment variables
     launch_on_start=True,  # queue one request when the campaign starts
+    max_running=None,  # at most this many at once; None: CampaignBudget's per-type cap (§9)
     max_wall_time_s=3600.0,  # cancel a workflow that takes longer
     stale_timeout_s=120.0,  # cancel a workflow that stops reporting (after its first report)
     supports_pause=False,  # True only if the workflow handles PAUSE/RESUME
@@ -492,6 +493,11 @@ CampaignBudget(
     spending={"gpu_hours": 10.0},  # lifetime limit per dimension (optional)
 )
 ```
+
+A workflow type can set its own cap, `WorkflowConfig(..., max_running=1)`, for
+example to run one long, expensive simulation at a time next to several short
+analyses; `max_concurrency_per_workflow` applies to the types that set none.
+A custom scheduling policy reads the caps with `ctx.cap(workflow_type)`.
 
 - **Charging.** Each workflow is charged per task from AsyncFlow telemetry (with
   `CampaignManager(enable_telemetry=True)` and resource keys in the task

@@ -139,7 +139,7 @@ class _RecencyBiasPolicy(SchedulingPolicy):
         for req in ordered:
             if len(selected) >= slots:
                 break
-            if running.get(req.workflow_type, 0) < ctx.max_concurrency_per_type:
+            if running.get(req.workflow_type, 0) < ctx.cap(req.workflow_type):
                 selected.append(req)
                 running[req.workflow_type] = running.get(req.workflow_type, 0) + 1
         return selected

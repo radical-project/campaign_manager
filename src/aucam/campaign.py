@@ -1055,6 +1055,10 @@ class _CampaignInstance:
             }
         return by_type
 
+    def _type_caps(self) -> dict[str, int]:
+        """Per-type caps of workflow types that set WorkflowConfig.max_running (W1)."""
+        return {w.name: w.max_running for w in self.spec.workflows if w.max_running is not None}
+
     def _held_estimate(self, request: LaunchRequest, limit: dict[str, float]) -> dict[str, float]:
         """What a workflow is held at against the campaign while it runs.
 
@@ -1540,6 +1544,7 @@ class _CampaignInstance:
         # Running instances per type, updated as requests launch this round;
         # the per-type limit is enforced here for every request, whatever the
         # policy returns.
+        caps = self._type_caps()
         per_type_cap = self.spec.budget.max_concurrency_per_workflow
         counts = self._running_by_type()
         launched = dropped = 0
@@ -1555,7 +1560,7 @@ class _CampaignInstance:
             nonlocal launched, dropped
             if len(self._active) >= max_concurrent:
                 return "full"
-            if counts.get(req.workflow_type, 0) >= per_type_cap:
+            if counts.get(req.workflow_type, 0) >= caps.get(req.workflow_type, per_type_cap):
                 return "skip"  # this type is full; others may still fit
             alloc = self._size(req)
             if alloc is None:
@@ -1601,6 +1606,7 @@ class _CampaignInstance:
                 running_by_type=self._running_by_type(),
                 max_concurrency=max_concurrent,
                 max_concurrency_per_type=self.spec.budget.max_concurrency_per_workflow,
+                max_running_by_type=caps,
                 telemetry=self._last_telemetry,
                 history=list(self._history),
                 policy_cycles=self._policy_cycles,

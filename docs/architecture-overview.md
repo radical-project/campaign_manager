@@ -144,7 +144,8 @@ best score). The caller can use it to plan the next campaign.
 ## Budgets
 
 A campaign limits how many workflows run at once (`max_concurrent_workflows`
-in total and `max_concurrency_per_workflow` for each workflow type) and can
+in total, and `max_concurrency_per_workflow` or a type's own `max_running` for
+each workflow type) and can
 set a spending limit. AuCaM adds what has been spent to the expected cost of
 the workflows still running, and starts a new workflow only if its own expected
 cost still fits. If running workflows cost more than expected and actual
