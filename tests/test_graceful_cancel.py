@@ -224,3 +224,22 @@ def test_on_limit_finish_lets_them_finish():
     out, _ = _run(ctl, wfs, spending={"cpu_hours": 10.0 / H}, on_limit="finish")
     assert all(r.returncode == 0 for r in ctl.results.values())
     assert abs(out.spent["cpu_hours"] * H - 20.0) < 1e-6
+
+
+def test_over_resources_is_cancelled_gracefully():
+    async def greedy(reporter: WorkflowReporter, context: dict) -> None:
+        cpus = 2 * context["resources"]["cpus"]  # uses twice what it was given
+        for _ in range(200):
+            if await reporter.poll() == CampaignDecision.CANCEL:
+                return
+            await asyncio.sleep(0.02)
+            await reporter.emit(score=0.5, metrics={"cpus_in_use": cpus})
+
+    ctl = CancelAfter(["greedy"], after_s=99)
+    out, _ = _run(
+        ctl,
+        [WorkflowConfig(name="greedy", block=greedy, resources={"cpus": 2}, cancel_grace_s=2.0)],
+    )
+    r = ctl.results["greedy"]
+    assert r.over_resources and r.cancel == "graceful"
+    assert out.resource_cancels == 1

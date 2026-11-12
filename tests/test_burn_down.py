@@ -10,6 +10,7 @@ from src.aucam import (
     CampaignController,
     CampaignManager,
     CampaignSpec,
+    LaunchRequest,
     PolicyResult,
     WorkflowConfig,
     WorkflowReporter,
@@ -81,3 +82,47 @@ def test_burn_down_fields():
     assert bad["completed"] == 0 and bad["failed"] >= 1
     assert bad["cost_per_completed"] == {} and bad["mean_score"] is None
     assert abs(bad["avg_cost"]["cpu_hours"] * H - 1.0) < 1e-6
+
+
+def test_projected_includes_queued_requests():
+    async def long(reporter: WorkflowReporter) -> None:
+        await asyncio.sleep(0.3)
+        await reporter.emit(score=1.0, metrics={"cpu_hours": 2.0 / H})
+
+    class Q(CampaignController):
+        def __init__(self) -> None:
+            super().__init__()
+            self.views: list[tuple[int, dict]] = []
+            self.sent = False
+
+        def decide(self, obs: dict) -> PolicyResult:
+            self.views.append((obs["queue_snapshot"].total_queued, obs["budget"]))
+            reqs = [] if self.sent else [LaunchRequest.make("w") for _ in range(3)]
+            self.sent = True
+            return PolicyResult(launch_requests=reqs, terminate=len(self.views) > 6)
+
+    ctl = Q()
+    spec = CampaignSpec(
+        name="proj",
+        budget=CampaignBudget(
+            max_concurrent_workflows=1,
+            max_concurrency_per_workflow=1,
+            spending={"cpu_hours": 100.0 / H},
+        ),
+        controller=ctl,
+        workflows=[
+            WorkflowConfig(
+                name="w",
+                block=long,
+                launch_on_start=False,
+                declared_spending={"cpu_hours": 2.0 / H},
+            )
+        ],
+        policy_interval_s=0.03,
+        shutdown_timeout_s=5.0,
+    )
+    asyncio.run(asyncio.wait_for(CampaignManager().run(spec), timeout=30.0))
+    queued, view = next((q, v) for q, v in ctl.views if q == 2)
+    b = view["burn"]["cpu_hours"]
+    expected = view["spent"].get("cpu_hours", 0.0) + view["in_flight"]["cpu_hours"] + 2 * 2.0 / H
+    assert abs(b["projected"] - expected) < 1e-12

@@ -90,6 +90,21 @@ def test_signals(cm_env) -> None:
     asyncio.run(backend.write_signal("camp.wf.1", CampaignDecision.PAUSE))
     assert rep.poll_signal() == "PAUSE"
     assert rep.poll_signal() is None  # consumed
+    asyncio.run(backend.write_signal("camp.wf.1", CampaignDecision.CANCEL))
+    assert rep.poll_signal() == "CANCEL"
+
+
+def test_cancel_signal_ends_wait_and_cli(cm_env, capsys) -> None:
+    backend = RhapsodyRedisBackend(cm_env)
+    rep = Reporter()
+    asyncio.run(backend.write_signal("camp.wf.1", CampaignDecision.CANCEL))
+    assert rep.wait_for_resume(interval=0.01) == "CANCEL"  # a paused program gets CANCEL
+    asyncio.run(backend.write_signal("camp.wf.1", CampaignDecision.CANCEL))
+    assert cli_main(["signal"]) == 0
+    assert capsys.readouterr().out.strip() == "CANCEL"
+    asyncio.run(backend.write_signal("camp.wf.1", CampaignDecision.RESUME))
+    assert cli_main(["wait-resume", "--interval", "0.01"]) == 0
+    assert capsys.readouterr().out.strip() == "RESUME"
 
 
 def test_non_json_score_rejected() -> None:

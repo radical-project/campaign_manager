@@ -98,3 +98,26 @@ def test_stuck_decide_does_not_block_campaign_end():
 def test_no_errors_when_decide_behaves():
     out = _run(Faulty({}))
     assert out.goal_reached and out.controller_errors == 0
+
+
+class BadObserve(Faulty):
+    """observe() raises in its first two cycles."""
+
+    def __init__(self) -> None:
+        super().__init__({}, goal_n=3)
+        self.observed = 0
+
+    def observe(self, **kw):
+        self.observed += 1
+        if self.observed <= 2:
+            raise ValueError("observe bug")
+        return super().observe(**kw)
+
+
+def test_observe_raising_uses_base_observe(caplog):
+    ctl = BadObserve()
+    with caplog.at_level(logging.INFO, logger="src.aucam"):
+        out = _run(ctl)
+    assert out.goal_reached
+    assert out.controller_errors == 2
+    assert "observe() raised ValueError: observe bug" in caplog.text

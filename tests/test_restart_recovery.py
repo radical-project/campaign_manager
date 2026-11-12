@@ -14,6 +14,7 @@ from src.aucam import (
     CampaignBudget,
     CampaignCheckpoint,
     CampaignController,
+    CampaignDecision,
     CampaignManager,
     CampaignSpec,
     Goal,
@@ -23,6 +24,7 @@ from src.aucam import (
     WorkflowReport,
     WorkflowReporter,
     checkpoint_path,
+    read_checkpoint,
     write_checkpoint,
 )
 from src.aucam.checkpoint import ActiveWorkflowRecord
@@ -199,3 +201,70 @@ def test_silent_adopted_workflow_is_run_again(tmp_path: Path):
     first, second = ctl.results
     assert first.workflow_id == "r1.cmd.alive" and first.returncode == -1
     assert second.workflow_id != "r1.cmd.alive" and second.returncode == 0  # run again
+
+
+def test_checkpoint_records_running_workflows_spending(tmp_path: Path):
+    async def slow(reporter: WorkflowReporter) -> None:
+        for i in range(1, 30):
+            await asyncio.sleep(0.02)
+            await reporter.emit(score=0.5, metrics={"cpu_hours": i / H})
+
+    class Peek(CampaignController):
+        def __init__(self) -> None:
+            super().__init__()
+            self.seen: list[dict] = []
+
+        def decide(self, obs: dict) -> PolicyResult:
+            ck = read_checkpoint(checkpoint_path(str(tmp_path), "r1"))
+            if ck is not None and ck.active:
+                self.seen.append(ck.active[0].spent_so_far)
+            return PolicyResult(terminate=len(self.seen) >= 5)
+
+    ctl = Peek()
+    _run(_spec(ctl, tmp_path, [WorkflowConfig(name="slow", block=slow)]))
+    assert ctl.seen and ctl.seen[-1]["cpu_hours"] > 0
+    assert ctl.seen[-1]["cpu_hours"] >= ctl.seen[0]["cpu_hours"]
+
+
+def test_cancelling_an_adopted_workflow_sends_cancel(tmp_path: Path):
+    class CancelIt(Until):
+        def decide(self, obs: dict) -> PolicyResult:
+            res = super().decide(obs)
+            if "r1.cmd.alive" in obs["wf_types"]:
+                res.decisions["r1.cmd.alive"] = CampaignDecision.CANCEL
+            return res
+
+    backend = RemoteLike()
+
+    async def feed(b):
+        while True:  # keeps running and reporting; never sends done
+            b.put("r1.cmd.alive", score=0.5, metrics={})
+            await asyncio.sleep(0.02)
+
+    _ckpt(
+        tmp_path,
+        active=[
+            ActiveWorkflowRecord(wf_id="r1.cmd.alive", workflow_type="cmd", started_at=time.time())
+        ],
+    )
+    ctl = CancelIt(1)
+    spec = _spec(
+        ctl,
+        tmp_path,
+        [
+            WorkflowConfig(
+                name="cmd", launch_cmd=[sys.executable, "-c", "pass"], launch_on_start=False
+            )
+        ],
+        data_backend=backend,
+    )
+
+    async def main():
+        task = asyncio.ensure_future(feed(backend))
+        await asyncio.wait_for(CampaignManager().run(spec), timeout=30.0)
+        task.cancel()
+
+    asyncio.run(main())
+    r = ctl.results[0]
+    assert r.workflow_id == "r1.cmd.alive" and r.returncode == -1 and r.cancel == "forced"
+    assert backend._b._signals.get("r1.cmd.alive") == CampaignDecision.CANCEL  # asked to stop

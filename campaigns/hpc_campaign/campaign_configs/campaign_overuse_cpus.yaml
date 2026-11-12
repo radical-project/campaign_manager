@@ -58,6 +58,6 @@ workflows:
     resources:
       cpus: 1
 
-policy_interval_s: 0.5
+policy_interval_s: 0.1         # checks often: sim_worker_b runs only ≈ 0.3 s
 shutdown_timeout_s: 10.0
 checkpoint_dir: ~
