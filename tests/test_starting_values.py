@@ -145,3 +145,30 @@ def test_resources_raised_after_overuse():
     assert cpus[0] == 2 and ctl.results[0].over_resources
     assert cpus[1] == 3  # ceil(2 × 1.25)
     assert ctl.results[1].returncode == 0
+
+
+def test_fixed_amount_is_not_learned():
+    # learn=False: the starting value stays, even after 3 successes.
+    ctl = Collect(ok=5)
+    wfc = WorkflowConfig(
+        name="sim",
+        block=worker(2.0),
+        launch_on_start=False,
+        spending_limit={"cpu_hours": 3.0 / H},
+        learn=False,
+    )
+    assert _run(ctl, wfc) == [3.0] * 5
+
+
+def test_fixed_amount_is_not_raised_after_a_cancel():
+    # learn=False: a workflow cancelled at its limit does not raise the next one's.
+    ctl = Collect(ok=1, n=3)
+    wfc = WorkflowConfig(
+        name="sim",
+        block=worker(5.0),
+        launch_on_start=False,
+        spending_limit={"cpu_hours": 2.0 / H},
+        learn=False,
+    )
+    assert _run(ctl, wfc) == [2.0] * 3
+    assert all(r.over_budget for r in ctl.results)

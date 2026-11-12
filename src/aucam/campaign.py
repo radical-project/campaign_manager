@@ -363,7 +363,7 @@ class _CampaignInstance:
         self._walltime_cancels = 0
         self._budget_cancels = 0  # runs cancelled for exceeding their own spending limit
         self._resource_cancels = 0  # runs cancelled for using more resources than given
-        self._unfit_dropped = 0  # requests dropped: their minimum did not fit the budget
+        self._unfit_dropped = 0  # requests dropped: their allocation did not fit
         self._unfit_logged: set[int] = set()  # id() of queued requests logged as not fitting
         self._controller_errors = 0  # cycles where decide()/observe() failed or timed out
         self._slow_decide: asyncio.Future | None = None  # decide() still running past its timeout
@@ -976,6 +976,8 @@ class _CampaignInstance:
         rstats = self._type_resource_stats.get(request.workflow_type, {})
         burn = self._allocator.campaign_view(self.name)["burn"]
         own_res = request.resources or {}
+        if not wfc.learn:  # fixed amount: nothing learned or raised applies
+            learned, rstats = {}, {}
         ctx = SizingContext(
             proposal=self._proposal(wfc, request),
             learned_cost=learned,
@@ -1000,11 +1002,14 @@ class _CampaignInstance:
                 for k, v in wfc.declared_spending.items()
                 if k != "wall_hours" and v is not None
             },
-            raised=dict(self._type_raised.get(request.workflow_type, {})),
-            raised_resources=dict(self._type_raised_res.get(request.workflow_type, {})),
+            raised=dict(self._type_raised.get(request.workflow_type, {})) if wfc.learn else {},
+            raised_resources=(
+                dict(self._type_raised_res.get(request.workflow_type, {})) if wfc.learn else {}
+            ),
             allocations=self._allocation_history(),
             free=self._free_capacity(),
             capacity=dict(self.spec.budget.capacity),
+            learn=wfc.learn,
         )
         alloc = self._policy.size(request, ctx)
         if alloc is None:
@@ -1808,7 +1813,7 @@ class _CampaignInstance:
                 dropped += 1
                 logger.info(
                     f"[SCHEDULER-{self.name}] DROP {req.workflow_type}: "
-                    f"its minimum does not fit the remaining budget"
+                    f"its allocation does not fit the remaining budget"
                 )
                 return "dropped"
             # Capacity: the resources it is given must fit what is free.
@@ -2796,5 +2801,5 @@ class _CampaignInstance:
 
     @property
     def unfit_dropped(self) -> int:
-        """Launch requests dropped because their minimum did not fit the budget."""
+        """Launch requests dropped because their allocation did not fit."""
         return self._unfit_dropped

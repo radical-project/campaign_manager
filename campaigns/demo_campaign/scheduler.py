@@ -218,8 +218,12 @@ class AllocationLearner(BanditSchedulingPolicy):
 
     def size(self, request: LaunchRequest, ctx: SizingContext) -> Allocation | None:
         base = super().size(request, ctx)
-        if base is None or (ctx.requested is not None and ctx.requested.spending_limit):
-            return base  # nothing to scale, or the controller set the amount
+        if (
+            base is None
+            or not ctx.learn
+            or (ctx.requested is not None and ctx.requested.spending_limit)
+        ):
+            return base  # nothing to scale, a fixed amount, or the controller set it
         if self.types is not None and request.workflow_type not in self.types:
             return base
         factor = self._choose(request.workflow_type, ctx)

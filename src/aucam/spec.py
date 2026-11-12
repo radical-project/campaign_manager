@@ -72,6 +72,11 @@ class WorkflowConfig(BaseModel):
     # and must size its tasks to them; AuCaM cancels a workflow that uses more
     # (measured from its running tasks, or reported as cpus_in_use / gpus_in_use).
     resources: dict[str, float] = {}
+    # False: every workflow of this type gets the same amount — spending_limit /
+    # resources as given (declared_spending + size_margin without one) — and
+    # AuCaM does not learn or raise it.  A LaunchRequest can still set an
+    # amount for one workflow.
+    learn: bool = True
     # Graceful cancel (P1): seconds this workflow gets to save its state and
     # exit after AuCaM sends it CANCEL (reporter.poll() returns
     # CampaignDecision.CANCEL; a command-line program reads it with

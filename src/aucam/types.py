@@ -233,8 +233,8 @@ class CampaignOutcome:
     # using more resources at once than they were given.
     budget_cancels: int = 0
     resource_cancels: int = 0
-    # Launch requests dropped because even their minimum did not fit the
-    # remaining campaign budget.
+    # Launch requests dropped because their allocation did not fit the
+    # remaining budget or the capacity, with nothing else running.
     unfit_dropped: int = 0
     # Policy cycles where the controller's decide() or observe() failed or
     # timed out; AuCaM used its built-in rules for those cycles.

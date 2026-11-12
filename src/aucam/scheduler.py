@@ -101,6 +101,9 @@ class SizingContext:
     allocations  — the allocation history: one AllocationRecord per finished
                    workflow (allocation, run time, spending, outcome, source,
                    progress, credit, pending).
+    learn        — False: the type has a fixed amount (WorkflowConfig.learn);
+                   learned and raised amounts are empty, and a learner
+                   overriding size() should keep the default amount.
     """
 
     proposal: Allocation
@@ -121,6 +124,7 @@ class SizingContext:
     # the campaign's total capacity; a resource it does not name counts as 0.
     free: dict[str, float] = field(default_factory=dict)
     capacity: dict[str, float] = field(default_factory=dict)
+    learn: bool = True
 
 
 # ---------------------------------------------------------------------------
