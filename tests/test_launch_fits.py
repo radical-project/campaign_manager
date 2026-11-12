@@ -40,7 +40,10 @@ def cfg(name: str, cpu_s: float) -> WorkflowConfig:
     return WorkflowConfig(
         name=name,
         block=make(cpu_s),
-        declared_spending={"wall_hours": 0.1 / H, "cpu_hours": cpu_s / H},
+        # Declared run time well above the 0.1 s it takes: before its only report
+        # (at the end), AuCaM prorates the estimate by elapsed / declared time,
+        # which must stay below the limit even on a slow machine.
+        declared_spending={"wall_hours": 1.0 / H, "cpu_hours": cpu_s / H},
         spending_limit={"cpu_hours": cpu_s / H},  # starting limit = its cost
     )
 
