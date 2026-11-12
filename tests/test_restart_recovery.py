@@ -29,6 +29,9 @@ from src.aucam import (
 )
 from src.aucam.checkpoint import ActiveWorkflowRecord
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 H = 3600.0
 
 
@@ -76,7 +79,9 @@ class Until(CampaignController):
 def _spec(ctl, tmp_path, workflows, **kw):
     return CampaignSpec(
         name="r1",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=2
+        ),
         controller=ctl,
         workflows=workflows,
         policy_interval_s=0.02,

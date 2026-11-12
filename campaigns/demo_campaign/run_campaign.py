@@ -286,6 +286,9 @@ def build_spec(
         budget=CampaignBudget(
             max_concurrent_workflows=max_concurrent,
             max_concurrency_per_workflow=2,
+            # The CPUs the demo may use at once; a sim starts only if its CPUs
+            # (fast_sim 1, precise_sim 2) fit what is free.
+            capacity={"cpus": 2 * max_concurrent},
             spending={"cpu_hours": 0.05},  # per-campaign spending cap
         ),
         controller=ShowcaseController(

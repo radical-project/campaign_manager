@@ -29,6 +29,9 @@ from src.aucam.checkpoint import (
     _to_json,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 H = 3600.0
 
 
@@ -119,7 +122,9 @@ def test_held_requests_and_triggers_are_restored(tmp_path: Path):
     ctl = Until(analyses=1)
     spec = CampaignSpec(
         name="restart",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=2
+        ),
         controller=ctl,
         workflows=[
             WorkflowConfig(name="sim", block=sim, launch_on_start=False),

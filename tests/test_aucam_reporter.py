@@ -32,6 +32,9 @@ from src.aucam import (
     WorkflowResult,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 THRESHOLD = 0.5
 GOAL_COMPLETIONS = 2
 LOSS_THRESHOLD = 1.0  # cancel if loss > this
@@ -186,7 +189,9 @@ async def _run_scalar() -> None:
 
     spec = CampaignSpec(
         name="scalar",
-        budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=3),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=3, max_concurrency_per_workflow=3
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
@@ -219,7 +224,9 @@ async def _run_dict() -> None:
 
     spec = CampaignSpec(
         name="dict",
-        budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=3),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=3, max_concurrency_per_workflow=3
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
@@ -252,7 +259,9 @@ async def _run_both() -> None:
 
     scalar_spec = CampaignSpec(
         name="scalar",
-        budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=3),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=3, max_concurrency_per_workflow=3
+        ),
         controller=scalar_ctrl,
         workflows=[
             WorkflowConfig(
@@ -268,7 +277,9 @@ async def _run_both() -> None:
     )
     dict_spec = CampaignSpec(
         name="dict",
-        budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=3),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=3, max_concurrency_per_workflow=3
+        ),
         controller=dict_ctrl,
         workflows=[
             WorkflowConfig(

@@ -20,6 +20,9 @@ from src.aucam import (
     WorkflowReporter,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 H = 3600.0
 
 
@@ -71,6 +74,7 @@ def _run(workflows, requests, limit_cpu_s, slots=4):
     spec = CampaignSpec(
         name="fits",
         budget=CampaignBudget(
+            capacity=CAPACITY,
             max_concurrent_workflows=slots,
             max_concurrency_per_workflow=slots,
             spending={"cpu_hours": limit_cpu_s / H},

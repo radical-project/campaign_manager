@@ -59,6 +59,8 @@ class ControllerConfig:
 class BudgetConfig:
     max_concurrent: int = 2  # parallel miniapps replicas per campaign
     max_concurrency_per_workflow: int = 1
+    # The allocation's total resources (e.g. {"cpus": 16, "gpus": 4}); required.
+    capacity: dict[str, float] = field(default_factory=lambda: {"cpus": 2})
     spending: dict[str, float | None] = field(default_factory=dict)
 
 
@@ -193,6 +195,7 @@ def load_campaign(path: str | Path) -> CampaignConfig:
         budget=BudgetConfig(
             max_concurrent=int(bud.get("max_concurrent", 2)),
             max_concurrency_per_workflow=int(bud.get("max_concurrency_per_workflow", 1)),
+            capacity=_spending_dict(bud.get("capacity")) or {"cpus": 2},
             spending={k: _optional_float(v) for k, v in sp.items()},
         ),
         workflows=WorkflowsConfig(

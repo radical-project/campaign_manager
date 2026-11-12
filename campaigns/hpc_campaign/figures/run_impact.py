@@ -159,7 +159,9 @@ def _spec(name: str, types: list[str]) -> tuple[CampaignSpec, DemoController]:
         name=name,
         workflows=[WORKFLOWS[t] for t in types],
         controller=ctrl,
-        budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            max_concurrent_workflows=1, max_concurrency_per_workflow=1, capacity={"cpus": 4}
+        ),
         scheduling_policy=BanditSchedulingPolicy(reward_fn=_reward, exploration=EXPLORATION),
         policy_interval_s=POLICY_INTERVAL_S,
     )

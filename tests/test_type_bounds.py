@@ -19,6 +19,9 @@ from src.aucam import (
     WorkflowReporter,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 H = 3600.0
 
 
@@ -57,7 +60,9 @@ class Collect(CampaignController):
 def _run(ctl):
     spec = CampaignSpec(
         name="typebounds",
-        budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
+        ),
         controller=ctl,
         workflows=[WorkflowConfig(name="sim", block=sim, bounds={"cpu_hours": (2 / H, 10 / H)})],
         policy_interval_s=0.02,

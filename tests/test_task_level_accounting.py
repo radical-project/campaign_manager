@@ -23,6 +23,9 @@ from src.aucam import (  # noqa: E402
     WorkflowConfig,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 SLEEP_S = 0.3
 
 
@@ -39,7 +42,9 @@ async def gpu_workflow(flow=None) -> None:
 def test_task_level_accounting_charges_requested_resources() -> None:
     spec = CampaignSpec(
         name="acct",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=1
+        ),
         controller=CampaignController(goal_type="cmd", goal_n=1),
         workflows=[
             WorkflowConfig(
@@ -79,7 +84,9 @@ def test_task_counts_reach_the_controller() -> None:
 
     spec = CampaignSpec(
         name="counts",
-        budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
+        ),
         controller=Recorder(launch=["gpu"], goal_type="gpu", goal_n=1),
         workflows=[WorkflowConfig(name="gpu", block=gpu_workflow)],
         policy_interval_s=0.05,

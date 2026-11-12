@@ -61,6 +61,8 @@ class ControllerConfig:
 class BudgetConfig:
     max_concurrent: int = 4
     max_concurrency_per_workflow: int = 2
+    # The allocation's total resources (e.g. {"cpus": 4}); required.
+    capacity: dict = field(default_factory=lambda: {"cpus": 4})
     cpu_hours: float | None = None  # soft spending cap; None = unlimited
     gpu_hours: float | None = None
 
@@ -156,6 +158,7 @@ def load_campaign(path: str | Path) -> CampaignConfig:
         budget=BudgetConfig(
             max_concurrent=int(bud.get("max_concurrent", 4)),
             max_concurrency_per_workflow=int(bud.get("max_concurrency_per_workflow", 2)),
+            capacity={k: float(v) for k, v in (bud.get("capacity") or {"cpus": 4}).items()},
             cpu_hours=_optional_float(sp.get("cpu_hours")),
             gpu_hours=_optional_float(sp.get("gpu_hours")),
         ),

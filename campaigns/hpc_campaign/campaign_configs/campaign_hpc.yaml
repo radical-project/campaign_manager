@@ -8,6 +8,8 @@ controller:
 budget:
   max_concurrent: 3           # max concurrent workflows in this campaign
   max_concurrency_per_workflow: 2
+  capacity:   # the allocation's CPUs; set to yours
+    cpus: 64
   spending:
     cpu_hours: 0.042          # ~3 sim_worker completions at ≈50 s each; remove to disable
     gpu_hours: ~

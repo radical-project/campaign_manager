@@ -17,6 +17,8 @@ from src.aucam import (
 )
 from src.aucam.campaign import _CampaignInstance
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
 
 async def agent(reporter: WorkflowReporter) -> None:
     await asyncio.sleep(0.03)
@@ -43,7 +45,10 @@ def _run(ctl, spending):
     spec = CampaignSpec(
         name="dims",
         budget=CampaignBudget(
-            max_concurrent_workflows=1, max_concurrency_per_workflow=1, spending=spending
+            capacity=CAPACITY,
+            max_concurrent_workflows=1,
+            max_concurrency_per_workflow=1,
+            spending=spending,
         ),
         controller=ctl,
         workflows=[WorkflowConfig(name="agent", block=agent)],  # nothing declared

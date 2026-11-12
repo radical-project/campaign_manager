@@ -64,7 +64,9 @@ async def my_sim(reporter: WorkflowReporter) -> None:
 
 spec = CampaignSpec(
     name="hello",
-    budget=CampaignBudget(max_concurrent_workflows=4, max_concurrency_per_workflow=4),
+    budget=CampaignBudget(
+        max_concurrent_workflows=4, max_concurrency_per_workflow=4, capacity={"cpus": 8}
+    ),
     controller=CampaignController(launch=["sim"], goal_type="sim", goal_n=10),
     workflows=[WorkflowConfig(name="sim", block=my_sim)],
     policy_interval_s=0.5,

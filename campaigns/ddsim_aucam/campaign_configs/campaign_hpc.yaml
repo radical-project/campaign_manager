@@ -18,6 +18,8 @@ controller:
 budget:
   max_concurrent: 1
   max_concurrency_per_workflow: 1
+  capacity:   # the allocation's CPUs; set to yours
+    cpus: 64
   spending:
     cpu_hours: 0.25       # ~6 completions at ~120–220 s each; 0 or remove to disable
 

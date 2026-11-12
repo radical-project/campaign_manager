@@ -18,6 +18,8 @@ controller:
 budget:
   max_concurrent: 4
   max_concurrency_per_workflow: 2
+  capacity:   # CPUs available at once (each workflow is given 1)
+    cpus: 4
   spending:
     cpu_hours: 0.01
 

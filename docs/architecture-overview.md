@@ -171,11 +171,13 @@ See [budgets and spending](budget.md) for how spending is measured.
   outcome; a second `run()` while one is running raises an error. *Why:* the
   caller decides what to run next from each outcome. A scheduling policy
   instance passed to several specs keeps what it learned across campaigns.
-- **Resources are given per workflow, not per campaign.** The campaign limits what
-  it spends and how many workflows run; it has no limit on CPUs or GPUs busy at
-  once. Each workflow, though, is given an allocation when it starts — a spending
-  limit and the CPUs and GPUs it may use at once — sized by the scheduler from
-  the controller's request, the type's learned cost and the remaining budget.
+- **Resources are given per workflow, within the campaign's capacity.** The
+  campaign states the CPUs and GPUs of its allocation (`CampaignBudget.capacity`),
+  what it may spend, and how many workflows run. Each workflow is given an
+  allocation when it starts — a spending limit and the CPUs and GPUs it may use
+  at once — sized by the scheduler from the controller's request, the type's
+  starting values and learned costs, the remaining budget and the free capacity;
+  it starts only if that fits.
   The workflow must size its own tasks to it; AuCaM cancels a workflow that spends
   past its limit or uses more than it was given. *Why:* AuCaM cannot know which
   nodes a workflow's tasks hold, so the workflow, which does know, is told its

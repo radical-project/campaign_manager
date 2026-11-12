@@ -18,6 +18,8 @@ from src.aucam import (
     WorkflowReporter,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
 
 async def quick(reporter: WorkflowReporter) -> None:
     await asyncio.sleep(0.05)
@@ -49,7 +51,9 @@ class Faulty(CampaignController):
 def _run(ctl, decide_timeout_s=None):
     spec = CampaignSpec(
         name="fallback",
-        budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
+        ),
         controller=ctl,
         workflows=[WorkflowConfig(name="quick", block=quick)],
         policy_interval_s=0.05,

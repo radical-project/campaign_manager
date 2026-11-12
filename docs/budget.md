@@ -40,6 +40,7 @@ workflows (§4).
 CampaignBudget(
     max_concurrent_workflows=4,
     max_concurrency_per_workflow=2,
+    capacity={"cpus": 64, "gpus": 4},  # the allocation's resources (required)
     spending={"cpu_hours": 1.0, "gpu_hours": 0.25},
 )
 
@@ -48,7 +49,7 @@ WorkflowConfig(
     name="sim",
     block=my_workflow,
     declared_spending={"wall_hours": 0.5, "cpu_hours": 0.5, "gpu_hours": 0.05},
-    spending_limit={"cpu_hours": 1.0},  # most one workflow may spend (optional, §4)
+    spending_limit={"cpu_hours": 1.0},  # starting limit per workflow (optional, §4)
 )
 
 # A different limit for one workflow (optional; overrides the type's)

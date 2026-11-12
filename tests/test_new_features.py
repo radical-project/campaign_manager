@@ -39,6 +39,9 @@ from src.aucam.checkpoint import (
     _to_json,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -102,6 +105,7 @@ def test_b1_burn_in_observation() -> None:
     spec = CampaignSpec(
         name="burn_obs",
         budget=CampaignBudget(
+            capacity=CAPACITY,
             max_concurrent_workflows=1,
             max_concurrency_per_workflow=1,
             spending={"cpu_hours": 10.0},
@@ -131,7 +135,9 @@ def test_b3_learned_cost_unit() -> None:
 
     spec = CampaignSpec(
         name="lc",
-        budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
+        ),
         controller=CampaignController(),
         workflows=[WorkflowConfig(name="wf", block=quick)],
         policy_interval_s=60.0,
@@ -183,7 +189,9 @@ def test_campaign_idle_exit() -> None:
 
     spec = CampaignSpec(
         name="idle_exit",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=2
+        ),
         controller=IdleCtrl(),
         workflows=[WorkflowConfig(name="w", block=quick, launch_on_start=False)],
         policy_interval_s=0.05,
@@ -206,7 +214,9 @@ def _idle_spec(name: str, **kw) -> CampaignSpec:
 
     return CampaignSpec(
         name=name,
-        budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
+        ),
         controller=OneShot(),
         workflows=[WorkflowConfig(name="w", block=quick, launch_on_start=False)],
         policy_interval_s=0.05,
@@ -320,7 +330,9 @@ def test_dep_satisfied_restored_before_queue(tmp_path: Path) -> None:
     ctrl = DoneCtrl()
     spec = CampaignSpec(
         name="dep_restored",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=2
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(name="source", block=quick, launch_on_start=False),
@@ -359,7 +371,9 @@ def test_inner_block_uid_registered_in_wf_tags() -> None:
 
     spec = CampaignSpec(
         name="inner",
-        budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
+        ),
         controller=CampaignController(),
         workflows=[WorkflowConfig(name="w", block=quick)],
         policy_interval_s=60.0,
@@ -415,7 +429,9 @@ def test_inner_block_cross_campaign_not_registered() -> None:
 
     spec = CampaignSpec(
         name="other",
-        budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
+        ),
         controller=CampaignController(),
         workflows=[WorkflowConfig(name="w", block=quick)],
         policy_interval_s=60.0,
@@ -468,6 +484,7 @@ def test_live_inflight_proration_holds_full_cost_and_grows_on_overrun() -> None:
     spec = CampaignSpec(
         name="live_prorate",
         budget=CampaignBudget(
+            capacity=CAPACITY,
             max_concurrent_workflows=1,
             max_concurrency_per_workflow=1,
             spending={"cpu_hours": 100.0},
@@ -512,6 +529,7 @@ def test_live_inflight_reported_path_raises_estimate() -> None:
     spec = CampaignSpec(
         name="live_reported",
         budget=CampaignBudget(
+            capacity=CAPACITY,
             max_concurrent_workflows=1,
             max_concurrency_per_workflow=1,
             spending={"cpu_hours": 100.0},
@@ -539,6 +557,7 @@ def _bare_instance(name: str = "fx", wf_type: str = "w") -> _CampaignInstance:
     spec = CampaignSpec(
         name=name,
         budget=CampaignBudget(
+            capacity=CAPACITY,
             max_concurrent_workflows=2,
             max_concurrency_per_workflow=2,
             spending={"cpu_hours": 100.0},
@@ -577,7 +596,9 @@ def test_task_level_workflow_without_charges_finishes() -> None:
 
     spec = CampaignSpec(
         name="tl_nocharge",
-        budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
+        ),
         controller=Ctrl(),
         workflows=[WorkflowConfig(name="w", block=cancelled_mid_task)],
         policy_interval_s=0.1,
@@ -659,7 +680,9 @@ def test_learned_cost_only_from_successful_runs() -> None:
     decl = {"wall_hours": 1.0, "cpu_hours": 3.0}
     spec = CampaignSpec(
         name="lc_rc",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=1
+        ),
         controller=Ctrl(),
         workflows=[
             WorkflowConfig(name="ok", block=ok, declared_spending=decl, launch_on_start=False),
@@ -705,7 +728,9 @@ def _counting_instance():
 
     spec = CampaignSpec(
         name="counts",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=2
+        ),
         controller=CampaignController(),
         workflows=[WorkflowConfig(name="w", block=quick)],
         policy_interval_s=60.0,

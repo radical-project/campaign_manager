@@ -23,6 +23,8 @@ controller:
 budget:
   max_concurrent: 2      # max parallel miniapps replicas per campaign
   max_concurrency_per_workflow: 1
+  capacity:   # CPUs available at once (each workflow is given 1)
+    cpus: 2
   spending: {}           # e.g. {cpu_hours: 0.5}
 
 miniapps:

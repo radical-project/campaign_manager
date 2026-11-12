@@ -33,6 +33,8 @@ from src.aucam import (  # noqa: E402
 from src.aucam_client import Reporter, ReporterConfigError, encode_report  # noqa: E402
 from src.aucam_client.cli import main as cli_main  # noqa: E402
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
 
 @pytest.fixture()
 def redis_endpoint():
@@ -174,7 +176,9 @@ def test_shell_workflow_reports_through_cli(redis_endpoint) -> None:
     ctl = Collect()
     spec = CampaignSpec(
         name="shellcamp",
-        budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
+        ),
         controller=ctl,
         workflows=[
             WorkflowConfig(name="sh", launch_on_start=False, launch_cmd=["bash", "-c", script])

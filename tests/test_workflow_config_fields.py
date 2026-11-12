@@ -29,6 +29,9 @@ from src.aucam import (
     WorkflowResult,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 # ── Workers ───────────────────────────────────────────────────────────────────
 
 
@@ -109,7 +112,9 @@ def _run_pause_scenario(supports_pause: bool) -> tuple[int, list[str]]:
     try:
         spec = CampaignSpec(
             name="pause_guard_test",
-            budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=2),
+            budget=CampaignBudget(
+                capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=2
+            ),
             controller=ctrl,
             workflows=[
                 WorkflowConfig(

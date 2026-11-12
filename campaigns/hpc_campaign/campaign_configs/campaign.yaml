@@ -8,6 +8,8 @@ controller:
 budget:
   max_concurrent: 4           # max concurrent workflows in this campaign
   max_concurrency_per_workflow: 2
+  capacity:   # CPUs available at once (each workflow is given 1)
+    cpus: 4
   spending:
     cpu_hours: 0.004          # spending limit; remove to disable
     gpu_hours: ~

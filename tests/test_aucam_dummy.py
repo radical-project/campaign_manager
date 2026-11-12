@@ -25,6 +25,9 @@ from src.aucam import (
     WorkflowResult,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 # ── Dummy workflows ──────────────────────────────────────────────────────────
 
 
@@ -97,6 +100,7 @@ async def _run_dummy_campaign() -> None:
     spec = CampaignSpec(
         name="dummy-campaign",
         budget=CampaignBudget(
+            capacity=CAPACITY,
             max_concurrent_workflows=3,
             max_concurrency_per_workflow=1,
         ),
@@ -187,6 +191,7 @@ async def _run_sequential_campaign() -> None:
     spec = CampaignSpec(
         name="seq-campaign",
         budget=CampaignBudget(
+            capacity=CAPACITY,
             max_concurrent_workflows=1,
             max_concurrency_per_workflow=1,
         ),

@@ -199,6 +199,7 @@ def build_spec(
         budget=CampaignBudget(
             max_concurrent_workflows=ccfg.budget.max_concurrent,
             max_concurrency_per_workflow=ccfg.budget.max_concurrency_per_workflow,
+            capacity=ccfg.budget.capacity,
             spending=spending,
         ),
         controller=ctrl,

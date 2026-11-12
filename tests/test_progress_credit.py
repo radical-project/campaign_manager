@@ -20,6 +20,9 @@ from src.aucam import (
     read_checkpoint,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 H = 3600.0
 
 
@@ -63,7 +66,9 @@ class Watch(CampaignController):
 def _run(ctl, workflows, tmp_path=None):
     spec = CampaignSpec(
         name="credit",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=2
+        ),
         controller=ctl,
         workflows=workflows,
         dependencies=[WorkflowDependency(source="sim", target="analysis")],

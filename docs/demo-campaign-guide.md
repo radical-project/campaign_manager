@@ -213,6 +213,7 @@ Override `condition` to gate on score, metrics, or any field of `WorkflowResult`
 CampaignBudget(
     max_concurrent_workflows=4,
     max_concurrency_per_workflow=2,  # per-type cap enforced by the CM
+    capacity={"cpus": 8},  # CPUs at once: a sim starts only if its CPUs fit
     # Campaign limit: a workflow starts only if spent + in flight + its cost fits.
     spending={"cpu_hours": 0.05},
 )

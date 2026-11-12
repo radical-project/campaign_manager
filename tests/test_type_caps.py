@@ -19,6 +19,8 @@ from src.aucam import (
     WorkflowReporter,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
 
 async def work(reporter: WorkflowReporter) -> None:
     await asyncio.sleep(0.1)
@@ -53,7 +55,9 @@ def test_each_type_keeps_its_own_cap(policy, priority):
     ctl = Fill(priority)
     spec = CampaignSpec(
         name="caps",
-        budget=CampaignBudget(max_concurrent_workflows=5, max_concurrency_per_workflow=3),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=5, max_concurrency_per_workflow=3
+        ),
         controller=ctl,
         workflows=[
             WorkflowConfig(name="big", block=work, launch_on_start=False, max_running=1),

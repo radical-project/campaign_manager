@@ -19,6 +19,8 @@ from src.aucam import (
     WorkflowReporter,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
 
 class LaunchOnce(CampaignController):
     """Launch the given requests once; stop when all of them have finished.
@@ -53,7 +55,10 @@ def _run(workflows, requests, spending=None):
     spec = CampaignSpec(
         name="limits",
         budget=CampaignBudget(
-            max_concurrent_workflows=4, max_concurrency_per_workflow=4, spending=spending or {}
+            capacity=CAPACITY,
+            max_concurrent_workflows=4,
+            max_concurrency_per_workflow=4,
+            spending=spending or {},
         ),
         controller=ctl,
         workflows=workflows,

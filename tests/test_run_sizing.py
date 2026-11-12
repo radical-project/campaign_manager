@@ -22,6 +22,9 @@ from src.aucam import (
     WorkflowReporter,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 # ── SchedulingPolicy.size(), the default sizing step ──────────────────────────
 
 
@@ -109,7 +112,10 @@ def _run(workflows, requests, spending=None):
     spec = CampaignSpec(
         name="sizing",
         budget=CampaignBudget(
-            max_concurrent_workflows=4, max_concurrency_per_workflow=4, spending=spending or {}
+            capacity=CAPACITY,
+            max_concurrent_workflows=4,
+            max_concurrency_per_workflow=4,
+            spending=spending or {},
         ),
         controller=ctl,
         workflows=workflows,

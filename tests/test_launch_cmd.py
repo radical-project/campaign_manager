@@ -21,6 +21,8 @@ from src.aucam import (
 )
 from src.aucam.campaign import _CampaignInstance
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
 
 class LaunchOnce(CampaignController):
     """Launch the given requests once; stop when all of them have finished."""
@@ -48,7 +50,9 @@ def _run(workflows: list[WorkflowConfig], requests: list[LaunchRequest]) -> Laun
     ctl = LaunchOnce(requests)
     spec = CampaignSpec(
         name="cmdcamp",
-        budget=CampaignBudget(max_concurrent_workflows=4, max_concurrency_per_workflow=4),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=4, max_concurrency_per_workflow=4
+        ),
         controller=ctl,
         workflows=workflows,
         policy_interval_s=0.05,

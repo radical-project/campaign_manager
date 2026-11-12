@@ -36,10 +36,12 @@ from src.aucam import (
 )
 from src.aucam.campaign import _correlate_events
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
 
 def _spec(name, controller, workflows, **kw) -> CampaignSpec:
     budget = kw.pop("budget", None) or CampaignBudget(
-        max_concurrent_workflows=4, max_concurrency_per_workflow=4
+        capacity=CAPACITY, max_concurrent_workflows=4, max_concurrency_per_workflow=4
     )
     return CampaignSpec(
         name=name,
@@ -127,7 +129,9 @@ def test_per_type_cap_enforced(priority) -> None:
         "cap",
         Burst(priority),
         [WorkflowConfig(name="c", block=counted, launch_on_start=False)],
-        budget=CampaignBudget(max_concurrent_workflows=4, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=4, max_concurrency_per_workflow=1
+        ),
         scheduling_policy=GreedyPolicy(),
     )
     cm = CampaignManager()
@@ -214,11 +218,14 @@ def test_budget_observation_is_campaign_ledger() -> None:
         spy,
         [WorkflowConfig(name="s", block=sleeper)],
         budget=CampaignBudget(
-            max_concurrent_workflows=1, max_concurrency_per_workflow=1, spending={"cpu_hours": 2.0}
+            capacity=CAPACITY,
+            max_concurrent_workflows=1,
+            max_concurrency_per_workflow=1,
+            spending={"cpu_hours": 2.0},
         ),
     )
     asyncio.run(asyncio.wait_for(CampaignManager().run(spec), timeout=30.0))
-    assert set(spy.seen) == {"limits", "spent", "in_flight", "burn", "by_type"}
+    assert set(spy.seen) == {"limits", "spent", "in_flight", "burn", "by_type", "capacity"}
     assert spy.seen["limits"] == {"cpu_hours": 2.0}
 
 

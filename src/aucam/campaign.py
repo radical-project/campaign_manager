@@ -1009,6 +1009,8 @@ class _CampaignInstance:
             raised=dict(self._type_raised.get(request.workflow_type, {})),
             raised_resources=dict(self._type_raised_res.get(request.workflow_type, {})),
             allocations=self._allocation_history(),
+            free=self._free_capacity(),
+            capacity=dict(self.spec.budget.capacity),
         )
         # The type's ranges (WorkflowConfig.bounds) apply unless the request
         # gives its own for the same key.
@@ -1181,6 +1183,11 @@ class _CampaignInstance:
             )
             b["hours_to_limit"] = b["remaining"] / rate if rate > 0 else None
         view["by_type"] = self._by_type()
+        free = self._free_capacity()
+        view["capacity"] = {
+            k: {"total": float(v), "in_use": float(v) - free.get(k, 0.0), "free": free.get(k, 0.0)}
+            for k, v in self.spec.budget.capacity.items()
+        }
         return view
 
     def _by_type(self) -> dict[str, dict]:
@@ -1204,6 +1211,14 @@ class _CampaignInstance:
     def _type_caps(self) -> dict[str, int]:
         """Per-type caps of workflow types that set WorkflowConfig.max_running (W1)."""
         return {w.name: w.max_running for w in self.spec.workflows if w.max_running is not None}
+
+    def _free_capacity(self) -> dict[str, float]:
+        """Capacity minus the resources running workflows were given (step 3)."""
+        free = {k: float(v) for k, v in self.spec.budget.capacity.items()}
+        for inst in self._active.values():
+            for k, v in inst.resources.items():
+                free[k] = free.get(k, 0.0) - float(v)
+        return free
 
     def _held_estimate(self, request: LaunchRequest, limit: dict[str, float]) -> dict[str, float]:
         """What a workflow is held at against the campaign while it runs.
@@ -1812,6 +1827,29 @@ class _CampaignInstance:
                     f"its minimum does not fit the remaining budget"
                 )
                 return "dropped"
+            # Capacity: the resources it is given must fit what is free.
+            cap = self.spec.budget.capacity
+            over_total = {k: v for k, v in alloc.resources.items() if v > float(cap.get(k, 0.0))}
+            if over_total:
+                self._queue.remove_request(req)
+                self._unfit_logged.discard(id(req))
+                self._unfit_dropped += 1
+                dropped += 1
+                logger.info(
+                    f"[SCHEDULER-{self.name}] DROP {req.workflow_type}: resources {over_total} "
+                    f"exceed the campaign's capacity {cap}"
+                )
+                return "dropped"
+            free = self._free_capacity()
+            if any(v > free.get(k, 0.0) + 1e-9 for k, v in alloc.resources.items()):
+                unfit.add(id(req))
+                if id(req) not in self._unfit_logged:
+                    self._unfit_logged.add(id(req))
+                    logger.info(
+                        f"[SCHEDULER-{self.name}] WAIT {req.workflow_type}: resources "
+                        f"{alloc.resources} do not fit what is free {free}; stays queued"
+                    )
+                return "unfit"
             cost = self._held_estimate(req, alloc.spending_limit)
             short = self._allocator.shortfall(self.name, cost)
             if short is not None:

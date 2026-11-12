@@ -37,6 +37,9 @@ from src.aucam.checkpoint import (
     _to_json,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 # ── Workers ───────────────────────────────────────────────────────────────────
 
 
@@ -171,7 +174,9 @@ def test_checkpoint_file_created(tmp_path: Path) -> None:
 
     spec = CampaignSpec(
         name="ckpt_create_test",
-        budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
@@ -206,7 +211,9 @@ def test_checkpoint_content_counters(tmp_path: Path) -> None:
 
     spec = CampaignSpec(
         name="ckpt_content_test",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=2
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
@@ -272,7 +279,9 @@ def test_recovery_restores_queue_and_completes(tmp_path: Path) -> None:
 
     spec = CampaignSpec(
         name="recovery_test",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=2
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
@@ -329,7 +338,9 @@ def test_recovery_active_workflows_reenqueued(tmp_path: Path) -> None:
 
     spec = CampaignSpec(
         name="active_recovery_test",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=2
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(

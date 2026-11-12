@@ -118,6 +118,10 @@ class SizingContext:
     # Every finished workflow so far, oldest first (AllocationRecord): what it
     # got, how it ended, its progress and credit.  For learners overriding size().
     allocations: list = field(default_factory=list)
+    # Resources free now (capacity minus what running workflows were given) and
+    # the campaign's total capacity; a resource it does not name counts as 0.
+    free: dict[str, float] = field(default_factory=dict)
+    capacity: dict[str, float] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +266,13 @@ class SchedulingPolicy:
             target = res if key in RESOURCE_KEYS else spend
             if key in target:
                 target[key] = min(max(target[key], float(lo)), float(hi))
+        # Within a range, take only what is free now (not below its minimum);
+        # the scheduler makes a request whose resources do not fit wait.
+        if ctx.capacity:
+            for key, value in list(res.items()):
+                free = float(ctx.free.get(key, 0.0))
+                if key in bounds and value > free >= float(bounds[key][0]):
+                    res[key] = float(math.floor(free + 1e-9))
         capped = False
         for key, value in list(spend.items()):
             if key not in ctx.remaining:

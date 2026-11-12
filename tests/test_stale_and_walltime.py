@@ -35,6 +35,9 @@ from src.aucam import (
     WorkflowResult,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 # ── Workers ───────────────────────────────────────────────────────────────────
 
 
@@ -131,7 +134,9 @@ async def _run_stale() -> None:
 
     spec = CampaignSpec(
         name="stale_test",
-        budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=3, max_concurrency_per_workflow=2
+        ),
         controller=ctrl2,
         workflows=[
             WorkflowConfig(
@@ -169,7 +174,9 @@ async def _run_walltime() -> None:
 
     spec = CampaignSpec(
         name="walltime_test",
-        budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=3, max_concurrency_per_workflow=2
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
@@ -206,7 +213,9 @@ async def _run_both() -> None:
 
     spec = CampaignSpec(
         name="both_test",
-        budget=CampaignBudget(max_concurrent_workflows=4, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=4, max_concurrency_per_workflow=2
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(

@@ -33,6 +33,9 @@ from src.aucam import (
     WorkflowResult,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 # ── Shared state ──────────────────────────────────────────────────────────────
 
 events: list[str] = []  # lifecycle log — written by pausable_worker
@@ -116,7 +119,9 @@ def test_pause_resume_lifecycle() -> None:
 
     spec = CampaignSpec(
         name="pause_resume_test",
-        budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=3, max_concurrency_per_workflow=2
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(

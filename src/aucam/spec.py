@@ -152,18 +152,19 @@ class CampaignBudget:
 
     max_concurrent_workflows     — workflows running at once in this campaign.
     max_concurrency_per_workflow — running instances per workflow type.
+    capacity — the total resources of the allocation the campaign runs on,
+               e.g. {"cpus": 512, "gpus": 16} (required).  A workflow starts only
+               if the resources it is given fit what is free: capacity minus
+               what the running workflows were given.  A resource the
+               capacity does not name counts as 0.
     spending — lifetime spending limit per dimension
                (e.g. {"gpu_hours": 100.0} = stop launching after 100 GPU·h).
                Tracked in the BudgetAllocator ledger; checked by the scheduler.
-
-    There is no "resources in use at once" budget: a workflow is a set of
-    heterogeneous tasks placed by RHAPSODY, so CM cannot know which GPUs or
-    nodes it holds.  Capacity is shared through the allocation itself and the
-    workflow-count limits above.
     """
 
     max_concurrent_workflows: int
     max_concurrency_per_workflow: int
+    capacity: dict[str, float]
     spending: dict[str, float] = field(default_factory=dict)
     # What happens when actual spending (charged + what running workflows have
     # used so far) goes past the spending limit (B6): "cancel" — cancel the
@@ -175,6 +176,15 @@ class CampaignBudget:
     def __post_init__(self) -> None:
         if self.on_limit not in ("cancel", "finish"):
             raise ValueError("on_limit must be 'cancel' or 'finish'")
+        from .types import RESOURCE_KEYS  # noqa: PLC0415
+
+        if not isinstance(self.capacity, dict) or not self.capacity:
+            raise ValueError('capacity is required, e.g. capacity={"cpus": 64}')
+        for key, value in self.capacity.items():
+            if key not in RESOURCE_KEYS:
+                raise ValueError(f"capacity: unknown resource {key!r}; use {RESOURCE_KEYS}")
+            if value is None or float(value) < 0:
+                raise ValueError(f"capacity[{key!r}] must be >= 0")
 
 
 class CampaignSpec(BaseModel):

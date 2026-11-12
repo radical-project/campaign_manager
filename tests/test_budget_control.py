@@ -44,6 +44,9 @@ from src.aucam import (
     WorkflowResult,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 SCORE_THRESHOLD = 0.5
@@ -218,6 +221,7 @@ def test_three_tier_budget_control() -> None:
     spec = CampaignSpec(
         name="budget_demo",
         budget=CampaignBudget(
+            capacity=CAPACITY,
             max_concurrent_workflows=3,
             max_concurrency_per_workflow=1,
             spending={"gpu_hours": CAMPAIGN_BUDGET},

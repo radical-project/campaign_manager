@@ -63,7 +63,9 @@ async def my_sim(reporter: WorkflowReporter) -> None:
 
 spec = CampaignSpec(
     name="my_campaign",
-    budget=CampaignBudget(max_concurrent_workflows=4, max_concurrency_per_workflow=4),
+    budget=CampaignBudget(
+        max_concurrent_workflows=4, max_concurrency_per_workflow=4, capacity={"cpus": 8}
+    ),
     controller=CampaignController(launch=["sim"], goal_type="sim", goal_n=10),
     workflows=[WorkflowConfig(name="sim", block=my_sim)],
     policy_interval_s=0.5,
@@ -545,9 +547,18 @@ controller as `obs["allocations"]`, and is saved in the checkpoint.
 CampaignBudget(
     max_concurrent_workflows=4,  # running at once in this campaign
     max_concurrency_per_workflow=2,  # running at once per workflow type
+    capacity={"cpus": 256, "gpus": 8},  # the allocation's resources (required)
     spending={"gpu_hours": 10.0},  # lifetime limit per dimension (optional)
 )
 ```
+
+`capacity` is the total CPUs / GPUs of the allocation the campaign runs on. A
+workflow starts only if the resources it is given fit what is free (capacity
+minus what the running workflows were given); one that does not fit waits, and
+one that needs more than the whole capacity is dropped. A resource the capacity
+does not name counts as 0. Within a range (`bounds`), the scheduler gives a
+workflow no more than what is free. The controller sees it in
+`obs["budget"]["capacity"]`: `{key: {"total", "in_use", "free"}}`.
 
 A workflow type can set its own cap, `WorkflowConfig(..., max_running=1)`, for
 example to run one long, expensive simulation at a time next to several short

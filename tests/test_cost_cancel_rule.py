@@ -19,6 +19,9 @@ from src.aucam import (
     WorkflowReporter,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 H = 3600.0
 
 
@@ -87,7 +90,9 @@ def test_stuck_workflow_is_cancelled_improving_one_completes():
     ctl = Once()
     spec = CampaignSpec(
         name="costcancel",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=1
+        ),
         controller=ctl,
         workflows=[
             WorkflowConfig(name="stuck", block=make(False)),

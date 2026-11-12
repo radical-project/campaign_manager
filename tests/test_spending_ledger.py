@@ -12,6 +12,8 @@ from src.aucam import (
     WorkflowConfig,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
 
 async def quick_job() -> None:
     await asyncio.sleep(0.05)
@@ -21,6 +23,7 @@ def _spec(name: str, limit_cpu_h: float) -> CampaignSpec:
     return CampaignSpec(
         name=name,
         budget=CampaignBudget(
+            capacity=CAPACITY,
             max_concurrent_workflows=2,
             max_concurrency_per_workflow=2,
             spending={"cpu_hours": limit_cpu_h},

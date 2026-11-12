@@ -21,6 +21,8 @@ from src.aucam import (
     WorkflowResult,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
 
 def _result(wf_type: str, cpu: float, rc: int = 0) -> WorkflowResult:
     return WorkflowResult(
@@ -111,7 +113,9 @@ def test_campaign_learns_resource_size_from_reports():
     ctl = Collect(5)
     spec = CampaignSpec(
         name="learnres",
-        budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
+        ),
         controller=ctl,
         workflows=[WorkflowConfig(name="sim", block=worker, bounds={"cpus": (1, 16)})],
         policy_interval_s=0.02,

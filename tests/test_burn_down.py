@@ -16,6 +16,9 @@ from src.aucam import (
     WorkflowReporter,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 H = 3600.0
 
 
@@ -46,6 +49,7 @@ def test_burn_down_fields():
     spec = CampaignSpec(
         name="burn",
         budget=CampaignBudget(
+            capacity=CAPACITY,
             max_concurrent_workflows=2,
             max_concurrency_per_workflow=1,
             spending={"cpu_hours": 1000.0 / H},
@@ -105,6 +109,7 @@ def test_projected_includes_queued_requests():
     spec = CampaignSpec(
         name="proj",
         budget=CampaignBudget(
+            capacity=CAPACITY,
             max_concurrent_workflows=1,
             max_concurrency_per_workflow=1,
             spending={"cpu_hours": 100.0 / H},

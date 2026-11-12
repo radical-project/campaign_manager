@@ -120,6 +120,7 @@ async def _budget_case(with_estimate: bool) -> dict:
         budget=CampaignBudget(
             max_concurrent_workflows=3,
             max_concurrency_per_workflow=3,
+            capacity={"cpus": 6},
             spending={"cpu_hours": limit / H},
             on_limit="cancel",
         ),
@@ -195,6 +196,7 @@ async def exp_bandit() -> dict:
         budget=CampaignBudget(
             max_concurrent_workflows=1,
             max_concurrency_per_workflow=1,
+            capacity={"cpus": 1},
             spending={"cpu_hours": limit / H},
         ),
         controller=CampaignController(launch=["good", "poor"]),
@@ -265,7 +267,9 @@ async def exp_runlimit() -> dict:
     lim = {"cpu_hours": limit / H}
     spec = CampaignSpec(
         name="runlimit-demo",
-        budget=CampaignBudget(max_concurrent_workflows=4, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            max_concurrent_workflows=4, max_concurrency_per_workflow=2, capacity={"cpus": 8}
+        ),
         controller=Ctrl(launch=["steady", "runaway"]),
         workflows=[
             WorkflowConfig(
