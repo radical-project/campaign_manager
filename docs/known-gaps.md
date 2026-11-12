@@ -20,7 +20,6 @@ that must land first.
 
 | Priority | ID | Item | Status | Needs |
 |---|---|---|---|---|
-| 3 | B0 | Any budget dimension (e.g. `llm_tokens`) | Partial | with X1 |
 | 3 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) | |
 | 3 | R1 | Restart: rejoin running workflows, keep goals | Not started | |
 | 3 | U3 | Example campaigns use their resource allocation | Not started | |
@@ -33,24 +32,6 @@ that must land first.
 | External | X2 | RHAPSODY concurrent backend does not kill cancelled programs | Open | |
 
 ---
-
-## Budget burn-down (B0)
-
-Goal: the budget becomes a decision input — AuCaM forecasts the campaign's
-spending, launches only what fits, cancels workflows that spend without
-improving, and favours cost-effective workflow types as the budget runs down.
-Current behaviour: [budgets and spending](budget.md). When an item lands,
-update `budget.md` and the developer guide.
-
-- **B0 — any budget dimension.** AsyncFlow telemetry measures only CPU and
-  GPU time, so other dimensions (e.g. `llm_tokens`) come from the workflow's
-  own reports: when the workflow ends, AuCaM charges the totals from its last
-  report for every dimension named in `declared_spending`. Missing: when a
-  workflow's CPU and GPU hours are charged from telemetry (method A in
-  `budget.md`), that end-of-workflow charge is skipped entirely, so its other
-  dimensions are never charged and a limit on them is not enforced. Fix: for
-  such workflows, still charge the reported totals of the dimensions other
-  than CPU and GPU hours. `[SPEND]` logs also show only CPU/GPU.
 
 ## Per-workflow allocations (U1, U3–U5)
 

@@ -115,8 +115,8 @@ what it actually used) and `hours` is how long it ran.
   matters.
 - Tasks inside nested blocks are charged to the workflow that contains them.
 - Only `cpu_hours` and `gpu_hours` are charged this way. Other dimensions that
-  a method-A workflow reports (e.g. `llm_tokens`) are **not** charged — a known
-  gap (§7, B0).
+  a method-A workflow reports (e.g. `llm_tokens`) are charged from its last
+  report when it ends, as in method B.
 - Method A needs an AsyncFlow version whose telemetry events carry the
   task's requested resources (not yet released). Without it, or with
   telemetry off, AuCaM uses methods B–D.
@@ -134,8 +134,8 @@ await reporter.emit(score=s, metrics={"cpu_hours": 1.2, "loss": 0.03, "step": 40
 ```
 
 Metrics that count as spending are `cpu_hours`, `gpu_hours`, and any other
-name that also appears in the workflow's `declared_spending` (e.g.
-`llm_tokens`). Other keys in the same `metrics`, such as `loss` or `step`
+name that also appears in the workflow's `declared_spending`, its own
+`spending_limit` or the campaign's limit (e.g. `llm_tokens`). Other keys in the same `metrics`, such as `loss` or `step`
 above, are not charged; the controller still receives them as usual. When the
 workflow ends, AuCaM charges the totals from its last report.
 
@@ -395,12 +395,6 @@ after the workflow has ended go into the ledger but not into `spent`.)
 | `[BANDIT] …  → <type>  ucb=…  c_eff=…` | INFO | The bandit picks a type it has seen before |
 | `[CM] Campaign … SUMMARY — exit=… spent={…}` | INFO | A campaign ends |
 | `[BLOCK-TAG] …`, `[SPEND-DBG] … filtered` | DEBUG | Method-A event routing (§9) |
-
-### Not implemented yet
-
-| ID | Feature | Status |
-|---|---|---|
-| B0 | Any budget dimension | Partial: limits, in-flight and methods B/C accept any dimension; method A charges only CPU/GPU hours; `[SPEND]` logs show only CPU/GPU |
 
 ---
 

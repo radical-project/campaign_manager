@@ -484,6 +484,7 @@ class _CampaignInstance:
         declared_spending: dict[str, float],
         wall_s: float,
         final_metrics: dict,
+        extra_keys: Iterable[str] = (),
     ) -> tuple[dict[str, float], dict]:
         """Compute actual spending and observability profile for one completed workflow.
 
@@ -501,8 +502,8 @@ class _CampaignInstance:
         # 1. Reported values take top priority.
         # Always check cpu_hours/gpu_hours (supplied by AsyncFlow telemetry); also
         # pick up any custom dimensions declared in declared_spending (e.g. llm_tokens).
-        reported_keys = {"cpu_hours", "gpu_hours"} | {
-            k for k in declared_spending if k != "wall_hours"
+        reported_keys = ({"cpu_hours", "gpu_hours"} | set(declared_spending) | set(extra_keys)) - {
+            "wall_hours"
         }
         for key in reported_keys:
             val = final_metrics.get(key)
@@ -1198,22 +1199,38 @@ class _CampaignInstance:
             self._slot_event.set()
 
             # Replace the in-flight estimate with the workflow's actual spending.
+            # Dimensions a workflow may report besides CPU/GPU hours (B0): those it
+            # declares, its own limit's and the campaign's.
+            extra_keys = (
+                set(_inst.declared_spending)
+                | set(_inst.spending_limit)
+                | set(self._allocator.limits(self.name))
+            )
             contribution, resource_profile = self._compute_workflow_spent(
-                _inst.wf_id, _inst.declared_spending, wall, final_metrics
+                _inst.wf_id,
+                _inst.declared_spending,
+                wall,
+                final_metrics,
+                extra_keys,
             )
             self._allocator.clear_in_flight(self.name, _inst.wf_id)
             # Workflows charged task by task from AsyncFlow events
-            # (_on_task_event) are not charged again here; their events still
-            # in flight are recorded when they arrive.
-            if _inst.wf_id not in self._task_level:
+            # (_on_task_event) are not charged again here for CPU/GPU hours
+            # (their events still in flight are recorded when they arrive);
+            # their other dimensions (e.g. llm_tokens) come from their reports (B0).
+            task_level = _inst.wf_id in self._task_level
+            other = {k: v for k, v in contribution.items() if k not in ("cpu_hours", "gpu_hours")}
+            if not task_level:
                 self._allocator.record(self.name, contribution)
+            elif other:
+                self._allocator.record(self.name, other)
             self._estimates.pop(_inst.wf_id, None)
 
-            if _inst.wf_id in self._task_level:
+            if task_level:
                 # .get(): a workflow can be marked task-level (TaskCreated) and
                 # end before any task was charged (cancelled mid-task, zero
                 # duration, or end events still in flight).
-                actual_spent = dict(self._task_usage.get(_inst.wf_id, {}))
+                actual_spent = {**dict(self._task_usage.get(_inst.wf_id, {})), **other}
                 spend_method = "exact"
                 spend_source = "task_telemetry"
             else:
@@ -1238,13 +1255,19 @@ class _CampaignInstance:
                     s_ = rstats.setdefault(key, {"n": 0, "mean": 0.0})
                     s_["mean"] = (s_["mean"] * s_["n"] + val) / (s_["n"] + 1)
                     s_["n"] += 1
+            others = "".join(
+                f"  {k}={v:.4g}"
+                for k, v in sorted(actual_spent.items())
+                if k not in ("cpu_hours", "gpu_hours", "wall_hours")
+            )
             logger.info(
-                "[SPEND] wf_done  wf=%s  method=%s  source=%s  cpu_h=%.4f  gpu_h=%.4f  wall_s=%.1f  rc=%s",
+                "[SPEND] wf_done  wf=%s  method=%s  source=%s  cpu_h=%.4f  gpu_h=%.4f%s  wall_s=%.1f  rc=%s",
                 _inst.wf_id,
                 spend_method,
                 spend_source,
                 actual_spent.get("cpu_hours", 0.0),
                 actual_spent.get("gpu_hours", 0.0),
+                others,
                 wall,
                 rc,
             )
@@ -2185,12 +2208,16 @@ class _CampaignInstance:
         if spent or in_flight:
             logger.info(
                 "[SPEND] campaign=%s  spent_cpu_h=%.4f  spent_gpu_h=%.4f"
-                "  in_flight_cpu_h=%.4f  in_flight_gpu_h=%.4f  budget_used=%.1f%%",
+                "  in_flight_cpu_h=%.4f  in_flight_gpu_h=%.4f%s  budget_used=%.1f%%",
                 self.name,
                 spent.get("cpu_hours", 0.0),
                 spent.get("gpu_hours", 0.0),
                 in_flight.get("cpu_hours", 0.0),
                 in_flight.get("gpu_hours", 0.0),
+                "".join(  # other dimensions (B0), e.g. llm_tokens
+                    f"  spent_{k}={spent.get(k, 0.0):.4g}  in_flight_{k}={in_flight.get(k, 0.0):.4g}"
+                    for k in sorted((set(spent) | set(in_flight)) - {"cpu_hours", "gpu_hours"})
+                ),
                 frac * 100,
             )
 
