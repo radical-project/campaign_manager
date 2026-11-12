@@ -603,7 +603,7 @@ Planned features and known problems: [known gaps](known-gaps.md).
 | `max_queue_depth` | 50 | Above this, a warning is logged (requests are still queued) |
 | `age_threshold_s` | 300.0 | NORMAL requests waiting longer become HIGH |
 | `data_backend` | `None` → `LocalDictBackend` | §4 |
-| `checkpoint_dir` | `None` | Save state after every policy cycle; restore on restart |
+| `checkpoint_dir` | `None` | Save state after every policy cycle; restore on restart: the queue (with each request's own limits), dependency state, counters, spending and learned costs. Workflows that were running are queued again and start over |
 | `scheduling_policy` | `None` → new `BanditSchedulingPolicy` | §8 |
 
 ### `WorkflowResult`

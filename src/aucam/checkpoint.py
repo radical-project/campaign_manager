@@ -34,6 +34,9 @@ class ActiveWorkflowRecord:
     started_at: float
     # Declared spending of the workflow (its in-flight spending estimate).
     declared_spending: dict[str, float] = field(default_factory=dict)
+    # The request it was launched from, so a re-run keeps its own limit,
+    # resources and ranges (R2).
+    request: QueuedRequestRecord | None = None
 
 
 @dataclass
@@ -45,6 +48,11 @@ class QueuedRequestRecord:
     enqueued_at: float
     context: dict
     requester: str
+    # The request's own amounts (None: the workflow type's), and ranges as
+    # {key: [min, max]}.
+    spending_limit: dict | None = None
+    resources: dict | None = None
+    bounds: dict | None = None
 
 
 @dataclass
@@ -68,6 +76,11 @@ class CampaignCheckpoint:
     # released by a successful source completion.  Restored before re-pushing
     # queued requests so enqueue() admits them immediately on recovery.
     dep_satisfied: list[str] = field(default_factory=list)
+    # (source wf_id, target type) pairs that already triggered their target —
+    # so a completion is not counted twice after a restart (R2).
+    dep_triggered: list[list[str]] = field(default_factory=list)
+    # Requests held until their dependency unlocks (R2).
+    dep_pending: list[QueuedRequestRecord] = field(default_factory=list)
 
     # Lifetime spending
     spent: dict[str, float] = field(default_factory=dict)
@@ -110,6 +123,8 @@ def _from_json(d: dict[str, Any]) -> CampaignCheckpoint:
         # Checkpoints written before the spending-only budget model stored a
         # derived concurrency "resources" dict; it is no longer used.
         r.pop("resources", None)
+        if isinstance(r.get("request"), dict):
+            r["request"] = QueuedRequestRecord(**r["request"])
         active.append(ActiveWorkflowRecord(**r))
     return CampaignCheckpoint(
         campaign_name=d["campaign_name"],
@@ -119,6 +134,8 @@ def _from_json(d: dict[str, Any]) -> CampaignCheckpoint:
         active=active,
         paused_wf_ids=d.get("paused_wf_ids", []),
         dep_satisfied=d.get("dep_satisfied", []),
+        dep_triggered=d.get("dep_triggered", []),
+        dep_pending=[QueuedRequestRecord(**r) for r in d.get("dep_pending", [])],
         spent=d.get("spent", {}),
         instances_run=d.get("instances_run", 0),
         completed=d.get("completed", 0),

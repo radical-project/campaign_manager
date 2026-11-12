@@ -23,7 +23,6 @@ that must land first.
 | 3 | B0 | Any budget dimension (e.g. `llm_tokens`) | Partial | with X1 |
 | 3 | S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) | |
 | 3 | R1 | Restart: rejoin running workflows, keep goals | Not started | |
-| 3 | R2 | Restart: dependency state | Partial | |
 | 3 | W1 | Concurrency cap per workflow type | Not started | |
 | 3 | U3 | Example campaigns use their resource allocation | Not started | |
 | 3 | U5 | Per-workflow enforcement lags by one check | Open | |
@@ -90,12 +89,6 @@ from the controller's intent (`LaunchRequest.spending_limit` / `resources` /
   restarting them; re-send PAUSE to paused workflows (`paused_wf_ids` in the
   checkpoint is always empty); save run-time goal changes and return the
   final goals in `CampaignOutcome`.
-- **R2 — dependency state after restart.** `dep_satisfied` is saved and
-  restored before queued requests are re-pushed. Missing: `_dep_triggered`
-  (source instances that already triggered) and `_dep_pending` (held
-  requests); after a restart a completion can be counted again and held
-  requests are lost. Fix: add both to `CampaignCheckpoint` (with defaults for
-  old checkpoints) and restore them like `dep_satisfied`.
 - **H1 — hooks.** Let `WorkflowConfig.on_completion` hooks enqueue requests.
 - **A1 — accounting.** Per-dimension prices for comparing dimensions.
 - **S1 — scheduling.** `ADRSchedulingPolicy` and `LLMSchedulingPolicy` are

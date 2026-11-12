@@ -209,6 +209,38 @@ def _wants_context(fn: Any) -> bool:
         return False
 
 
+def _request_record(req: LaunchRequest) -> QueuedRequestRecord:
+    """A LaunchRequest as a checkpoint record (R2)."""
+    return QueuedRequestRecord(
+        workflow_type=req.workflow_type,
+        priority=req.priority.value,
+        enqueued_at=req.enqueued_at,
+        context=req.context,
+        requester=req.requester,
+        spending_limit=dict(req.spending_limit) if req.spending_limit is not None else None,
+        resources=dict(req.resources) if req.resources is not None else None,
+        bounds={k: list(v) for k, v in req.bounds.items()} if req.bounds else None,
+    )
+
+
+def _request_from_record(rec: QueuedRequestRecord) -> LaunchRequest:
+    """Rebuild a LaunchRequest from its checkpoint record."""
+    try:
+        priority = LaunchPriority(rec.priority)
+    except ValueError:
+        priority = LaunchPriority.NORMAL
+    return LaunchRequest(
+        workflow_type=rec.workflow_type,
+        priority=priority,
+        enqueued_at=rec.enqueued_at,
+        context=rec.context,
+        requester=rec.requester,
+        spending_limit=rec.spending_limit,
+        resources=rec.resources,
+        bounds={k: tuple(v) for k, v in rec.bounds.items()} if rec.bounds else None,
+    )
+
+
 class _WorkflowInstance:
     __slots__ = (
         "wf_id",
@@ -1303,22 +1335,14 @@ class _CampaignInstance:
 
     def _build_checkpoint(self) -> CampaignCheckpoint:
         """Snapshot current mutable state into a serializable checkpoint."""
-        queue_records = [
-            QueuedRequestRecord(
-                workflow_type=req.workflow_type,
-                priority=req.priority.value,
-                enqueued_at=req.enqueued_at,
-                context=req.context,
-                requester=req.requester,
-            )
-            for _, _, _, req in self._queue._heap
-        ]
+        queue_records = [_request_record(req) for _, _, _, req in self._queue._heap]
         active_records = [
             ActiveWorkflowRecord(
                 wf_id=inst.wf_id,
                 workflow_type=inst.workflow_type,
                 started_at=inst.started_at,
                 declared_spending=dict(inst.declared_spending),
+                request=_request_record(inst.request),
             )
             for inst in self._active.values()
         ]
@@ -1328,6 +1352,8 @@ class _CampaignInstance:
             active=active_records,
             paused_wf_ids=[],  # populated by caller when needed
             dep_satisfied=list(self._dep_satisfied),
+            dep_triggered=[list(k) for k in self._dep_triggered],
+            dep_pending=[_request_record(r) for reqs in self._dep_pending.values() for r in reqs],
             spent=self._allocator.spent(self.name),
             instances_run=self._instances_run,
             completed=self._completed,
@@ -1369,6 +1395,9 @@ class _CampaignInstance:
         # Restore DAG unlock state BEFORE re-pushing queued requests so that
         # enqueue() admits requests for already-satisfied targets immediately.
         self._dep_satisfied.update(ckpt.dep_satisfied)
+        self._dep_triggered.update(tuple(k) for k in ckpt.dep_triggered)
+        for rec in ckpt.dep_pending:
+            self._dep_pending.setdefault(rec.workflow_type, []).append(_request_from_record(rec))
 
         # Restore counters
         self._instances_run = ckpt.instances_run
@@ -1391,33 +1420,31 @@ class _CampaignInstance:
 
         # Re-push queued requests
         for rec in ckpt.queue:
-            try:
-                priority = LaunchPriority(rec.priority)
-            except ValueError:
-                priority = LaunchPriority.NORMAL
-            req = LaunchRequest(
-                workflow_type=rec.workflow_type,
-                priority=priority,
-                enqueued_at=rec.enqueued_at,
-                context=rec.context,
-                requester=rec.requester,
-            )
-            self.enqueue(req)
+            self.enqueue(_request_from_record(rec))
 
         # Re-enqueue workflows that were active — they need to be re-run
         for rec in ckpt.active:
+            orig = _request_from_record(rec.request) if rec.request is not None else None
             req = LaunchRequest(
                 workflow_type=rec.workflow_type,
                 priority=LaunchPriority.HIGH,  # bump priority for recovery
                 enqueued_at=time.time(),
-                context={"recovered_from": rec.wf_id, "original_started_at": rec.started_at},
+                context={
+                    **(orig.context if orig is not None else {}),
+                    "recovered_from": rec.wf_id,
+                    "original_started_at": rec.started_at,
+                },
                 requester="cm:recovery",
+                spending_limit=orig.spending_limit if orig is not None else None,
+                resources=orig.resources if orig is not None else None,
+                bounds=orig.bounds if orig is not None else None,
             )
             self.enqueue(req)
 
         logger.info(
             f"[CKPT] {self.name}: restored "
             f"queued={len(ckpt.queue)} "
+            f"held_by_dependencies={len(ckpt.dep_pending)} "
             f"re-enqueued_active={len(ckpt.active)} "
             f"cycles_before={ckpt.policy_cycles}"
         )
