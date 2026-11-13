@@ -473,7 +473,7 @@ than `age_threshold_s` become HIGH).
 
 | Policy | Behaviour |
 |---|---|
-| `BanditSchedulingPolicy` (default) | UCB1 over workflow types. Reward 1 for a completed workflow, 0 for cancelled or failed (`reward_fn=` to change). Explores less as the campaign's budget is used up. With `cost_aware=True`, the reward is divided by 1 + `cost_weight` × the workflow's cost relative to the campaign's average, so cheaper types that succeed as often are preferred. |
+| `BanditSchedulingPolicy` (default) | UCB1 over workflow types. Reward 1 for a completed workflow, 0 for cancelled or failed (`reward_fn=` to change). Explores less as the campaign's budget is used up. With `cost_aware=True`, the reward is divided by 1 + `cost_weight` × the workflow's cost relative to the campaign's average, cost being the share of the budget left it spent, so cheaper types that succeed as often are preferred, and spending in a scarce dimension counts more ([budgets and spending](budget.md) §5). |
 | `FIFOSchedulingPolicy` | Queue order |
 | `LLMSchedulingPolicy`, `ADRSchedulingPolicy` | A language model or an ADR policy ranks the workflow types; see "AI policies" below |
 

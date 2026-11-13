@@ -21,17 +21,15 @@ that must land first.
 | Priority | ID | Item | Status | Needs |
 |---|---|---|---|---|
 | 4 | U1 | Change a running workflow's allocation | Not started (decided: not for now) | |
-| 4 | U5 | Per-workflow enforcement lags by one check | Decided: workflows check their own limit | |
 | 4 | U7 | Elastic workflows: start with less when the budget is short | Not started | |
 | 4 | H1 | On-completion hooks can enqueue requests | Not started | |
-| 4 | A1 | Per-dimension prices | Not started | |
 | External | X1 | More accurate task data in AsyncFlow telemetry | Open | |
 | External | X2 | RHAPSODY concurrent backend does not kill cancelled programs | Open | |
 | External | X3 | Reattach to running tasks after a restart | Open | |
 
 ---
 
-## Per-workflow allocations (U1, U5, U7)
+## Per-workflow allocations (U1, U7)
 
 Each workflow gets an allocation when it starts — a spending limit and the CPUs and
 GPUs it may use at once (`Allocation`) — sized by `SchedulingPolicy.size()`
@@ -47,19 +45,6 @@ the type's starting values and what AuCaM learned, passed to the workflow and en
   Enables "start small, give more to the promising" (successive halving).
   Unlike U7, which sizes a workflow at launch, U1 changes it after launch;
   both need workflows that read their limit and adapt.
-- **U5 — enforcement lag.** Spending and resources in use are checked once
-  per policy cycle, from the workflow's last report or its tasks, so a workflow can
-  go past its limit by what it uses in one `policy_interval_s` — more for a
-  workflow that reports rarely (the DeepDriveSim MiniApps worker reports once
-  per prediction cycle). Resources in use come from task telemetry only with
-  X1; otherwise only from what the workflow reports, and a workflow that
-  reports nothing is not checked. A graceful cancel adds up to the type's
-  `cancel_grace_s` of spending. The same lag applies to the campaign limit
-  with `on_limit="cancel"`. Decided: keep AuCaM's per-cycle check as the
-  safety net and document that a workflow should check its own limit (it
-  receives it) and stop itself, as the example campaigns do (budget.md §4,
-  developer guide §9). Revisit — checking on every report, or a faster check
-  loop — if a real campaign needs a tighter bound.
 - **U7 — elastic workflows.** AuCaM gives a workflow its full amount or
   nothing: if the amount does not fit the remaining budget or the free
   capacity, the request waits, or is dropped once nothing else runs. Some
@@ -79,7 +64,6 @@ the type's starting values and what AuCaM learned, passed to the workflow and en
 ## Other planned features
 
 - **H1 — hooks.** Let `WorkflowConfig.on_completion` hooks enqueue requests.
-- **A1 — accounting.** Per-dimension prices for comparing dimensions.
 
 ## Known problems
 
@@ -91,7 +75,7 @@ the type's starting values and what AuCaM learned, passed to the workflow and en
   radical.asyncflow, which is being reworked. With a released version,
   workflows are charged only when they finish, a failed command-line workflow
   gets `returncode` 1, the CPUs and GPUs a workflow uses at once can only come from
-  its own reports (U5), and the tests that need this data skip.
+  its own reports, and the tests that need this data skip.
 - **X2 — RHAPSODY concurrent backend.** Still open in rhapsody-py 0.7.0
   (checked 2026-11-11, first seen in 0.5.0):
   `ConcurrentExecutionBackend.cancel_task()` cancels the asyncio task waiting

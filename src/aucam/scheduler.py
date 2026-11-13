@@ -61,6 +61,8 @@ class SchedulingContext:
     history               — recent WorkflowResults from this campaign, newest last.
     policy_cycles         — how many policy cycles have elapsed.
     campaign_name         — name of the campaign making the selection.
+    budget_left           — per limited dimension, the campaign's limit minus
+                           what it has spent (in-flight not subtracted).
     """
 
     running_by_type: dict[str, int]
@@ -72,6 +74,7 @@ class SchedulingContext:
     campaign_name: str
     budget_remaining_fraction: float = 1.0
     max_running_by_type: dict[str, int] = field(default_factory=dict)
+    budget_left: dict[str, float] = field(default_factory=dict)
 
     def cap(self, workflow_type: str) -> int:
         """How many workflows of this type may run at once (W1)."""
@@ -321,10 +324,14 @@ class BanditSchedulingPolicy(SchedulingPolicy):
         Override the default throughput reward.  Must return a value in [0, 1].
     cost_aware : bool
         Weigh the reward by cost (U2): reward × 1 / (1 + cost_weight × relative
-        cost), where relative cost is the workflow's spending ÷ the mean spending
-        of all finished workflows of the campaign, averaged over its dimensions.
-        A type that succeeds as often but costs twice the average then earns a
-        third of the reward with cost_weight=1.  Default False: today's reward.
+        cost).  A workflow's cost is the share of the campaign's budget left that
+        it spent, summed over the limited dimensions, so spending in a scarce
+        dimension weighs more and types that spend different dimensions compare
+        fairly; relative cost is that ÷ the mean over the campaign's finished
+        workflows.  Without a campaign limit, each dimension is compared with
+        its own mean instead, averaged over the dimensions.  A type that
+        succeeds as often but costs twice the average then earns a third of the
+        reward with cost_weight=1.  Default False: the plain reward.
     cost_weight : float
         How strongly cost lowers the reward when cost_aware (default 1.0).
     """
@@ -341,8 +348,11 @@ class BanditSchedulingPolicy(SchedulingPolicy):
         self._reward_fn = reward_fn or _default_reward
         self.cost_aware = cost_aware
         self.cost_weight = cost_weight
-        # Mean spending per dimension over all finished workflows (cost_aware).
+        # Mean spending per dimension over all finished workflows (cost_aware,
+        # no campaign limit), and mean budget share (with one).
         self._cost_mean: dict[str, dict[str, float]] = {}
+        self._share_mean: dict[str, float] = {"n": 0, "mean": 0.0}
+        self._budget_left: dict[str, float] = {}  # from the latest select()
         # arm_key → {"n": int, "mean": float}
         self._arms: dict[str, dict[str, float | int]] = {}
         self._total_pulls: int = 0
@@ -367,6 +377,7 @@ class BanditSchedulingPolicy(SchedulingPolicy):
             "arms": {k: dict(v) for k, v in self._arms.items()},
             "total_pulls": self._total_pulls,
             "cost_mean": {k: dict(v) for k, v in self._cost_mean.items()},
+            "share_mean": dict(self._share_mean),
         }
 
     def restore(self, state: dict) -> None:
@@ -375,12 +386,23 @@ class BanditSchedulingPolicy(SchedulingPolicy):
         self._arms = {k: dict(v) for k, v in (state.get("arms") or {}).items()}
         self._total_pulls = int(state.get("total_pulls", 0))
         self._cost_mean = {k: dict(v) for k, v in (state.get("cost_mean") or {}).items()}
+        self._share_mean = dict(state.get("share_mean") or {"n": 0, "mean": 0.0})
 
     def _relative_cost(self, spent: dict[str, float]) -> float:
-        """The workflow's spending ÷ the campaign's mean so far, averaged over dimensions.
+        """How much more than the campaign's average this workflow cost (1.0: average).
 
-        Updates the means with this workflow first; 1.0 when it reports no spending.
+        With a campaign limit: its share of the budget left, summed over the
+        limited dimensions, ÷ the mean share so far.  Without: its spending ÷
+        the mean so far in each dimension, averaged over its dimensions.
+        Updates the means with this workflow first; 1.0 when nothing applies.
         """
+        left = {k: v for k, v in self._budget_left.items() if v > 0}
+        if left:
+            share = sum(float(v) / left[k] for k, v in (spent or {}).items() if k in left)
+            m = self._share_mean
+            m["mean"] = (m["mean"] * m["n"] + share) / (m["n"] + 1)
+            m["n"] += 1
+            return share / m["mean"] if m["mean"] > 0 else 1.0
         ratios = []
         for key, val in (spent or {}).items():
             if key == "wall_hours":
@@ -403,6 +425,7 @@ class BanditSchedulingPolicy(SchedulingPolicy):
         candidates: list[LaunchRequest],
         ctx: SchedulingContext,
     ) -> list[LaunchRequest]:
+        self._budget_left = dict(ctx.budget_left)
         slots = ctx.max_concurrency - sum(ctx.running_by_type.values())
         if slots <= 0:
             return []

@@ -14,6 +14,7 @@ from src.aucam import (
     CampaignSpec,
     LaunchRequest,
     PolicyResult,
+    SchedulingContext,
     SchedulingPolicy,
     SizingContext,
     WorkflowConfig,
@@ -51,6 +52,52 @@ def test_cost_aware_reward_prefers_the_cheaper_type():
     p = BanditSchedulingPolicy(cost_aware=True)
     p.on_outcome(LaunchRequest.make("x"), _result("x", 0.1, rc=1))
     assert p.arm_stats()["x"]["mean"] == 0.0
+
+
+def _with_budget_left(policy, left: dict[str, float]):
+    """Let the bandit see the campaign's budget left, as select() does."""
+    ctx = SchedulingContext(
+        running_by_type={},
+        max_concurrency=1,
+        max_concurrency_per_type=1,
+        telemetry=None,
+        history=[],
+        policy_cycles=0,
+        campaign_name="c",
+        budget_left=left,
+    )
+    policy.select([], ctx)
+    return policy
+
+
+def _feed_spent(policy, outcomes):
+    for wf_type, spent in outcomes:
+        r = WorkflowResult(f"c.{wf_type}.x", wf_type, 0, 1.0, spent=spent)
+        policy.on_outcome(LaunchRequest.make(wf_type), r)
+    return {k: v["mean"] for k, v in policy.arm_stats().items()}
+
+
+def test_cost_aware_compares_types_that_spend_different_dimensions():
+    # gpu type: 2 GPU-hours; cpu type: 3 CPU-hours.  What is scarce decides.
+    outcomes = [("gpu", {"gpu_hours": 2.0}), ("cpu", {"cpu_hours": 3.0})] * 5
+    gpus_scarce = _with_budget_left(
+        BanditSchedulingPolicy(cost_aware=True), {"gpu_hours": 10.0, "cpu_hours": 1000.0}
+    )
+    means = _feed_spent(gpus_scarce, outcomes)
+    assert means["cpu"] > means["gpu"]
+    cpus_scarce = _with_budget_left(
+        BanditSchedulingPolicy(cost_aware=True), {"gpu_hours": 1000.0, "cpu_hours": 10.0}
+    )
+    means = _feed_spent(cpus_scarce, outcomes)
+    assert means["gpu"] > means["cpu"]
+
+
+def test_cost_aware_share_state_survives_a_restart():
+    p = _with_budget_left(BanditSchedulingPolicy(cost_aware=True), {"cpu_hours": 10.0})
+    _feed_spent(p, [("a", {"cpu_hours": 1.0})])
+    q = BanditSchedulingPolicy(cost_aware=True)
+    q.restore(p.state())
+    assert q.state()["share_mean"] == p.state()["share_mean"]
 
 
 def _ctx(**kw) -> SizingContext:

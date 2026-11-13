@@ -398,6 +398,10 @@ class _CampaignInstance:
         self._unfit_logged: set[int] = set()  # id() of queued requests logged as not fitting
         self._controller_errors = 0  # cycles where decide()/observe() failed or timed out
         self._slow_decide: asyncio.Future | None = None  # decide() still running past its timeout
+        # Checkpoints: sequence of the latest one built and written (see _write_ckpt).
+        self._ckpt_seq = 0
+        self._ckpt_written = 0
+        self._ckpt_lock = threading.Lock()
         # L1: how many workflows may run now (<= max_concurrent_workflows), the
         # smoothed node utilization, and whether there is room to overcommit.
         self._allowed = spec.budget.max_concurrent_workflows
@@ -1214,6 +1218,13 @@ class _CampaignInstance:
             }
         return by_type
 
+    def _budget_left(self) -> dict[str, float]:
+        """Per limited dimension: the campaign's limit minus what it has spent."""
+        spent = self._allocator.spent(self.name)
+        return {
+            k: float(v) - spent.get(k, 0.0) for k, v in self._allocator.limits(self.name).items()
+        }
+
     def _type_caps(self) -> dict[str, int]:
         """Per-type caps of workflow types that set WorkflowConfig.max_running (W1)."""
         return {w.name: w.max_running for w in self.spec.workflows if w.max_running is not None}
@@ -1591,7 +1602,20 @@ class _CampaignInstance:
         path = self._checkpoint_path()
         if path is None:
             return
-        write_checkpoint(path, self._build_checkpoint())
+        self._ckpt_seq += 1
+        self._write_ckpt(self._ckpt_seq, path, self._build_checkpoint())
+
+    def _write_ckpt(self, seq: int, path: Any, ckpt: CampaignCheckpoint) -> None:
+        """Write a checkpoint unless a newer one is already on disk.
+
+        Policy-cycle checkpoints are written in a thread; one can finish after a
+        later write (e.g. the final one at shutdown) and must not replace it.
+        """
+        with self._ckpt_lock:
+            if seq <= self._ckpt_written:
+                return
+            write_checkpoint(path, ckpt)
+            self._ckpt_written = seq
 
     def _restore_from_checkpoint(self, ckpt: CampaignCheckpoint) -> None:
         """Apply checkpoint state before the first policy cycle.
@@ -1890,6 +1914,7 @@ class _CampaignInstance:
                 policy_cycles=self._policy_cycles,
                 campaign_name=self.name,
                 budget_remaining_fraction=1.0 - self._allocator.spending_fraction(self.name),
+                budget_left=self._budget_left(),
             )
             selected = self._policy.select(pending, ctx)
             if not selected:
@@ -2650,11 +2675,14 @@ class _CampaignInstance:
         # Build the snapshot in the event loop (thread-safe), then write to
         # disk in a thread so the I/O doesn't stall the policy cycle.
         if self.spec.checkpoint_dir is not None:
-            _ckpt_snapshot = self._build_checkpoint()
-            _ckpt_p = self._checkpoint_path()
+            self._ckpt_seq += 1
             asyncio.ensure_future(
                 asyncio.get_event_loop().run_in_executor(
-                    None, write_checkpoint, _ckpt_p, _ckpt_snapshot
+                    None,
+                    self._write_ckpt,
+                    self._ckpt_seq,
+                    self._checkpoint_path(),
+                    self._build_checkpoint(),
                 )
             )
 
@@ -2744,6 +2772,7 @@ class _CampaignInstance:
             policy_cycles=self._policy_cycles,
             campaign_name=self.name,
             budget_remaining_fraction=1.0 - self._allocator.spending_fraction(self.name),
+            budget_left=self._budget_left(),
         )
 
     def _start_refresh(self) -> None:

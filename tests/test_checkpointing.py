@@ -364,3 +364,20 @@ def test_recovery_active_workflows_reenqueued(tmp_path: Path) -> None:
 
     asyncio.run(asyncio.wait_for(_run(spec), timeout=15.0))
     assert ctrl.completions >= 1, "Re-enqueued active workflow did not complete"
+
+
+def test_an_older_checkpoint_never_replaces_a_newer_one(tmp_path):
+    """A policy-cycle checkpoint written in a thread can finish after the final
+    one written at shutdown; it must not replace it."""
+    import threading
+
+    from src.aucam.campaign import _CampaignInstance
+
+    inst = _CampaignInstance.__new__(_CampaignInstance)
+    inst._ckpt_lock, inst._ckpt_written = threading.Lock(), 0
+    path = tmp_path / "c.json"
+    newer = CampaignCheckpoint(campaign_name="c", policy_cycles=9)
+    older = CampaignCheckpoint(campaign_name="c", policy_cycles=8)
+    inst._write_ckpt(2, path, newer)  # the final checkpoint
+    inst._write_ckpt(1, path, older)  # a late cycle checkpoint
+    assert read_checkpoint(path).policy_cycles == 9

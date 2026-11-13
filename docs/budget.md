@@ -207,6 +207,8 @@ what it spends in one `policy_interval_s` (more if it reports rarely, plus its
 grace period), and the campaign its limit by as much. AuCaM's check is the
 safety net: a workflow that must stay within its limit should check it itself
 and stop before a step that would pass it, as all the example campaigns do.
+To tighten it, lower `policy_interval_s`; a separate, faster check is not done
+because it would read every running workflow's report each time.
 
 ![Per-workflow spending limit](figures/aucam_run_limit.png)
 
@@ -333,10 +335,13 @@ With no budget used it explores normally; with the budget used up it only
 picks the types that have done best so far.
 
 With `BanditSchedulingPolicy(cost_aware=True)` the reward also accounts for
-cost: reward × 1 / (1 + `cost_weight` × relative cost), where relative cost is
-the workflow's spending ÷ the average spending of the campaign's finished
-workflows (averaged over dimensions). A type that completes as often as another
-but costs twice the average earns a third of the reward instead of a half.
+cost: reward × 1 / (1 + `cost_weight` × relative cost). A workflow's cost is
+the share of the campaign's budget left that it spent, summed over the limited
+dimensions — so 2 GPU-hours out of 10 left weigh more than 3 CPU-hours out of
+1000 — and its relative cost is that ÷ the average over the campaign's finished
+workflows. A type that completes as often as another but costs twice the
+average earns a third of the reward instead of a half. Without a campaign
+limit, each dimension is compared with its own average instead.
 
 ![Bandit and budget](figures/aucam_bandit_budget.png)
 
