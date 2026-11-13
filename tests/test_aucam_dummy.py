@@ -25,6 +25,9 @@ from src.aucam import (
     WorkflowResult,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 # ── Dummy workflows ──────────────────────────────────────────────────────────
 
 
@@ -97,24 +100,31 @@ async def _run_dummy_campaign() -> None:
     spec = CampaignSpec(
         name="dummy-campaign",
         budget=CampaignBudget(
+            capacity=CAPACITY,
             max_concurrent_workflows=3,
             max_concurrency_per_workflow=1,
         ),
         controller=controller,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="fast_job",
                 block=fast_job,
                 launch_on_start=True,
                 on_completion=_on_fast_done,
             ),
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="slow_job",
                 block=slow_job,
                 launch_on_start=True,
                 on_completion=_on_slow_done,
             ),
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="follow_up",
                 block=follow_up,
                 launch_on_start=False,
@@ -133,10 +143,9 @@ async def _run_dummy_campaign() -> None:
     )
 
     cm = CampaignManager()
-    cm.submit_campaign(spec)
 
     start = time.monotonic()
-    await asyncio.wait_for(cm.run(), timeout=20.0)
+    await asyncio.wait_for(cm.run(spec), timeout=20.0)
     elapsed = time.monotonic() - start
 
     assert elapsed < 10.0, "campaign took too long"
@@ -188,12 +197,15 @@ async def _run_sequential_campaign() -> None:
     spec = CampaignSpec(
         name="seq-campaign",
         budget=CampaignBudget(
+            capacity=CAPACITY,
             max_concurrent_workflows=1,
             max_concurrency_per_workflow=1,
         ),
         controller=SequentialController(),
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="timed_job",
                 block=timed_job,
                 launch_on_start=True,
@@ -205,8 +217,7 @@ async def _run_sequential_campaign() -> None:
     )
 
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    await asyncio.wait_for(cm.run(), timeout=20.0)
+    await asyncio.wait_for(cm.run(spec), timeout=20.0)
 
     assert completed_count >= 2
     if len(launch_times) >= 2:

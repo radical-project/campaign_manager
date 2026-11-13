@@ -8,139 +8,89 @@ done.
 
 ## Status
 
-| ID | Item | Status |
-|---|---|---|
-| B0 | Any budget dimension (e.g. `llm_tokens`) | Partial |
-| B1 | Burn-down in the controller's observation | Partial |
-| B2 | Launch only requests that fit the remaining budget | Not started |
-| B3 | Learned cost estimates | Done, two follow-ups |
-| B4 | `CostCancelRule` | Not started |
-| B5 | Cost-aware bandit | Partial |
-| R1 | Restart: rejoin running workflows, keep goals and learned costs | Not started |
-| R2 | Restart: dependency state | Partial |
-| P1 | PAUSE timeout; CANCEL through the DataBackend at shutdown | Not started |
-| C1 | Controller fallback when `decide()` fails or is slow | Not started |
-| H1 | On-completion hooks can enqueue requests | Not started |
-| A1 | Per-dimension prices; usage that belongs to no campaign | Not started |
-| A2 | Campaigns without a spending limit are not bounded by the global limit | Open |
-| S1 | ADR- and LLM-based scheduling policies | Stubs (fall back to FIFO) |
-| D1 | Remote driver submission | Not started |
-| L1 | Launch fewer workflows when the backend is backlogged | Not started |
-| X1 | More accurate task data in AsyncFlow telemetry | Open (external) |
-| X2 | RHAPSODY concurrent backend does not kill cancelled programs | Open (external) |
+Work in priority order; within a level, top to bottom. "Needs" names an item
+that must land first.
+
+- **1 — first:** problems that can break a campaign or let it overspend, and
+  items that unblock others.
+- **2 — the vision:** AI steering a campaign and the budget as a decision input.
+- **3 — robustness:** long campaigns on HPC.
+- **4 — later:** when a real campaign needs it.
+- **External:** raise with the AsyncFlow / RHAPSODY teams; not scheduled here.
+
+| Priority | ID | Item | Status | Needs |
+|---|---|---|---|---|
+| 4 | U1 | Change a running workflow's allocation | Not started (decided: not for now) | |
+| 4 | U7 | Elastic workflows: start with less when the budget is short | Not started | |
+| 4 | H1 | On-completion hooks can enqueue requests | Not started | |
+| External | X1 | More accurate task data in AsyncFlow telemetry | Open | |
+| External | X2 | RHAPSODY concurrent backend does not kill cancelled programs | Open | |
+| External | X3 | Reattach to running tasks after a restart | Open | |
 
 ---
 
-## Budget burn-down (B0–B5)
+## Per-workflow allocations (U1, U7)
 
-Goal: the budget becomes a decision input — AuCaM forecasts each campaign's
-spending, launches only what fits, cancels workflows that spend without
-improving, and favours cost-effective workflow types as the budget runs down.
-Current behaviour: [budgets and spending](budget.md). When an item lands,
-update `budget.md` and the developer guide.
+Each workflow gets an allocation when it starts — a spending limit and the CPUs and
+GPUs it may use at once (`Allocation`) — sized by `SchedulingPolicy.size()`
+from the controller's amount (`LaunchRequest.spending_limit` / `resources`),
+the type's starting values and what AuCaM learned, passed to the workflow and enforced by AuCaM. Current behaviour:
+[budgets and spending](budget.md) §4 and the developer guide, "How much each workflow gets".
 
-- **B0 — any budget dimension.** AsyncFlow telemetry measures only CPU and
-  GPU time, so other dimensions (e.g. `llm_tokens`) come from the workflow's
-  own reports: when the workflow ends, AuCaM charges the totals from its last
-  report for every dimension named in `declared_spending`. Missing: when a
-  workflow's CPU and GPU hours are charged from telemetry (method A in
-  `budget.md`), that end-of-workflow charge is skipped entirely, so its other
-  dimensions are never charged and a limit on them is not enforced. Fix: for
-  such workflows, still charge the reported totals of the dimensions other
-  than CPU and GPU hours. `[SPEND]` logs also show only CPU/GPU.
-- **B1 — burn-down in the observation.** `campaign_view()` has
-  `burn[dim] = {remaining, fraction_left}`. Missing: `rate_per_hour` (smoothed
-  over recent policy cycles; needs spending timestamps in the ledger),
-  `projected` (spent + in-flight + estimated cost of queued requests),
-  `hours_to_limit`, and `burn["by_type"]` (completions, average cost, cost per
-  successful run, mean final score).
-- **B2 — launch only what fits.** Today a request starts whenever spent +
-  in-flight is still below the limit, whatever the request costs, so the last
-  launch can overshoot the limit, and once the limit is reached even a cheap
-  request that would fit is not started. Change: in `_drain_queue()` /
-  `_take()`, start a request only if spent + in-flight + its estimated cost
-  (`_learned_cost()`) ≤ limit in every dimension, CRITICAL included; a request
-  that does not fit stays queued and a cheaper one may start. The spending exit becomes "no
-  queued request fits and nothing is running" (`_spending_limit_reached()`,
-  `_scheduler_loop()`).
-- **B3 — learned costs, follow-ups.** Implemented (`_learned_cost()`,
-  `_update_type_cost()`, `_estimates`). Missing: make the threshold (3 runs)
-  a `CampaignSpec.min_cost_samples` setting; save `_type_cost_stats` in the
-  checkpoint.
-- **B4 — cost-based cancel rule.** A new built-in rule in `controller.py`,
-  `CostCancelRule(workflow_type, max_without_improvement={"gpu_hours": 5.0},
-  direction="maximize")`, applied by `_apply_rules()`: cancel a running
-  workflow that has spent the given amount since its score last improved.
-  Needs per running workflow: spending so far (per-task charges are in
-  `_task_usage`), best score, spending at the best score — tracked on
-  `_WorkflowInstance` and passed in the observation (e.g. `obs["wf_spend"]`).
-- **B5 — cost-aware bandit.** Done: exploration scaled by
-  `√(1 − spending_fraction)` (`BanditSchedulingPolicy.select()`). Missing:
-  default reward = success × 1 / (1 + k × cost), with cost = Σ over dimensions
-  of workflow spending / campaign limit (`WorkflowResult.spent` is available
-  in `on_outcome()`; the limits are not); `cost_aware=False` to keep today's
-  completion-only reward.
+- **U1 — change a running workflow's allocation.** An allocation is fixed at
+  launch. Plan: a controller decision, e.g.
+  `PolicyResult.extend_allocations={wf_id: {"cpu_hours": 2.0}}`, that raises
+  (or lowers) a running workflow's limit, with the in-flight amount updated in the
+  ledger and the new limit sent to the workflow through the DataBackend.
+  Enables "start small, give more to the promising" (successive halving).
+  Unlike U7, which sizes a workflow at launch, U1 changes it after launch;
+  both need workflows that read their limit and adapt.
+- **U7 — elastic workflows.** AuCaM gives a workflow its full amount or
+  nothing: if the amount does not fit the remaining budget or the free
+  capacity, the request waits, or is dropped once nothing else runs. Some
+  workflows can do useful work with less — an LLM agent with a token budget,
+  adaptive sampling, an optimizer that stops when its limit is reached — and
+  for them a smaller amount near the end of a campaign is better than none.
+  Plan: a type-level minimum, e.g. `WorkflowConfig(elastic={"cpu_hours": 0.5})`,
+  below which the workflow is not worth starting. The upper amount is what
+  `size()` gives today; if it does not fit, the workflow gets what is left,
+  down to that minimum, and sizes its work to the amount it receives. A
+  controller's explicit amount is used as given and never reduced. U7 decides
+  the amount at launch; U1 changes it while the workflow runs, and the two
+  combine: start small when the budget is short, give more later. An earlier
+  version had ranges (`bounds`) for this; they were removed because no
+  campaign needed them and they made sizing harder to follow. Revisit when a real campaign has such a workflow.
 
 ## Other planned features
 
-- **R1 — restart.** Rejoin workflows still running after a restart instead of
-  restarting them; re-send PAUSE to paused workflows (`paused_wf_ids` in the
-  checkpoint is always empty); save run-time goal changes and return the
-  final goals in `CampaignOutcome`; save learned costs (B3).
-- **R2 — dependency state after restart.** `dep_satisfied` is saved and
-  restored before queued requests are re-pushed. Missing: `_dep_triggered`
-  (source instances that already triggered) and `_dep_pending` (held
-  requests); after a restart a completion can be counted again and held
-  requests are lost. Fix: add both to `CampaignCheckpoint` (with defaults for
-  old checkpoints) and restore them like `dep_satisfied`.
-- **P1 — PAUSE and shutdown.** Cancel a workflow that does not acknowledge
-  PAUSE within a timeout. At shutdown, send CANCEL through the DataBackend
-  first so workflows can exit cleanly; cancel only those still running after
-  the timeout.
-- **C1 — controller fallback.** `controller.decide()` is not guarded: an
-  exception in it ends the campaign's policy loop. Add a try/except and a
-  rule-based fallback, also when `decide()` takes too long.
-- **H1 — hooks.** Let `WorkflowConfig.on_completion` hooks enqueue requests on
-  their own campaign.
-- **A1 — accounting.** Per-dimension prices for comparing dimensions; record
-  usage that belongs to no campaign.
-- **S1 — scheduling.** `ADRSchedulingPolicy` and `LLMSchedulingPolicy` are
-  stubs that fall back to FIFO.
-- **D1 — drivers.** A remote submission interface, so drivers can run outside
-  CM's process.
-- **L1 — load-aware launching.** Today the controller sees AsyncFlow task
-  counts (`obs["tasks"]`: waiting, submitted, running) and each policy-cycle log
-  line shows them, but nothing acts on them. Plan: an opt-in setting for the
-  built-in controller, e.g. `CampaignController(max_pending_tasks=20)`, that
-  keeps a target number of workflows in flight (running + queued): above the
-  threshold of submitted tasks it halves the target and drops surplus queued
-  requests (`PolicyResult.cancel_queued`); below it, it raises the target by
-  one. `max_concurrent_workflows` stays the cap. Decide after looking at real
-  task counts from Delta runs. Limits: only AsyncFlow tasks are counted, so a
-  command-line workflow is one task; a running workflow's own burst of tasks
-  is not slowed, only new launches.
+- **H1 — hooks.** Let `WorkflowConfig.on_completion` hooks enqueue requests.
 
 ## Known problems
 
-- **A2 — campaigns without a limit.** A campaign that sets no spending limit
-  for a dimension commits 0 for it at admission, so the global limit cannot
-  hold back its spending in that dimension ([budgets and spending](budget.md)
-  §4). Options: (1) reject a campaign without a spending limit when a global
-  limit is set; or (2) also check the global limit before every launch,
-  counting actual spending plus running workflows across all campaigns. (2)
-  lets campaigns run without a limit, but they could then use budget that other
-  campaigns have reserved.
 - **X1 — radical.asyncflow telemetry.** AuCaM needs AsyncFlow's task events
   to carry more accurate data: each task's requested resources or actual
   spending (for per-task charging), and the program's exit code (for
-  `returncode`). Today this comes from a local, temporary change to
+  `returncode`). Still missing in radical.asyncflow 0.7.0 (checked
+  2026-11-11); today it comes from a local, temporary change to
   radical.asyncflow, which is being reworked. With a released version,
   workflows are charged only when they finish, a failed command-line workflow
-  gets `returncode` 1, and the tests that need this data skip.
-- **X2 — RHAPSODY concurrent backend.** Checked with rhapsody-py 0.5.0:
+  gets `returncode` 1, the CPUs and GPUs a workflow uses at once can only come from
+  its own reports, and the tests that need this data skip.
+- **X2 — RHAPSODY concurrent backend.** Still open in rhapsody-py 0.7.0
+  (checked 2026-11-11, first seen in 0.5.0):
   `ConcurrentExecutionBackend.cancel_task()` cancels the asyncio task waiting
   on the subprocess but never kills the subprocess, so a cancelled `sleep`
   keeps running, even after `shutdown()`. On this backend (the default for
   local runs), cancelling a command-line workflow marks it cancelled while its
-  program keeps running.
+  program keeps running. A program that checks for CANCEL
+  (`aucam-report signal`) and has a grace period (`cancel_grace_s`) stops
+  itself; one that does not keeps running.
   Needs a fix in RHAPSODY: terminate the process (group) on cancel.
+- **X3 — reattach after a restart.** A restarted AuCaM adopts command-line
+  workflows that report through Redis or Dragon by following their reports
+  (R1), but has no handle to their tasks: it cannot force-cancel them, charge
+  them per task or get an exit code except from their `done` report. Python
+  workflows run inside AuCaM and always die with it. Needs asyncflow /
+  RHAPSODY to look up a running task by id (e.g. on a Dragon runtime that
+  outlives AuCaM). Related: AuCaM saves no "paused" state — a workflow that was
+  paused is adopted or re-run as running.

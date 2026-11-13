@@ -21,6 +21,8 @@ from src.aucam import (
 )
 from src.aucam.campaign import _CampaignInstance
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
 
 class LaunchOnce(CampaignController):
     """Launch the given requests once; stop when all of them have finished."""
@@ -48,15 +50,16 @@ def _run(workflows: list[WorkflowConfig], requests: list[LaunchRequest]) -> Laun
     ctl = LaunchOnce(requests)
     spec = CampaignSpec(
         name="cmdcamp",
-        budget=CampaignBudget(max_concurrent_workflows=4, max_concurrency_per_workflow=4),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=4, max_concurrency_per_workflow=4
+        ),
         controller=ctl,
         workflows=workflows,
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
     )
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    asyncio.run(asyncio.wait_for(cm.run(), timeout=60.0))
+    asyncio.run(asyncio.wait_for(cm.run(spec), timeout=60.0))
     return ctl
 
 
@@ -78,6 +81,8 @@ def _asyncflow_reports_exit_code() -> bool:
 def test_exit_code_reaches_workflow_result() -> None:
     wfs = [
         WorkflowConfig(
+            spending_limit={"cpu_hours": 1000.0},
+            resources={"cpus": 1},
             name=f"exit{c}",
             launch_on_start=False,
             launch_cmd=[sys.executable, "-c", f"import sys; sys.exit({c})"],
@@ -98,6 +103,8 @@ def test_program_environment(tmp_path) -> None:
         "json.dump({k: os.environ.get(k) for k in keys}, open(sys.argv[1], 'w'))"
     )
     wf = WorkflowConfig(
+        spending_limit={"cpu_hours": 1000.0},
+        resources={"cpus": 1},
         name="envprog",
         launch_on_start=False,
         env={"MY_VAR": "x y 'z'"},

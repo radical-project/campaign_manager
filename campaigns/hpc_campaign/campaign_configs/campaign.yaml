@@ -1,6 +1,5 @@
 # Campaign template — local / dev defaults.
-# The driver instantiates one CampaignSpec per run from this template,
-# assigning a unique name (demo-campaign-a, demo-campaign-b, …).
+# run_campaign.py builds the CampaignSpec from this file.
 
 controller:
   goal_analyses: 3            # number of analysis_worker completions before terminating
@@ -9,8 +8,10 @@ controller:
 budget:
   max_concurrent: 4           # max concurrent workflows in this campaign
   max_concurrency_per_workflow: 2
+  capacity:   # CPUs available at once (each workflow is given 1)
+    cpus: 4
   spending:
-    cpu_hours: 0.004          # declared cost; global cap checks use this for admission
+    cpu_hours: 0.004          # spending limit; remove to disable
     gpu_hours: ~
 
 workflows:
@@ -18,20 +19,26 @@ workflows:
     n_iters: 10               # simulation steps per block
     iter_sleep_s: 0.08        # sleep per step (total: n_iters × iter_sleep_s ≈ 0.8 s)
     stale_timeout_s: 120.0    # max gap between reporter.emit() calls
-    declared_spending:
-      wall_hours: 0.00025     # ≈ 0.9 s
-      cpu_hours:  0.00025
+    spending_limit:           # most one run may spend; AuCaM passes it to the run
+      cpu_hours:  0.0003      # and cancels a run that spends more
+    respect_limit: true       # the run stops before it would pass its limit
+    resources:                # CPUs one workflow may use at once; AuCaM passes them
+      cpus: 1                 # to it and cancels a workflow that uses more
   sim_worker_b:
     # n_iters_b is auto-derived as max(3, n_iters // 3) — not set here
     stale_timeout_s: 60.0
-    declared_spending:
-      wall_hours: 0.0001      # ≈ 0.3 s
-      cpu_hours:  0.0001
+    spending_limit:
+      cpu_hours:  0.00015
+    respect_limit: true
+    resources:
+      cpus: 1
   analysis_worker:
     steps: 2                  # post-processing steps
-    declared_spending:
-      wall_hours: 0.00005     # ≈ 0.16 s
-      cpu_hours:  0.00005
+    spending_limit:
+      cpu_hours:  0.0006      # ≈ 2 s; the run's profiler samples once a second
+    respect_limit: true
+    resources:
+      cpus: 1
 
 policy_interval_s: 0.5
 shutdown_timeout_s: 10.0

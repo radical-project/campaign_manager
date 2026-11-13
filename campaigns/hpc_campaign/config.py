@@ -3,13 +3,13 @@ Config dataclasses and YAML loaders for the dummy campaign.
 
 Two config objects are used at runtime:
 
-  GlobalConfig     — CM-level settings: engine, scheduling policy, global
-                     budget, telemetry, and driver behaviour.
+  GlobalConfig     — CM-level settings: engine, data backend, scheduling
+                     policy and telemetry.
                      Loaded from  campaign_configs/global.yaml  (or global_hpc.yaml).
 
-  CampaignConfig   — Campaign template: controller specs, per-campaign budget,
-                     and workflow timing.  The driver instantiates one
-                     CampaignSpec from this template for each run.
+  CampaignConfig   — The campaign: controller settings, budget and
+                     workflow timing.  run_campaign.py builds the
+                     CampaignSpec from it.
                      Loaded from  campaign_configs/campaign.yaml  (or campaign_hpc.yaml).
 
 Usage::
@@ -33,24 +33,9 @@ class SchedulingConfig:
 
 
 @dataclass
-class GlobalBudgetConfig:
-    max_concurrent_campaigns: int | None = None
-    max_total_concurrent_workflows: int | None = None
-    spending: dict[str, float] = field(default_factory=dict)
-    n_campaigns: int | None = None
-    max_rejections: int | None = None
-
-
-@dataclass
 class TelemetryConfig:
     enabled: bool = False
     dir: str | None = None
-
-
-@dataclass
-class DriverConfig:
-    enabled: bool = False  # use cm.submit()/cm.close() driver API
-    delay_s: float = 2.0  # pause between consecutive submissions
 
 
 @dataclass
@@ -59,11 +44,8 @@ class GlobalConfig:
     data_backend: str = "auto"  # auto | dragon | redis | local
     redis_server_path: str | None = None  # path to redis-server binary (redis backend only)
     verbose: bool = False
-    num_campaigns: int = 1
     scheduling: SchedulingConfig = field(default_factory=SchedulingConfig)
-    global_budget: GlobalBudgetConfig = field(default_factory=GlobalBudgetConfig)
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
-    driver: DriverConfig = field(default_factory=DriverConfig)
 
 
 # ── Campaign config ───────────────────────────────────────────────────────────
@@ -79,6 +61,8 @@ class ControllerConfig:
 class BudgetConfig:
     max_concurrent: int = 4
     max_concurrency_per_workflow: int = 2
+    # The allocation's total resources (e.g. {"cpus": 4}); required.
+    capacity: dict = field(default_factory=lambda: {"cpus": 4})
     cpu_hours: float | None = None  # soft spending cap; None = unlimited
     gpu_hours: float | None = None
 
@@ -88,20 +72,29 @@ class SimWorkerConfig:
     n_iters: int = 10
     iter_sleep_s: float = 0.08
     stale_timeout_s: float = 120.0
-    declared_spending: dict = field(default_factory=dict)
+    spending_limit: dict = field(default_factory=dict)  # most one run may spend
+    respect_limit: bool = True  # False: the run ignores its limit (AuCaM cancels it)
+    resources: dict = field(default_factory=dict)  # CPUs/GPUs one run may use at once
+    respect_resources: bool = True  # False: the run uses twice its CPUs (AuCaM cancels it)
 
 
 @dataclass
 class SimWorkerBConfig:
     # n_iters_b is auto-derived as max(3, n_iters // 3) — not stored here
     stale_timeout_s: float = 60.0
-    declared_spending: dict = field(default_factory=dict)
+    spending_limit: dict = field(default_factory=dict)
+    respect_limit: bool = True
+    resources: dict = field(default_factory=dict)
+    respect_resources: bool = True
 
 
 @dataclass
 class AnalysisWorkerConfig:
     steps: int = 2
-    declared_spending: dict = field(default_factory=dict)
+    spending_limit: dict = field(default_factory=dict)
+    respect_limit: bool = True
+    resources: dict = field(default_factory=dict)
+    respect_resources: bool = True
 
 
 @dataclass
@@ -128,32 +121,18 @@ def load_global(path: str | Path) -> GlobalConfig:
     """Load a :class:`GlobalConfig` from a YAML file."""
     d = _load_yaml(path)
     sched = d.get("scheduling") or {}
-    gb = d.get("global_budget") or {}
     tel = d.get("telemetry") or {}
-    drv = d.get("driver") or {}
     return GlobalConfig(
         engine=d.get("engine", "concurrent"),
         data_backend=d.get("data_backend", "auto"),
         redis_server_path=d.get("redis_server_path") or None,
         verbose=bool(d.get("verbose", False)),
-        num_campaigns=int(d.get("num_campaigns", 1)),
         scheduling=SchedulingConfig(
             policy=sched.get("policy", "bandit"),
-        ),
-        global_budget=GlobalBudgetConfig(
-            max_concurrent_campaigns=gb.get("max_concurrent_campaigns"),
-            max_total_concurrent_workflows=gb.get("max_total_concurrent_workflows"),
-            spending={k: float(v) for k, v in (gb.get("spending") or {}).items() if v is not None},
-            n_campaigns=_optional_int(gb.get("n_campaigns")),
-            max_rejections=_optional_int(gb.get("max_rejections")),
         ),
         telemetry=TelemetryConfig(
             enabled=bool(tel.get("enabled", False)),
             dir=tel.get("dir"),
-        ),
-        driver=DriverConfig(
-            enabled=bool(drv.get("enabled", False)),
-            delay_s=float(drv.get("delay_s", 2.0)),
         ),
     )
 
@@ -176,6 +155,7 @@ def load_campaign(path: str | Path) -> CampaignConfig:
         budget=BudgetConfig(
             max_concurrent=int(bud.get("max_concurrent", 4)),
             max_concurrency_per_workflow=int(bud.get("max_concurrency_per_workflow", 2)),
+            capacity={k: float(v) for k, v in (bud.get("capacity") or {"cpus": 4}).items()},
             cpu_hours=_optional_float(sp.get("cpu_hours")),
             gpu_hours=_optional_float(sp.get("gpu_hours")),
         ),
@@ -184,21 +164,24 @@ def load_campaign(path: str | Path) -> CampaignConfig:
                 n_iters=int(sim.get("n_iters", 10)),
                 iter_sleep_s=float(sim.get("iter_sleep_s", 0.08)),
                 stale_timeout_s=float(sim.get("stale_timeout_s", 120.0)),
-                declared_spending={
-                    k: float(v) for k, v in (sim.get("declared_spending") or {}).items()
-                },
+                spending_limit={k: float(v) for k, v in (sim.get("spending_limit") or {}).items()},
+                respect_limit=bool(sim.get("respect_limit", True)),
+                resources={k: float(v) for k, v in (sim.get("resources") or {}).items()},
+                respect_resources=bool(sim.get("respect_resources", True)),
             ),
             sim_worker_b=SimWorkerBConfig(
                 stale_timeout_s=float(simb.get("stale_timeout_s", 60.0)),
-                declared_spending={
-                    k: float(v) for k, v in (simb.get("declared_spending") or {}).items()
-                },
+                spending_limit={k: float(v) for k, v in (simb.get("spending_limit") or {}).items()},
+                respect_limit=bool(simb.get("respect_limit", True)),
+                resources={k: float(v) for k, v in (simb.get("resources") or {}).items()},
+                respect_resources=bool(simb.get("respect_resources", True)),
             ),
             analysis_worker=AnalysisWorkerConfig(
                 steps=int(ana.get("steps", 2)),
-                declared_spending={
-                    k: float(v) for k, v in (ana.get("declared_spending") or {}).items()
-                },
+                spending_limit={k: float(v) for k, v in (ana.get("spending_limit") or {}).items()},
+                respect_limit=bool(ana.get("respect_limit", True)),
+                resources={k: float(v) for k, v in (ana.get("resources") or {}).items()},
+                respect_resources=bool(ana.get("respect_resources", True)),
             ),
         ),
         policy_interval_s=float(d.get("policy_interval_s", 0.5)),
@@ -221,7 +204,3 @@ def _load_yaml(path: str | Path) -> dict:
 
 def _optional_float(v: object) -> float | None:
     return float(v) if v is not None else None
-
-
-def _optional_int(v: object) -> int | None:
-    return int(v) if v is not None else None

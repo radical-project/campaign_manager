@@ -20,17 +20,20 @@ Guidance for Claude Code in this repository.
 
 ## Rules
 
-- Budgets are spending only (resource-hours or any other dimension, one ledger:
-  `BudgetAllocator`). Don't add a "resources in use at once" budget; capacity is
-  limited by the allocation and the workflow-count limits.
+- The campaign budget is spending only (resource-hours or any other dimension,
+  one ledger: `BudgetAllocator`); there is no campaign-wide "resources in use at
+  once" budget. Each workflow, however, gets an allocation at launch: a spending
+  limit and resources in use at once (`Allocation`), sized by the scheduling
+  policy (`SchedulingPolicy.size()`), passed to the workflow and enforced by
+  AuCaM. Using its resources well is the workflow's job, not RHAPSODY's.
 - Only the `CampaignController` decides to cancel workflows (plus CM's
-  automatic stale-reporter and wall-time cancels).
-- One scheduling-policy instance per campaign; no cross-campaign learning.
-  Results reach other campaigns only through the driver.
+  automatic stale-reporter, wall-time and per-workflow spending-limit cancels).
+- AuCaM runs one campaign at a time: `outcome = await cm.run(spec)`; the
+  caller (a script or an agent) plans the next campaign from the outcome.
 - Every workflow runs as one AsyncFlow block (`launch_cmd` = a block with one
   executable task).
-- Terms: CampaignManager (CM), driver API (`submit()` → `SubmitResult` →
-  `CampaignOutcome`), GlobalBudget, CampaignBudget, `declared_spending`,
+- Terms: CampaignManager (CM), `run(spec)` → `CampaignOutcome`,
+  CampaignBudget, `declared_spending`,
   CampaignController, PolicyResult, WorkflowQueue, SchedulingPolicy,
   WorkflowReporter, DataBackend.
 
@@ -50,12 +53,12 @@ Guidance for Claude Code in this repository.
 ## Commands
 
 ```bash
-pip install -e ".[dev]"      # Python ≥ 3.11 (3.10 works without [dragon]); [redis] for Redis + aucam-report
+pip install -e ".[dev]"      # Python ≥ 3.11; [redis] for Redis + aucam-report
 pytest                       # tests needing unreleased radical.asyncflow features skip (known-gaps X1)
 pytest -m "not slow"
 ruff check --no-fix . && ruff format --check .   # lint (plain `ruff check .` edits files)
 python docs/figures/src/architecture.py              # redraw the architecture figure
-python campaigns/demo_campaign/figures/doc_figures.py # redraw the budget/bandit figures (~1 min)
+python campaigns/hpc_campaign/figures/doc_figures.py # redraw the budget/bandit figures (~1 min)
 ```
 
 `docs/code-walkthrough.md` has the module map and main code paths.

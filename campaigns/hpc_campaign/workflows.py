@@ -21,9 +21,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import random
 import socket
 import threading
+import time
 
 import psutil
 
@@ -47,6 +49,53 @@ N_ITERS = 10  # number of report iterations per simulation run
 ITER_SLEEP_S = 0.08  # sleep per sim iteration (increase for longer blocks)
 ANALYSIS_STEPS = 2  # number of steps in analysis_worker
 N_ITERS_B = max(3, N_ITERS // 3)  # sim_worker_b: faster, fewer iters (auto-derived)
+# Whether each workflow type stays within the spending limit AuCaM gives it
+# (campaign_overuse.yaml turns this off for one type to show AuCaM cancelling it).
+RESPECT_LIMIT = {"sim_worker": True, "sim_worker_b": True, "analysis_worker": True}
+# False: the run uses twice the CPUs AuCaM gave it (the resource use case).
+RESPECT_RESOURCES = {"sim_worker": True, "sim_worker_b": True, "analysis_worker": True}
+
+
+class RunBudget:
+    """This run's spending limit and resources from AuCaM, and its spending so far.
+
+    The run uses the CPUs AuCaM gave it (context["resources"]["cpus"], 1 if
+    none), or twice that when configured to overuse them; spending is those
+    CPUs × the run's wall time.  Both go to AuCaM in every report
+    (``metrics()``: a running ``cpu_hours`` total and ``cpus_in_use``).  A run
+    that respects its limit stops before a step that would take it past it.
+    """
+
+    def __init__(self, context: dict | None, name: str) -> None:
+        lim = (context or {}).get("spending_limit", {}).get("cpu_hours")
+        self.limit = float(lim) if lim is not None else math.inf
+        self.respect = RESPECT_LIMIT.get(name, True)
+        given = float((context or {}).get("resources", {}).get("cpus", 1.0))
+        cpus = given if RESPECT_RESOURCES.get(name, True) else 2 * given
+        self.name, self.cpus, self.t0 = name, cpus, time.monotonic()
+        if cpus != given:
+            logger.info("[%s] given %g CPUs, using %g", name, given, cpus)
+        if lim is not None:
+            logger.info(
+                "[%s] spending limit %.6f cpu_hours%s",
+                name,
+                self.limit,
+                "" if self.respect else " (ignored)",
+            )
+
+    def spent(self) -> float:
+        return self.cpus * (time.monotonic() - self.t0) / 3600.0
+
+    def metrics(self) -> dict:
+        """Spending so far and CPUs in use, for every report to AuCaM."""
+        return {"cpu_hours": self.spent(), "cpus_in_use": self.cpus}
+
+    def stop_before(self, step_s: float) -> bool:
+        """True if a step of ``step_s`` seconds would take this run past its limit."""
+        if not self.respect or self.spent() + self.cpus * step_s / 3600.0 <= self.limit:
+            return False
+        logger.info("[%s] stopping early to stay within its spending limit", self.name)
+        return True
 
 
 def _sample_gpu_util() -> float | None:
@@ -68,6 +117,8 @@ def configure(
     n_iters: int | None = None,
     iter_sleep_s: float | None = None,
     analysis_steps: int | None = None,
+    respect_limit: dict[str, bool] | None = None,
+    respect_resources: dict[str, bool] | None = None,
 ) -> None:
     """Override timing constants before the campaign starts.
 
@@ -82,9 +133,13 @@ def configure(
         ITER_SLEEP_S = iter_sleep_s
     if analysis_steps is not None:
         ANALYSIS_STEPS = analysis_steps
+    if respect_limit:
+        RESPECT_LIMIT.update(respect_limit)
+    if respect_resources:
+        RESPECT_RESOURCES.update(respect_resources)
 
 
-async def sim_worker(reporter: WorkflowReporter, flow=None) -> None:
+async def sim_worker(reporter: WorkflowReporter, flow=None, context: dict | None = None) -> None:
     """Synthetic simulation — emits a score each step.
 
     Score drifts up or down depending on a random initial direction.
@@ -98,6 +153,7 @@ async def sim_worker(reporter: WorkflowReporter, flow=None) -> None:
     TaskProfiler wraps _simulate to capture worker-node CPU/memory.
     """
     converging = random.random() > 0.35  # ~65 % converging
+    budget = RunBudget(context, "sim_worker")
 
     async with BlockProfiler() as block_prof:
         if flow is not None:
@@ -129,12 +185,15 @@ async def sim_worker(reporter: WorkflowReporter, flow=None) -> None:
 
             state = await _init()
             for batch_num in range(n_batches):
+                if budget.stop_before(batch_size * ITER_SLEEP_S):
+                    break
                 state = await _simulate_batch(state, batch_size, ITER_SLEEP_S)
                 # Head-node emit: goes to RadexDragonBackend → DDict (HPC) or
                 # LocalDictBackend (local).  CM reads on its next policy cycle.
                 await reporter.emit(
                     score=state["score"],
                     metrics={
+                        **budget.metrics(),
                         "batch": batch_num,
                         "converging": state["converging"],
                         "hostname": socket.gethostname(),
@@ -145,7 +204,7 @@ async def sim_worker(reporter: WorkflowReporter, flow=None) -> None:
             # Final emit with block-level profiling metrics.
             await reporter.emit(
                 score=state["score"],
-                metrics={"resource_usage": block_prof.metrics},
+                metrics={**budget.metrics(), "resource_usage": block_prof.metrics},
                 iteration=N_ITERS + 1,
             )
 
@@ -154,6 +213,8 @@ async def sim_worker(reporter: WorkflowReporter, flow=None) -> None:
             score = 0.5
             _t0_cpu = psutil.Process().cpu_times()
             for i in range(N_ITERS):
+                if budget.stop_before(ITER_SLEEP_S):
+                    break
                 await asyncio.sleep(ITER_SLEEP_S)
                 score += random.gauss(0.05 if converging else -0.08, 0.05)
                 score = max(0.0, min(1.0, score))
@@ -162,6 +223,7 @@ async def sim_worker(reporter: WorkflowReporter, flow=None) -> None:
                 await reporter.emit(
                     score=score,
                     metrics={
+                        **budget.metrics(),
                         "iteration": i,
                         "converging": converging,
                         "score": score,
@@ -173,12 +235,16 @@ async def sim_worker(reporter: WorkflowReporter, flow=None) -> None:
             cpu_s = (t_cpu.user + t_cpu.system) - (_t0_cpu.user + _t0_cpu.system)
             await reporter.emit(
                 score=score,
-                metrics={"resource_usage": block_prof.metrics, "cpu_seconds": cpu_s},
+                metrics={
+                    **budget.metrics(),
+                    "resource_usage": block_prof.metrics,
+                    "cpu_seconds": cpu_s,
+                },
                 iteration=N_ITERS,
             )
 
 
-async def sim_worker_b(reporter: WorkflowReporter, flow=None) -> None:
+async def sim_worker_b(reporter: WorkflowReporter, flow=None, context: dict | None = None) -> None:
     """Faster, more reliable simulation — 90% convergence rate, N_ITERS_B steps.
 
     Identical structure to sim_worker; differs only in diverge probability
@@ -186,6 +252,7 @@ async def sim_worker_b(reporter: WorkflowReporter, flow=None) -> None:
     The bandit should learn to prefer this arm's higher throughput.
     """
     converging = random.random() > 0.10  # ~90 % converging
+    budget = RunBudget(context, "sim_worker_b")
 
     async with BlockProfiler() as block_prof:
         if flow is not None:
@@ -210,10 +277,13 @@ async def sim_worker_b(reporter: WorkflowReporter, flow=None) -> None:
 
             state = await _init_b()
             for batch_num in range(n_batches):
+                if budget.stop_before(batch_size * ITER_SLEEP_S):
+                    break
                 state = await _simulate_batch_b(state, batch_size, ITER_SLEEP_S)
                 await reporter.emit(
                     score=state["score"],
                     metrics={
+                        **budget.metrics(),
                         "batch": batch_num,
                         "converging": state["converging"],
                         "hostname": socket.gethostname(),
@@ -223,7 +293,7 @@ async def sim_worker_b(reporter: WorkflowReporter, flow=None) -> None:
 
             await reporter.emit(
                 score=state["score"],
-                metrics={"resource_usage": block_prof.metrics},
+                metrics={**budget.metrics(), "resource_usage": block_prof.metrics},
                 iteration=N_ITERS_B + 1,
             )
 
@@ -231,6 +301,8 @@ async def sim_worker_b(reporter: WorkflowReporter, flow=None) -> None:
             score = 0.5
             _t0_cpu = psutil.Process().cpu_times()
             for i in range(N_ITERS_B):
+                if budget.stop_before(ITER_SLEEP_S):
+                    break
                 await asyncio.sleep(ITER_SLEEP_S)
                 score += random.gauss(0.05 if converging else -0.08, 0.05)
                 score = max(0.0, min(1.0, score))
@@ -239,6 +311,7 @@ async def sim_worker_b(reporter: WorkflowReporter, flow=None) -> None:
                 await reporter.emit(
                     score=score,
                     metrics={
+                        **budget.metrics(),
                         "iteration": i,
                         "converging": converging,
                         "score": score,
@@ -250,12 +323,18 @@ async def sim_worker_b(reporter: WorkflowReporter, flow=None) -> None:
             cpu_s = (t_cpu.user + t_cpu.system) - (_t0_cpu.user + _t0_cpu.system)
             await reporter.emit(
                 score=score,
-                metrics={"resource_usage": block_prof.metrics, "cpu_seconds": cpu_s},
+                metrics={
+                    **budget.metrics(),
+                    "resource_usage": block_prof.metrics,
+                    "cpu_seconds": cpu_s,
+                },
                 iteration=N_ITERS_B,
             )
 
 
-async def analysis_worker(reporter: WorkflowReporter, flow=None) -> None:
+async def analysis_worker(
+    reporter: WorkflowReporter, flow=None, context: dict | None = None
+) -> None:
     """Post-processing step triggered after each successful simulation.
 
     With `flow`: two asyncflow tasks (_process → _summarise) form a
@@ -264,6 +343,7 @@ async def analysis_worker(reporter: WorkflowReporter, flow=None) -> None:
     BlockProfiler wraps the entire block; for analysis work that runs locally
     on the head node this captures the actual compute cost.
     """
+    budget = RunBudget(context, "analysis_worker")
     async with BlockProfiler() as block_prof:
         if flow is not None:
             # ── asyncflow path ────────────────────────────────────────────────
@@ -335,6 +415,7 @@ async def analysis_worker(reporter: WorkflowReporter, flow=None) -> None:
             await reporter.emit(
                 score=1.0,
                 metrics={
+                    **budget.metrics(),
                     "score": 1.0,
                     "profiler_cpu_avg": summarise_result.get("profiler_cpu_avg"),
                     "profiler_n": summarise_result.get("profiler_n", 0),
@@ -355,13 +436,23 @@ async def analysis_worker(reporter: WorkflowReporter, flow=None) -> None:
                 cpu_s = (t_cpu.user + t_cpu.system) - (_t0_cpu.user + _t0_cpu.system)
                 await reporter.emit(
                     score=1.0,
-                    metrics={"step": step, "status": "ok", "cpu_seconds": cpu_s},
+                    metrics={
+                        **budget.metrics(),
+                        "step": step,
+                        "status": "ok",
+                        "cpu_seconds": cpu_s,
+                    },
                     iteration=step,
                 )
             t_cpu = psutil.Process().cpu_times()
             cpu_s = (t_cpu.user + t_cpu.system) - (_t0_cpu.user + _t0_cpu.system)
             await reporter.emit(
                 score=1.0,
-                metrics={"score": 1.0, "resource_usage": block_prof.metrics, "cpu_seconds": cpu_s},
+                metrics={
+                    **budget.metrics(),
+                    "score": 1.0,
+                    "resource_usage": block_prof.metrics,
+                    "cpu_seconds": cpu_s,
+                },
                 iteration=ANALYSIS_STEPS,
             )

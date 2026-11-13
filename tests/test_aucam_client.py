@@ -33,6 +33,8 @@ from src.aucam import (  # noqa: E402
 from src.aucam_client import Reporter, ReporterConfigError, encode_report  # noqa: E402
 from src.aucam_client.cli import main as cli_main  # noqa: E402
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
 
 @pytest.fixture()
 def redis_endpoint():
@@ -63,6 +65,18 @@ def test_report_is_json_and_read_by_backend(cm_env) -> None:
     assert report.metrics == {"cpu_hours": 0.2} and report.iteration == 3
 
 
+def test_done_report_keeps_the_last_metrics(cm_env) -> None:
+    rep = Reporter()
+    rep.emit(score=0.7, metrics={"cpu_hours": 0.3}, iteration=5)
+    rep.done(3)
+    report = asyncio.run(RhapsodyRedisBackend(cm_env).get_report("camp.wf.1"))
+    assert report.done is True and report.returncode == 3
+    assert report.score == 0.7 and report.metrics == {"cpu_hours": 0.3}
+    assert cli_main(["done", "--rc", "0"]) == 0
+    report = asyncio.run(RhapsodyRedisBackend(cm_env).get_report("camp.wf.1"))
+    assert report.done is True and report.returncode == 0
+
+
 def test_backend_still_reads_pickled_reports(cm_env) -> None:
     host, port = cm_env.rsplit(":", 1)
     payload = {"wf_id": "w", "score": 1.0, "metrics": {}, "emitted_at": 1.0, "iteration": 0}
@@ -78,6 +92,21 @@ def test_signals(cm_env) -> None:
     asyncio.run(backend.write_signal("camp.wf.1", CampaignDecision.PAUSE))
     assert rep.poll_signal() == "PAUSE"
     assert rep.poll_signal() is None  # consumed
+    asyncio.run(backend.write_signal("camp.wf.1", CampaignDecision.CANCEL))
+    assert rep.poll_signal() == "CANCEL"
+
+
+def test_cancel_signal_ends_wait_and_cli(cm_env, capsys) -> None:
+    backend = RhapsodyRedisBackend(cm_env)
+    rep = Reporter()
+    asyncio.run(backend.write_signal("camp.wf.1", CampaignDecision.CANCEL))
+    assert rep.wait_for_resume(interval=0.01) == "CANCEL"  # a paused program gets CANCEL
+    asyncio.run(backend.write_signal("camp.wf.1", CampaignDecision.CANCEL))
+    assert cli_main(["signal"]) == 0
+    assert capsys.readouterr().out.strip() == "CANCEL"
+    asyncio.run(backend.write_signal("camp.wf.1", CampaignDecision.RESUME))
+    assert cli_main(["wait-resume", "--interval", "0.01"]) == 0
+    assert capsys.readouterr().out.strip() == "RESUME"
 
 
 def test_non_json_score_rejected() -> None:
@@ -147,18 +176,25 @@ def test_shell_workflow_reports_through_cli(redis_endpoint) -> None:
     ctl = Collect()
     spec = CampaignSpec(
         name="shellcamp",
-        budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
+        ),
         controller=ctl,
         workflows=[
-            WorkflowConfig(name="sh", launch_on_start=False, launch_cmd=["bash", "-c", script])
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="sh",
+                launch_on_start=False,
+                launch_cmd=["bash", "-c", script],
+            )
         ],
         data_backend=RhapsodyRedisBackend(redis_endpoint),
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
     )
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    asyncio.run(asyncio.wait_for(cm.run(), timeout=60.0))
+    asyncio.run(asyncio.wait_for(cm.run(spec), timeout=60.0))
     r = ctl.results[0]
     assert r.returncode == 0
     assert r.final_score == 0.9

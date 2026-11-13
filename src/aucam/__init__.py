@@ -1,8 +1,16 @@
 """AuCaM — Autonomous Campaign Manager."""
 
+from .adr import ADRController, ADRSchedulingPolicy
 from .budget import BudgetAllocator
 from .checkpoint import CampaignCheckpoint, checkpoint_path, read_checkpoint, write_checkpoint
-from .controller import CampaignController, CancelRule, Goal, LaunchRule, PolicyResult
+from .controller import (
+    CampaignController,
+    CancelRule,
+    CostCancelRule,
+    Goal,
+    LaunchRule,
+    PolicyResult,
+)
 from .data_backend import (
     DataBackend,
     LocalDictBackend,
@@ -15,23 +23,26 @@ from .profiler import BlockProfiler, TaskProfiler
 from .queue import WorkflowQueue
 from .reporter import WorkflowReport, WorkflowReporter
 from .scheduler import (
-    ADRSchedulingPolicy,
     BanditSchedulingPolicy,
     FIFOSchedulingPolicy,
     LLMSchedulingPolicy,
+    RankingSchedulingPolicy,
     SchedulingContext,
     SchedulingPolicy,
+    SizingContext,
+    parse_ranking,
 )
 from .spec import CampaignBudget, CampaignSpec, WorkflowConfig, WorkflowDependency
 from .types import (
+    RESOURCE_KEYS,
+    Allocation,
+    AllocationRecord,
     CampaignDecision,
     CampaignOutcome,
-    GlobalBudget,
     LaunchPriority,
     LaunchRequest,
     NodeResources,
     QueueSnapshot,
-    SubmitResult,
     TelemetrySnapshot,
     WorkflowResult,
     WorkflowStatus,
@@ -48,19 +59,25 @@ __all__ = [
     "write_checkpoint",
     "CampaignController",
     "CancelRule",
+    "CostCancelRule",
     "LaunchRule",
     "CampaignDecision",
     "CampaignManager",
     "CampaignOutcome",
-    "GlobalBudget",
-    "SubmitResult",
     "CampaignSpec",
     "DataBackend",
+    "ADRController",
     "ADRSchedulingPolicy",
     "BanditSchedulingPolicy",
     "FIFOSchedulingPolicy",
     "LLMSchedulingPolicy",
+    "RankingSchedulingPolicy",
+    "parse_ranking",
     "SchedulingContext",
+    "SizingContext",
+    "Allocation",
+    "AllocationRecord",
+    "RESOURCE_KEYS",
     "RadexDragonBackend",
     "RadexDragonReporter",
     "Goal",

@@ -11,19 +11,9 @@ data_backend: redis
 redis_server_path: /sw/external/python/anaconda3_4.2.0/bin/redis-server
 asyncflow_blocks: false
 verbose: false
-num_campaigns: 1
-
-driver:
-  enabled: false
-  delay_s: 2.0
 
 scheduling:
   policy: bandit
-
-global_budget:
-  max_concurrent_campaigns: ~
-  max_total_concurrent_workflows: ~
-  spending: {}
 
 telemetry:
   enabled: false

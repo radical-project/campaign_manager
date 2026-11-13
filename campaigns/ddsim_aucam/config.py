@@ -3,15 +3,13 @@ Config dataclasses and YAML loaders for the MiniApps AuCaM campaign.
 
 Two config objects:
 
-  GlobalConfig    — CM-level: engine, scheduling policy, global budget,
-                    telemetry, driver behaviour (num_campaigns, concurrency).
+  GlobalConfig    — CM-level: engine, scheduling policy, telemetry.
                     Loaded from campaign_configs/global.yaml.
 
-  CampaignConfig  — Campaign template: controller params, per-campaign budget,
-                    and MiniApps workflow settings.  Each campaign runs two arms
+  CampaignConfig  — The campaign: controller params, budget and MiniApps
+                    workflow settings.  The campaign runs two arms
                     (miniapps_fast / miniapps_slow) via WorkflowsConfig.fast_config()
-                    and slow_config(); vary_config() returns identical copies so all
-                    campaigns explore the same arm space.
+                    and slow_config().
                     Loaded from campaign_configs/campaign.yaml.
 
 Usage::
@@ -35,25 +33,9 @@ class SchedulingConfig:
 
 
 @dataclass
-class GlobalBudgetConfig:
-    max_concurrent_campaigns: int | None = None
-    max_total_concurrent_workflows: int | None = None
-    spending: dict[str, float] = field(default_factory=dict)
-    n_campaigns: int | None = None
-    max_rejections: int | None = None
-
-
-@dataclass
 class TelemetryConfig:
     enabled: bool = False
     dir: str | None = None
-
-
-@dataclass
-class DriverConfig:
-    num_campaigns: int = 2  # total campaigns (alternates fast/slow)
-    max_concurrent: int | None = 2  # max running simultaneously
-    spending_cpu_hours: list[float | None] = field(default_factory=list)
 
 
 @dataclass
@@ -61,9 +43,7 @@ class GlobalConfig:
     engine: str = "concurrent"
     verbose: bool = False
     scheduling: SchedulingConfig = field(default_factory=SchedulingConfig)
-    global_budget: GlobalBudgetConfig = field(default_factory=GlobalBudgetConfig)
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
-    driver: DriverConfig = field(default_factory=DriverConfig)
 
 
 # ── Campaign config ───────────────────────────────────────────────────────────
@@ -79,6 +59,8 @@ class ControllerConfig:
 class BudgetConfig:
     max_concurrent: int = 2  # parallel miniapps replicas per campaign
     max_concurrency_per_workflow: int = 1
+    # The allocation's total resources (e.g. {"cpus": 16, "gpus": 4}); required.
+    capacity: dict[str, float] = field(default_factory=lambda: {"cpus": 2})
     spending: dict[str, float | None] = field(default_factory=dict)
 
 
@@ -125,11 +107,23 @@ class MiniAppsConfig:
 class WorkflowsConfig:
     miniapps: MiniAppsConfig = field(default_factory=MiniAppsConfig)
     slow_step_multiplier: int = 3  # miniapps_slow uses num_step × this
-    # Declared spending per workflow arm — keys: wall_hours, cpu_hours, gpu_hours.
-    # fast_spending/slow_spending drive budget accounting; slow defaults to
-    # fast × slow_step_multiplier when absent.
-    fast_spending: dict[str, float] = field(default_factory=dict)
-    slow_spending: dict[str, float] = field(default_factory=dict)
+    # Expected run time of one fast run (hours); a run that respects its limit
+    # uses it to size its work (CPUs × this = the cost of total_num_sim
+    # simulations).  The slow arm takes × slow_step_multiplier.  None: the run
+    # does not size its work.
+    fast_wall_hours: float | None = None
+    # Per-run spending limit for each arm (most one run may spend); AuCaM passes
+    # it to the run and cancels a run that spends more.  slow defaults to
+    # fast × slow_step_multiplier.  respect_limit[arm] = False makes that arm
+    # ignore its limit (the overuse use case).
+    fast_spending_limit: dict[str, float] = field(default_factory=dict)
+    slow_spending_limit: dict[str, float] = field(default_factory=dict)
+    respect_limit: dict[str, bool] = field(default_factory=lambda: {"fast": True, "slow": True})
+    # CPUs / GPUs one run of each arm may use at once (WorkflowConfig.resources);
+    # AuCaM passes them to the run and cancels a run that reports more.  slow
+    # defaults to fast.
+    fast_resources: dict[str, float] = field(default_factory=dict)
+    slow_resources: dict[str, float] = field(default_factory=dict)
 
     def fast_config(self) -> MiniAppsConfig:
         return self.miniapps
@@ -139,11 +133,17 @@ class WorkflowsConfig:
         cfg.num_step = cfg.num_step * self.slow_step_multiplier
         return cfg
 
-    def resolved_slow_spending(self) -> dict[str, float]:
-        """Slow arm declared_spending: explicit YAML values, or fast × multiplier."""
-        if self.slow_spending:
-            return self.slow_spending
-        return {k: v * self.slow_step_multiplier for k, v in self.fast_spending.items()}
+    def slow_wall_hours(self) -> float | None:
+        """Expected run time of one slow run: fast × slow_step_multiplier."""
+        if self.fast_wall_hours is None:
+            return None
+        return self.fast_wall_hours * self.slow_step_multiplier
+
+    def resolved_slow_spending_limit(self) -> dict[str, float]:
+        """Slow arm spending limit: explicit YAML values, or fast × multiplier."""
+        if self.slow_spending_limit:
+            return self.slow_spending_limit
+        return {k: v * self.slow_step_multiplier for k, v in self.fast_spending_limit.items()}
 
 
 @dataclass
@@ -156,58 +156,20 @@ class CampaignConfig:
     checkpoint_dir: str | None = None
 
 
-# ── Per-campaign variation ─────────────────────────────────────────────────────
-
-
-def vary_config(template: CampaignConfig, idx: int) -> CampaignConfig:
-    """Return a per-campaign config variant.
-
-    Fast and slow arms now live within each campaign as separate workflow
-    types (miniapps_fast / miniapps_slow), so all campaigns use the same
-    template.  Override this function to vary other parameters across
-    campaigns (e.g. total_num_sim, num_epochs, random seed).
-    """
-    return deepcopy(template)
-
-
 # ── Loaders ───────────────────────────────────────────────────────────────────
 
 
 def load_global(path: str | Path) -> GlobalConfig:
     d = _load_yaml(path)
     sched = d.get("scheduling") or {}
-    gb = d.get("global_budget") or {}
     tel = d.get("telemetry") or {}
-    drv = d.get("driver") or {}
-
-    raw_spending = drv.get("spending_cpu_hours") or ""
-    spending_list: list[float | None] = []
-    if isinstance(raw_spending, (int, float)):
-        spending_list = [float(raw_spending)]
-    elif isinstance(raw_spending, str) and raw_spending.strip():
-        for tok in raw_spending.split(","):
-            tok = tok.strip()
-            spending_list.append(None if tok in ("", "~", "null") else float(tok))
-
     return GlobalConfig(
         engine=d.get("engine", "concurrent"),
         verbose=bool(d.get("verbose", False)),
         scheduling=SchedulingConfig(policy=sched.get("policy", "bandit")),
-        global_budget=GlobalBudgetConfig(
-            max_concurrent_campaigns=gb.get("max_concurrent_campaigns"),
-            max_total_concurrent_workflows=gb.get("max_total_concurrent_workflows"),
-            spending={k: float(v) for k, v in (gb.get("spending") or {}).items() if v is not None},
-            n_campaigns=_optional_int(gb.get("n_campaigns")),
-            max_rejections=_optional_int(gb.get("max_rejections")),
-        ),
         telemetry=TelemetryConfig(
             enabled=bool(tel.get("enabled", False)),
             dir=tel.get("dir"),
-        ),
-        driver=DriverConfig(
-            num_campaigns=int(drv.get("num_campaigns", 2)),
-            max_concurrent=_optional_int(drv.get("max_concurrent")),
-            spending_cpu_hours=spending_list,
         ),
     )
 
@@ -233,12 +195,20 @@ def load_campaign(path: str | Path) -> CampaignConfig:
         budget=BudgetConfig(
             max_concurrent=int(bud.get("max_concurrent", 2)),
             max_concurrency_per_workflow=int(bud.get("max_concurrency_per_workflow", 1)),
+            capacity=_spending_dict(bud.get("capacity")) or {"cpus": 2},
             spending={k: _optional_float(v) for k, v in sp.items()},
         ),
         workflows=WorkflowsConfig(
             slow_step_multiplier=int(d.get("slow_step_multiplier", 3)),
-            fast_spending=_spending_dict(wf.get("fast_spending")),
-            slow_spending=_spending_dict(wf.get("slow_spending")),
+            fast_wall_hours=_optional_float(wf.get("fast_wall_hours")),
+            fast_spending_limit=_spending_dict(wf.get("fast_spending_limit")),
+            slow_spending_limit=_spending_dict(wf.get("slow_spending_limit")),
+            fast_resources=_spending_dict(wf.get("fast_resources")),
+            slow_resources=_spending_dict(wf.get("slow_resources")),
+            respect_limit={
+                "fast": bool((wf.get("respect_limit") or {}).get("fast", True)),
+                "slow": bool((wf.get("respect_limit") or {}).get("slow", True)),
+            },
             miniapps=MiniAppsConfig(
                 total_num_sim=int(ma.get("total_num_sim", 10)),
                 max_sim_batch=int(ma.get("max_sim_batch", 4)),
@@ -274,7 +244,3 @@ def _load_yaml(path: str | Path) -> dict:
 
 def _optional_float(v: object) -> float | None:
     return float(v) if v is not None else None
-
-
-def _optional_int(v: object) -> int | None:
-    return int(v) if v is not None else None

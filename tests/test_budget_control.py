@@ -7,7 +7,7 @@ Budget-control integration test — three tiers of workflow cancellation.
 
 Workers
 -------
-  good_worker  2 GPU  5×0.05 s  score=0.9   completes normally; relaunched
+  good_worker  4 GPU  5×0.05 s  score=0.9   completes normally; relaunched
   bad_worker   2 GPU  infinite  score=0.1   killed by score threshold
   hog_worker   8 GPU  infinite  score=0.8   killed by per-wf GPU-hours limit
 
@@ -43,6 +43,9 @@ from src.aucam import (
     WorkflowReporter,
     WorkflowResult,
 )
+
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -218,6 +221,7 @@ def test_three_tier_budget_control() -> None:
     spec = CampaignSpec(
         name="budget_demo",
         budget=CampaignBudget(
+            capacity=CAPACITY,
             max_concurrent_workflows=3,
             max_concurrency_per_workflow=1,
             spending={"gpu_hours": CAMPAIGN_BUDGET},
@@ -227,20 +231,24 @@ def test_three_tier_budget_control() -> None:
             WorkflowConfig(
                 name="good_worker",
                 block=good_worker,
-                declared_spending={"wall_hours": 1.0 / 3600, "gpu_hours": 4.0 / 3600},
+                spending_limit={"gpu_hours": 3e-4},
+                resources={"cpus": 1, "gpus": 4},
                 launch_on_start=False,
                 on_completion=_on_good_complete,
             ),
             WorkflowConfig(
                 name="bad_worker",
                 block=bad_worker,
-                declared_spending={"wall_hours": 1.0 / 3600, "gpu_hours": 2.0 / 3600},
+                spending_limit={"gpu_hours": 3e-4},
+                resources={"cpus": 1, "gpus": 2},
                 launch_on_start=False,
             ),
             WorkflowConfig(
                 name="hog_worker",
                 block=hog_worker,
-                declared_spending={"wall_hours": 1.0 / 3600, "gpu_hours": 8.0 / 3600},
+                # Above PER_WF_GPU_LIMIT, so the controller (tier 2) acts first.
+                spending_limit={"gpu_hours": 3.5e-4},
+                resources={"cpus": 1, "gpus": 8},
                 launch_on_start=False,
             ),
         ],
@@ -249,8 +257,7 @@ def test_three_tier_budget_control() -> None:
     )
 
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    asyncio.run(asyncio.wait_for(cm.run(), timeout=30.0))
+    out = asyncio.run(asyncio.wait_for(cm.run(spec), timeout=30.0))
 
     _print_summary(ctrl)
 
@@ -261,8 +268,10 @@ def test_three_tier_budget_control() -> None:
     assert len(ctrl.cancel_resource) >= 1, (
         f"Expected ≥1 resource-based cancellation; got {ctrl.cancel_resource}"
     )
-    assert ctrl.terminated_by_budget, (
-        "Expected campaign to terminate due to hard GPU budget; it did not"
+    # Either the controller sees spent >= limit, or AuCaM ends the campaign
+    # first because the next request no longer fits the budget (B2).
+    assert ctrl.terminated_by_budget or out.exit_reason == "spending_limit", (
+        f"Expected campaign to terminate due to hard GPU budget; exit={out.exit_reason}"
     )
 
 
