@@ -50,14 +50,16 @@ def test_task_level_accounting_charges_requested_resources() -> None:
             WorkflowConfig(
                 name="gpu",
                 block=gpu_workflow,
-                # deliberately wrong declaration: task-level accounting must win
-                declared_spending={"wall_hours": 1.0, "gpu_hours": 100.0},
+                # deliberately too many GPUs: task-level accounting must win over
+                # resources × run time
+                spending_limit={"gpu_hours": 100.0},
+                resources={"cpus": 1, "gpus": 50},
             ),
             WorkflowConfig(
                 name="cmd",
                 launch_cmd=[sys.executable, "-c", f"import time; time.sleep({SLEEP_S})"],
-                task_description={"ranks": 1, "cores_per_rank": 4},
-                declared_spending={"wall_hours": 1.0, "cpu_hours": 100.0},
+                task_description={"ranks": 1, "cores_per_rank": 4},  # also its resources
+                spending_limit={"cpu_hours": 100.0},
             ),
         ],
         policy_interval_s=0.05,
@@ -88,7 +90,14 @@ def test_task_counts_reach_the_controller() -> None:
             capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
         ),
         controller=Recorder(launch=["gpu"], goal_type="gpu", goal_n=1),
-        workflows=[WorkflowConfig(name="gpu", block=gpu_workflow)],
+        workflows=[
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="gpu",
+                block=gpu_workflow,
+            )
+        ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
     )

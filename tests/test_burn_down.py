@@ -57,12 +57,16 @@ def test_burn_down_fields():
         controller=ctl,
         workflows=[
             WorkflowConfig(
-                name="good", block=make(2.0, 0.8), declared_spending={"cpu_hours": 2.0 / H}
+                name="good",
+                block=make(2.0, 0.8),
+                spending_limit={"cpu_hours": 2.0 / H},
+                resources={"cpus": 1},
             ),
             WorkflowConfig(
                 name="bad",
                 block=make(1.0, 0.1, fail=True),
-                declared_spending={"cpu_hours": 1.0 / H},
+                spending_limit={"cpu_hours": 1.0 / H},
+                resources={"cpus": 1},
             ),
         ],
         policy_interval_s=0.05,
@@ -120,7 +124,8 @@ def test_projected_includes_queued_requests():
                 name="w",
                 block=long,
                 launch_on_start=False,
-                declared_spending={"cpu_hours": 2.0 / H},
+                spending_limit={"cpu_hours": 2.0 / H},
+                resources={"cpus": 1},
             )
         ],
         policy_interval_s=0.03,

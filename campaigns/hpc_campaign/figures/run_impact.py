@@ -56,9 +56,17 @@ EXPLORATION = 2.0  # UCB1 exploration weight
 SEED = 7
 
 
-def _declared(cpu: float, wall_s: float) -> dict[str, float]:
-    """Expected cost of one run: cpu CPUs for wall_s seconds."""
-    return {"wall_hours": wall_s / 3600.0, "cpu_hours": cpu * wall_s / 3600.0}
+def _config(name: str, block, cpus: float, wall_s: float) -> WorkflowConfig:
+    """cpus CPUs; a starting limit of 1.25 × its expected cost (cpus × wall_s).
+
+    The workflows report no spending: AuCaM charges each its CPUs × run time.
+    """
+    return WorkflowConfig(
+        name=name,
+        block=block,
+        resources={"cpus": cpus},
+        spending_limit={"cpu_hours": 1.25 * cpus * wall_s / 3600.0},
+    )
 
 
 # ── Workflows ──────────────────────────────────────────────────────────────────
@@ -84,12 +92,8 @@ async def slow_poor(reporter: WorkflowReporter) -> None:
 
 
 WORKFLOWS = {
-    "fast_good": WorkflowConfig(
-        name="fast_good", block=fast_good, declared_spending=_declared(FAST_CPU, FAST_WALL_S)
-    ),
-    "slow_poor": WorkflowConfig(
-        name="slow_poor", block=slow_poor, declared_spending=_declared(SLOW_CPU, SLOW_WALL_S)
-    ),
+    "fast_good": _config("fast_good", fast_good, FAST_CPU, FAST_WALL_S),
+    "slow_poor": _config("slow_poor", slow_poor, SLOW_CPU, SLOW_WALL_S),
 }
 
 

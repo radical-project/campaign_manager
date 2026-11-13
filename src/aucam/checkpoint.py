@@ -32,8 +32,6 @@ class ActiveWorkflowRecord:
     wf_id: str
     workflow_type: str
     started_at: float
-    # Declared spending of the workflow (its in-flight spending estimate).
-    declared_spending: dict[str, float] = field(default_factory=dict)
     # The request it was launched from, so a re-run keeps its own limit,
     # resources and ranges (R2).
     request: QueuedRequestRecord | None = None
@@ -143,9 +141,8 @@ def _from_json(d: dict[str, Any]) -> CampaignCheckpoint:
     active = []
     for r in d.get("active", []):
         r = dict(r)
-        # Checkpoints written before the spending-only budget model stored a
-        # derived concurrency "resources" dict; it is no longer used.
-        r.pop("resources", None)
+        # Older checkpoints stored declared_spending; it is no longer used.
+        r.pop("declared_spending", None)
         if isinstance(r.get("request"), dict):
             r["request"] = _request(r["request"])
         active.append(ActiveWorkflowRecord(**r))

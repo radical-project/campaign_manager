@@ -49,14 +49,28 @@ async def background_worker() -> None:
 
 
 def test_new_field_defaults() -> None:
-    wfc = WorkflowConfig(name="w", block=simple_worker)
+    wfc = WorkflowConfig(
+        spending_limit={"cpu_hours": 1000.0}, resources={"cpus": 1}, name="w", block=simple_worker
+    )
     assert wfc.supports_pause is False
     assert wfc.stale_timeout_s is None
 
 
 def test_supports_pause_flag() -> None:
-    wfc_no = WorkflowConfig(name="w", block=simple_worker, supports_pause=False)
-    wfc_yes = WorkflowConfig(name="w", block=simple_worker, supports_pause=True)
+    wfc_no = WorkflowConfig(
+        spending_limit={"cpu_hours": 1000.0},
+        resources={"cpus": 1},
+        name="w",
+        block=simple_worker,
+        supports_pause=False,
+    )
+    wfc_yes = WorkflowConfig(
+        spending_limit={"cpu_hours": 1000.0},
+        resources={"cpus": 1},
+        name="w",
+        block=simple_worker,
+        supports_pause=True,
+    )
     assert wfc_no.supports_pause is False
     assert wfc_yes.supports_pause is True
 
@@ -118,6 +132,8 @@ def _run_pause_scenario(supports_pause: bool) -> tuple[int, list[str]]:
             controller=ctrl,
             workflows=[
                 WorkflowConfig(
+                    spending_limit={"cpu_hours": 1000.0},
+                    resources={"cpus": 1},
                     name="simple_worker",
                     block=simple_worker,
                     supports_pause=supports_pause,
@@ -125,6 +141,8 @@ def _run_pause_scenario(supports_pause: bool) -> tuple[int, list[str]]:
                     on_completion=_on_done,
                 ),
                 WorkflowConfig(
+                    spending_limit={"cpu_hours": 1000.0},
+                    resources={"cpus": 1},
                     name="background_worker",
                     block=background_worker,
                     supports_pause=supports_pause,
@@ -167,3 +185,62 @@ def test_pause_accepted_when_supports_pause_true(caplog: pytest.LogCaptureFixtur
     assert any("signal sent" in m or "PAUSE" in m for m in pause_logs), (
         f"Expected PAUSE signal log; got: {pause_logs}"
     )
+
+
+# ── Required spending_limit and resources; resources from task_description ───
+
+
+async def _noop(reporter) -> None:
+    pass
+
+
+def test_spending_limit_and_resources_are_required():
+    with pytest.raises(ValueError, match="spending_limit is required"):
+        WorkflowConfig(name="w", block=_noop, resources={"cpus": 1})
+    with pytest.raises(ValueError, match="resources is required"):
+        WorkflowConfig(name="w", block=_noop, spending_limit={"cpu_hours": 1.0})
+    with pytest.raises(ValueError, match="no wall_hours"):
+        WorkflowConfig(
+            name="w",
+            block=_noop,
+            spending_limit={"cpu_hours": 1.0, "wall_hours": 2.0},
+            resources={"cpus": 1},
+        )
+
+
+def test_declared_spending_is_rejected_with_a_hint():
+    with pytest.raises(ValueError, match="declared_spending was removed"):
+        WorkflowConfig(
+            name="w",
+            block=_noop,
+            declared_spending={"cpu_hours": 1.0},
+            spending_limit={"cpu_hours": 1.0},
+            resources={"cpus": 1},
+        )
+
+
+@pytest.mark.parametrize(
+    ("td", "expected"),
+    [
+        ({"ranks": 4, "cores_per_rank": 8}, {"cpus": 32.0}),
+        ({"ranks": 2, "cores_per_rank": 4, "gpus_per_rank": 1}, {"cpus": 8.0, "gpus": 2.0}),
+        ({"process_template": {}}, {"cpus": 1.0}),
+        ({"process_templates": [(4, {}), (2, {})], "gpus_per_rank": 1}, {"cpus": 6.0, "gpus": 6.0}),
+    ],
+)
+def test_command_line_resources_come_from_task_description(td, expected):
+    wfc = WorkflowConfig(
+        name="cmd", launch_cmd=["./sim"], task_description=td, spending_limit={"cpu_hours": 1.0}
+    )
+    assert wfc.resources == expected
+
+
+def test_resources_that_disagree_with_task_description_are_an_error():
+    with pytest.raises(ValueError, match="disagree with task_description"):
+        WorkflowConfig(
+            name="cmd",
+            launch_cmd=["./sim"],
+            task_description={"ranks": 4, "cores_per_rank": 8},
+            resources={"cpus": 8},
+            spending_limit={"cpu_hours": 1.0},
+        )

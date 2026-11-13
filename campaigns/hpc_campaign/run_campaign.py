@@ -131,7 +131,6 @@ def build_spec(
             stale_timeout_s=ccfg.workflows.sim_worker.stale_timeout_s,
             launch_on_start=True,
             on_completion=_on_complete,
-            declared_spending=ccfg.workflows.sim_worker.declared_spending,
             spending_limit=ccfg.workflows.sim_worker.spending_limit,
             resources=ccfg.workflows.sim_worker.resources,
         ),
@@ -141,7 +140,6 @@ def build_spec(
             stale_timeout_s=ccfg.workflows.sim_worker_b.stale_timeout_s,
             launch_on_start=True,
             on_completion=_on_complete,
-            declared_spending=ccfg.workflows.sim_worker_b.declared_spending,
             spending_limit=ccfg.workflows.sim_worker_b.spending_limit,
             resources=ccfg.workflows.sim_worker_b.resources,
         ),
@@ -150,7 +148,6 @@ def build_spec(
             block=analysis_worker,
             launch_on_start=False,  # triggered by dependency, not on start
             on_completion=_on_complete,
-            declared_spending=ccfg.workflows.analysis_worker.declared_spending,
             spending_limit=ccfg.workflows.analysis_worker.spending_limit,
             resources=ccfg.workflows.analysis_worker.resources,
         ),
@@ -181,7 +178,6 @@ def build_spec(
                 stale_timeout_s=ccfg.workflows.sim_worker.stale_timeout_s,
                 launch_on_start=True,
                 on_completion=_on_complete,
-                declared_spending=ccfg.workflows.sim_worker.declared_spending,
                 spending_limit=ccfg.workflows.sim_worker.spending_limit,
                 resources=ccfg.workflows.sim_worker.resources,
             )

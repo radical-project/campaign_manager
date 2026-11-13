@@ -125,6 +125,8 @@ def test_pause_resume_lifecycle() -> None:
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="pausable_worker",
                 block=pausable_worker,
                 supports_pause=True,
@@ -132,6 +134,8 @@ def test_pause_resume_lifecycle() -> None:
                 on_completion=_on_done,
             ),
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="short_worker",
                 block=short_worker,
                 launch_on_start=True,

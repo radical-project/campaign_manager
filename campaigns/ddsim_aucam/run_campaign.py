@@ -102,14 +102,14 @@ def build_spec(
         fast_cfg.to_dict(),
         arm_label="fast",
         engine=engine,
-        declared_spending=wcfg.fast_spending,
+        expected_wall_hours=wcfg.fast_wall_hours,
         respect_limit=wcfg.respect_limit["fast"],
     )
     slow_worker = _wf_mod.make_miniapps_worker(
         slow_cfg.to_dict(),
         arm_label="slow",
         engine=engine,
-        declared_spending=wcfg.resolved_slow_spending(),
+        expected_wall_hours=wcfg.slow_wall_hours(),
         respect_limit=wcfg.respect_limit["slow"],
     )
 
@@ -131,7 +131,6 @@ def build_spec(
                 stale_timeout_s=stale,
                 launch_on_start=True,
                 on_completion=_on_complete,
-                declared_spending=ccfg.workflows.fast_spending,
                 spending_limit=ccfg.workflows.fast_spending_limit,
                 resources=ccfg.workflows.fast_resources,
             ),
@@ -142,7 +141,6 @@ def build_spec(
                 stale_timeout_s=stale * ccfg.workflows.slow_step_multiplier,
                 launch_on_start=True,
                 on_completion=_on_complete,
-                declared_spending=ccfg.workflows.resolved_slow_spending(),
                 spending_limit=ccfg.workflows.resolved_slow_spending_limit(),
                 resources=ccfg.workflows.slow_resources or ccfg.workflows.fast_resources,
             ),

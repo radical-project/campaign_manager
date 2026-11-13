@@ -114,7 +114,21 @@ def test_lost_workflow_is_charged_and_run_again(tmp_path: Path):
         ],
     )
     ctl = Until(1)
-    out = _run(_spec(ctl, tmp_path, [WorkflowConfig(name="sim", block=sim, launch_on_start=False)]))
+    out = _run(
+        _spec(
+            ctl,
+            tmp_path,
+            [
+                WorkflowConfig(
+                    spending_limit={"cpu_hours": 1000.0},
+                    resources={"cpus": 1},
+                    name="sim",
+                    block=sim,
+                    launch_on_start=False,
+                )
+            ],
+        )
+    )
     assert ctl.results[0].workflow_id != "r1.sim.dead"  # a new run
     assert abs(out.spent["cpu_hours"] * H - 3.0) < 1e-6  # 2 lost + 1 re-run
 
@@ -129,7 +143,19 @@ def test_goals_policy_and_controller_state_survive(tmp_path: Path):
     policy = BanditSchedulingPolicy()
     ctl = Until(99, launch=["sim"], goal_type="sim", goal_n=3)
     out = _run(
-        _spec(ctl, tmp_path, [WorkflowConfig(name="sim", block=sim)], scheduling_policy=policy)
+        _spec(
+            ctl,
+            tmp_path,
+            [
+                WorkflowConfig(
+                    spending_limit={"cpu_hours": 1000.0},
+                    resources={"cpus": 1},
+                    name="sim",
+                    block=sim,
+                )
+            ],
+            scheduling_policy=policy,
+        )
     )
     assert out.goals == [Goal("best", "best", 99.0, "maximize")]
     assert policy.arm_stats()["sim"]["n"] >= 7
@@ -155,6 +181,8 @@ def _adopt_case(tmp_path, feed, stale=None, n=1):
         tmp_path,
         [
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="cmd",
                 launch_cmd=[sys.executable, "-c", "pass"],
                 launch_on_start=False,
@@ -227,7 +255,20 @@ def test_checkpoint_records_running_workflows_spending(tmp_path: Path):
             return PolicyResult(terminate=len(self.seen) >= 5)
 
     ctl = Peek()
-    _run(_spec(ctl, tmp_path, [WorkflowConfig(name="slow", block=slow)]))
+    _run(
+        _spec(
+            ctl,
+            tmp_path,
+            [
+                WorkflowConfig(
+                    spending_limit={"cpu_hours": 1000.0},
+                    resources={"cpus": 1},
+                    name="slow",
+                    block=slow,
+                )
+            ],
+        )
+    )
     assert ctl.seen and ctl.seen[-1]["cpu_hours"] > 0
     assert ctl.seen[-1]["cpu_hours"] >= ctl.seen[0]["cpu_hours"]
 
@@ -259,7 +300,11 @@ def test_cancelling_an_adopted_workflow_sends_cancel(tmp_path: Path):
         tmp_path,
         [
             WorkflowConfig(
-                name="cmd", launch_cmd=[sys.executable, "-c", "pass"], launch_on_start=False
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="cmd",
+                launch_cmd=[sys.executable, "-c", "pass"],
+                launch_on_start=False,
             )
         ],
         data_backend=backend,

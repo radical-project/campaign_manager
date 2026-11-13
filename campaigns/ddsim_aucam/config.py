@@ -107,11 +107,11 @@ class MiniAppsConfig:
 class WorkflowsConfig:
     miniapps: MiniAppsConfig = field(default_factory=MiniAppsConfig)
     slow_step_multiplier: int = 3  # miniapps_slow uses num_step × this
-    # Declared spending per workflow arm — keys: wall_hours, cpu_hours, gpu_hours.
-    # fast_spending/slow_spending drive budget accounting; slow defaults to
-    # fast × slow_step_multiplier when absent.
-    fast_spending: dict[str, float] = field(default_factory=dict)
-    slow_spending: dict[str, float] = field(default_factory=dict)
+    # Expected run time of one fast run (hours); a run that respects its limit
+    # uses it to size its work (CPUs × this = the cost of total_num_sim
+    # simulations).  The slow arm takes × slow_step_multiplier.  None: the run
+    # does not size its work.
+    fast_wall_hours: float | None = None
     # Per-run spending limit for each arm (most one run may spend); AuCaM passes
     # it to the run and cancels a run that spends more.  slow defaults to
     # fast × slow_step_multiplier.  respect_limit[arm] = False makes that arm
@@ -133,11 +133,11 @@ class WorkflowsConfig:
         cfg.num_step = cfg.num_step * self.slow_step_multiplier
         return cfg
 
-    def resolved_slow_spending(self) -> dict[str, float]:
-        """Slow arm declared_spending: explicit YAML values, or fast × multiplier."""
-        if self.slow_spending:
-            return self.slow_spending
-        return {k: v * self.slow_step_multiplier for k, v in self.fast_spending.items()}
+    def slow_wall_hours(self) -> float | None:
+        """Expected run time of one slow run: fast × slow_step_multiplier."""
+        if self.fast_wall_hours is None:
+            return None
+        return self.fast_wall_hours * self.slow_step_multiplier
 
     def resolved_slow_spending_limit(self) -> dict[str, float]:
         """Slow arm spending limit: explicit YAML values, or fast × multiplier."""
@@ -200,8 +200,7 @@ def load_campaign(path: str | Path) -> CampaignConfig:
         ),
         workflows=WorkflowsConfig(
             slow_step_multiplier=int(d.get("slow_step_multiplier", 3)),
-            fast_spending=_spending_dict(wf.get("fast_spending")),
-            slow_spending=_spending_dict(wf.get("slow_spending")),
+            fast_wall_hours=_optional_float(wf.get("fast_wall_hours")),
             fast_spending_limit=_spending_dict(wf.get("fast_spending_limit")),
             slow_spending_limit=_spending_dict(wf.get("slow_spending_limit")),
             fast_resources=_spending_dict(wf.get("fast_resources")),

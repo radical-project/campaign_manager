@@ -2,7 +2,7 @@
 
 B0     — any budget dimension in set_in_flight / _compute_workflow_spent
 B1     — burn entry in campaign_view
-B3     — learned cost estimates replace declared_spending after min_samples
+B3     — learned cost estimates replace the starting limit after min_samples
 idle   — campaign exits with reason="campaign_idle" when queue drains
 R2     — dep_satisfied persisted in checkpoint and restored before re-push
 tasks  — inner-block uid propagation in _on_task_event (per-task accounting)
@@ -111,7 +111,11 @@ def test_b1_burn_in_observation() -> None:
             spending={"cpu_hours": 10.0},
         ),
         controller=BurnObserver(),
-        workflows=[WorkflowConfig(name="w", block=quick)],
+        workflows=[
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1.0}, resources={"cpus": 1}, name="w", block=quick
+            )
+        ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
     )
@@ -127,7 +131,7 @@ def test_b1_burn_in_observation() -> None:
 
 
 def test_b3_learned_cost_unit() -> None:
-    """_learned_cost() returns declared until min_samples reached, then mean."""
+    """_learned_cost() is empty until min_samples are reached, then the mean."""
     from unittest.mock import MagicMock
 
     from src.aucam import CampaignBudget, CampaignController, CampaignSpec, WorkflowConfig
@@ -139,7 +143,11 @@ def test_b3_learned_cost_unit() -> None:
             capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
         ),
         controller=CampaignController(),
-        workflows=[WorkflowConfig(name="wf", block=quick)],
+        workflows=[
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0}, resources={"cpus": 1}, name="wf", block=quick
+            )
+        ],
         policy_interval_s=60.0,
         shutdown_timeout_s=5.0,
     )
@@ -147,26 +155,18 @@ def test_b3_learned_cost_unit() -> None:
     flow_mock = MagicMock()
     inst = _CampaignInstance(spec, alloc, flow_mock)
 
-    declared = {"wall_hours": 1.0, "gpu_hours": 2.0}
-
-    # Before min_samples: declared values returned unchanged
-    result = inst._learned_cost("wf", declared, min_samples=3)
-    assert result["gpu_hours"] == 2.0
+    # Before min_samples: nothing learned
+    assert inst._learned_cost("wf", min_samples=3) == {}
 
     # Feed 2 samples (not enough yet)
     inst._update_type_cost("wf", {"gpu_hours": 1.0})
     inst._update_type_cost("wf", {"gpu_hours": 1.5})
-    result = inst._learned_cost("wf", declared, min_samples=3)
-    assert result["gpu_hours"] == 2.0  # still declared
+    assert inst._learned_cost("wf", min_samples=3) == {}
 
     # Third sample — min_samples reached, mean kicks in
     inst._update_type_cost("wf", {"gpu_hours": 2.0})
-    result = inst._learned_cost("wf", declared, min_samples=3)
-    expected_mean = (1.0 + 1.5 + 2.0) / 3
-    assert abs(result["gpu_hours"] - expected_mean) < 1e-9
-
-    # wall_hours should always pass through as declared (not replaced by learned)
-    assert result["wall_hours"] == 1.0
+    result = inst._learned_cost("wf", min_samples=3)
+    assert abs(result["gpu_hours"] - (1.0 + 1.5 + 2.0) / 3) < 1e-9
 
 
 # ── campaign idle exit ────────────────────────────────────────────────────────
@@ -193,7 +193,15 @@ def test_campaign_idle_exit() -> None:
             capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=2
         ),
         controller=IdleCtrl(),
-        workflows=[WorkflowConfig(name="w", block=quick, launch_on_start=False)],
+        workflows=[
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="w",
+                block=quick,
+                launch_on_start=False,
+            )
+        ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
     )
@@ -218,7 +226,15 @@ def _idle_spec(name: str, **kw) -> CampaignSpec:
             capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
         ),
         controller=OneShot(),
-        workflows=[WorkflowConfig(name="w", block=quick, launch_on_start=False)],
+        workflows=[
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="w",
+                block=quick,
+                launch_on_start=False,
+            )
+        ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
         **kw,
@@ -335,8 +351,16 @@ def test_dep_satisfied_restored_before_queue(tmp_path: Path) -> None:
         ),
         controller=ctrl,
         workflows=[
-            WorkflowConfig(name="source", block=quick, launch_on_start=False),
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="source",
+                block=quick,
+                launch_on_start=False,
+            ),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="target",
                 block=quick,
                 launch_on_start=False,
@@ -375,7 +399,11 @@ def test_inner_block_uid_registered_in_wf_tags() -> None:
             capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
         ),
         controller=CampaignController(),
-        workflows=[WorkflowConfig(name="w", block=quick)],
+        workflows=[
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0}, resources={"cpus": 1}, name="w", block=quick
+            )
+        ],
         policy_interval_s=60.0,
         shutdown_timeout_s=5.0,
     )
@@ -433,7 +461,11 @@ def test_inner_block_cross_campaign_not_registered() -> None:
             capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
         ),
         controller=CampaignController(),
-        workflows=[WorkflowConfig(name="w", block=quick)],
+        workflows=[
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0}, resources={"cpus": 1}, name="w", block=quick
+            )
+        ],
         policy_interval_s=60.0,
         shutdown_timeout_s=5.0,
     )
@@ -458,18 +490,14 @@ def test_inner_block_cross_campaign_not_registered() -> None:
 # ── live in-flight update, not charged per task─────────────────────────────────
 
 
-def test_live_inflight_proration_holds_full_cost_and_grows_on_overrun() -> None:
-    """A workflow not charged per task is charged only when it ends, so while it runs the
-    ledger must hold its full expected cost: in_flight never drops below the
-    launch estimate, and grows when the workflow runs past its declared wall
-    time (declared x elapsed / declared_wall)."""
+def test_live_inflight_holds_the_limit_while_it_runs() -> None:
+    """A workflow not charged per task is charged only when it ends, so while it
+    runs the ledger holds its full limit: in_flight never drops below it."""
 
     async def slow_wf(reporter):
         await asyncio.sleep(0.5)
         await reporter.emit(score=1.0)
 
-    # declared wall 0.1 s, actual ~0.5 s -> overrun up to ~5x
-    declared = {"wall_hours": 0.1 / 3600.0, "cpu_hours": 4.0}
     samples: list[tuple[float, float]] = []
 
     class SamplingController(CampaignController):
@@ -490,7 +518,11 @@ def test_live_inflight_proration_holds_full_cost_and_grows_on_overrun() -> None:
             spending={"cpu_hours": 100.0},
         ),
         controller=SamplingController(),
-        workflows=[WorkflowConfig(name="w", block=slow_wf, declared_spending=declared)],
+        workflows=[
+            WorkflowConfig(
+                name="w", block=slow_wf, spending_limit={"cpu_hours": 4.0}, resources={"cpus": 1}
+            )
+        ],
         policy_interval_s=0.1,
         shutdown_timeout_s=5.0,
     )
@@ -499,25 +531,20 @@ def test_live_inflight_proration_holds_full_cost_and_grows_on_overrun() -> None:
     assert len(samples) >= 2, "too few policy cycles"
     for spent, inflight in samples:
         assert spent == 0.0
-        assert inflight >= 4.0 - 1e-9, f"in_flight dropped below estimate: {samples}"
-    assert any(inflight > 4.5 for _, inflight in samples), (
-        f"in_flight did not grow on overrun: {samples}"
-    )
+        assert inflight >= 4.0 - 1e-9, f"in_flight dropped below the limit: {samples}"
 
 
-def test_live_inflight_reported_path_raises_estimate() -> None:
-    """For a workflow not charged per task that reports cumulative cpu_hours, in_flight is
-    max(estimate, reported): a report below the estimate leaves it unchanged,
-    a report above it raises in_flight to the reported value."""
+def test_live_inflight_reported_below_the_limit_keeps_it() -> None:
+    """For a workflow not charged per task that reports cumulative cpu_hours,
+    in_flight is max(limit, reported): reports below the limit leave it there."""
 
     async def reporting_wf(reporter):
         await asyncio.sleep(0.1)
         await reporter.emit(score=0.5, metrics={"cpu_hours": 1.5})
         await asyncio.sleep(0.3)
-        await reporter.emit(score=1.0, metrics={"cpu_hours": 6.0})
+        await reporter.emit(score=1.0, metrics={"cpu_hours": 3.0})
         await asyncio.sleep(0.3)
 
-    declared = {"wall_hours": 1.0, "cpu_hours": 4.0}
     samples: list[float] = []
 
     class SamplingController(CampaignController):
@@ -535,17 +562,21 @@ def test_live_inflight_reported_path_raises_estimate() -> None:
             spending={"cpu_hours": 100.0},
         ),
         controller=SamplingController(),
-        workflows=[WorkflowConfig(name="w", block=reporting_wf, declared_spending=declared)],
+        workflows=[
+            WorkflowConfig(
+                name="w",
+                block=reporting_wf,
+                spending_limit={"cpu_hours": 4.0},
+                resources={"cpus": 1},
+            )
+        ],
         policy_interval_s=0.1,
         shutdown_timeout_s=5.0,
     )
     asyncio.run(asyncio.wait_for(_run_campaign(spec), timeout=15.0))
 
     assert len(samples) >= 2
-    assert min(samples) >= 4.0 - 1e-9, f"in_flight dropped below estimate: {samples}"
-    assert any(abs(s - 6.0) < 1e-6 for s in samples), (
-        f"in_flight never reflected reported cpu_hours=6.0: {samples}"
-    )
+    assert all(abs(s - 4.0) < 1e-9 for s in samples), f"in_flight left the limit: {samples}"
 
 
 # ── fixes: task-level edge cases and learned costs ────────────────────────────
@@ -565,7 +596,7 @@ def _bare_instance(name: str = "fx", wf_type: str = "w") -> _CampaignInstance:
         controller=CampaignController(),
         workflows=[
             WorkflowConfig(
-                name=wf_type, block=quick, declared_spending={"wall_hours": 1.0, "cpu_hours": 8.0}
+                name=wf_type, block=quick, spending_limit={"cpu_hours": 8.0}, resources={"cpus": 1}
             )
         ],
         policy_interval_s=60.0,
@@ -600,7 +631,14 @@ def test_task_level_workflow_without_charges_finishes() -> None:
             capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
         ),
         controller=Ctrl(),
-        workflows=[WorkflowConfig(name="w", block=cancelled_mid_task)],
+        workflows=[
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="w",
+                block=cancelled_mid_task,
+            )
+        ],
         policy_interval_s=0.1,
         shutdown_timeout_s=5.0,
     )
@@ -623,15 +661,14 @@ def test_task_level_workflow_without_charges_finishes() -> None:
 
 
 def test_task_level_inflight_uses_launch_estimate() -> None:
-    """For a task-level workflow, in_flight = launch estimate - charged, using
-    the learned estimate (not declared_spending) once one exists."""
+    """For a task-level workflow, in_flight = launch estimate - charged."""
     from types import SimpleNamespace
     from unittest.mock import MagicMock
 
     inst = _bare_instance()
     wf_id = "fx.w.1"
     inst._wf_tags[wf_id] = wf_id
-    inst._active[wf_id] = MagicMock(declared_spending={"wall_hours": 1.0, "cpu_hours": 8.0})
+    inst._active[wf_id] = MagicMock()
     inst._estimates[wf_id] = {"wall_hours": 1.0, "cpu_hours": 2.0}  # learned
     inst._allocator.set_in_flight("fx", wf_id, inst._estimates[wf_id])
 
@@ -677,7 +714,7 @@ def test_learned_cost_only_from_successful_runs() -> None:
                 )
             return PolicyResult(terminate=len(results) >= 2)
 
-    decl = {"wall_hours": 1.0, "cpu_hours": 3.0}
+    cfg = {"spending_limit": {"cpu_hours": 3.0}, "resources": {"cpus": 1}}
     spec = CampaignSpec(
         name="lc_rc",
         budget=CampaignBudget(
@@ -685,8 +722,8 @@ def test_learned_cost_only_from_successful_runs() -> None:
         ),
         controller=Ctrl(),
         workflows=[
-            WorkflowConfig(name="ok", block=ok, declared_spending=decl, launch_on_start=False),
-            WorkflowConfig(name="boom", block=boom, declared_spending=decl, launch_on_start=False),
+            WorkflowConfig(name="ok", block=ok, launch_on_start=False, **cfg),
+            WorkflowConfig(name="boom", block=boom, launch_on_start=False, **cfg),
         ],
         policy_interval_s=0.1,
         shutdown_timeout_s=5.0,
@@ -732,7 +769,11 @@ def _counting_instance():
             capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=2
         ),
         controller=CampaignController(),
-        workflows=[WorkflowConfig(name="w", block=quick)],
+        workflows=[
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0}, resources={"cpus": 1}, name="w", block=quick
+            )
+        ],
         policy_interval_s=60.0,
         shutdown_timeout_s=5.0,
     )

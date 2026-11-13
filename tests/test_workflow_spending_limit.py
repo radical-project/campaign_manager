@@ -82,7 +82,11 @@ def _req(wf_type: str, limit: dict | None = None) -> LaunchRequest:
 
 def test_run_over_its_limit_is_cancelled() -> None:
     wf = WorkflowConfig(
-        name="spender", block=spender, launch_on_start=False, spending_limit={"cpu_hours": 0.25}
+        resources={"cpus": 1},
+        name="spender",
+        block=spender,
+        launch_on_start=False,
+        spending_limit={"cpu_hours": 0.25},
     )
     ctl, out = _run([wf], [_req("spender")])
     (r,) = ctl.results
@@ -94,7 +98,11 @@ def test_run_over_its_limit_is_cancelled() -> None:
 
 def test_launch_request_overrides_the_type_limit() -> None:
     wf = WorkflowConfig(
-        name="spender", block=spender, launch_on_start=False, spending_limit={"cpu_hours": 0.25}
+        resources={"cpus": 1},
+        name="spender",
+        block=spender,
+        launch_on_start=False,
+        spending_limit={"cpu_hours": 0.25},
     )
     ctl, out = _run([wf], [_req("spender", {"cpu_hours": 5.0})])
     (r,) = ctl.results
@@ -104,25 +112,31 @@ def test_launch_request_overrides_the_type_limit() -> None:
     assert out.budget_cancels == 0
 
 
-def test_no_limit_runs_to_the_end() -> None:
-    wf = WorkflowConfig(name="spender", block=spender, launch_on_start=False)
+def test_a_limit_above_its_cost_lets_it_run_to_the_end() -> None:
+    wf = WorkflowConfig(
+        spending_limit={"cpu_hours": 1000.0},
+        resources={"cpus": 1},
+        name="spender",
+        block=spender,
+        launch_on_start=False,
+    )
     ctl, out = _run([wf], [_req("spender")])
     assert ctl.results[0].returncode == 0
-    assert ctl.results[0].spending_limit == {}
+    assert ctl.results[0].spending_limit == {"cpu_hours": 1000.0}
     assert out.budget_cancels == 0
 
 
-def test_prorated_spending_is_enforced_without_reports() -> None:
+def test_resources_x_time_is_enforced_without_reports() -> None:
     async def silent() -> None:
         await asyncio.sleep(2.0)
 
-    # Declared 1 CPU-hour per 0.1 s of wall time: the limit is passed after ~0.03 s.
+    # 1000 CPUs, reporting nothing: 1000 × elapsed passes 0.03 CPU-hours after ~0.1 s.
     wf = WorkflowConfig(
         name="silent",
         block=silent,
         launch_on_start=False,
-        declared_spending={"wall_hours": 0.1 / 3600, "cpu_hours": 1.0},
-        spending_limit={"cpu_hours": 0.3},
+        resources={"cpus": 1000},
+        spending_limit={"cpu_hours": 0.03},
     )
     ctl, out = _run([wf], [_req("silent")])
     (r,) = ctl.results
@@ -136,14 +150,14 @@ def test_limit_is_held_against_the_campaign() -> None:
         await asyncio.sleep(0.3)
 
     wf = WorkflowConfig(
+        resources={"cpus": 1},
         name="short",
         block=short,
         launch_on_start=False,
-        declared_spending={"wall_hours": 1.0, "cpu_hours": 0.01},
         spending_limit={"cpu_hours": 0.6},
     )
     ctl, _ = _run([wf], [_req("short")], spending={"cpu_hours": 10.0})
-    # While the run is going, the campaign holds its full limit, not the 0.01 estimate.
+    # While the run is going, the campaign holds its full limit.
     assert max(ctl.in_flight) == 0.6
 
 
@@ -154,7 +168,11 @@ def test_python_workflow_receives_its_limit() -> None:
         seen.append(context.get("spending_limit"))
 
     wf = WorkflowConfig(
-        name="reads", block=reads, launch_on_start=False, spending_limit={"gpu_hours": 2.0}
+        resources={"cpus": 1},
+        name="reads",
+        block=reads,
+        launch_on_start=False,
+        spending_limit={"gpu_hours": 2.0},
     )
     _run([wf], [_req("reads")])
     assert seen == [{"gpu_hours": 2.0}]
@@ -168,6 +186,7 @@ def test_command_line_workflow_receives_its_limit(tmp_path) -> None:
         "open(sys.argv[1], 'w'))"
     )
     wf = WorkflowConfig(
+        resources={"cpus": 1},
         name="prog",
         launch_on_start=False,
         launch_cmd=[sys.executable, "-c", script, str(out)],

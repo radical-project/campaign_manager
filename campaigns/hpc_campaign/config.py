@@ -72,7 +72,6 @@ class SimWorkerConfig:
     n_iters: int = 10
     iter_sleep_s: float = 0.08
     stale_timeout_s: float = 120.0
-    declared_spending: dict = field(default_factory=dict)
     spending_limit: dict = field(default_factory=dict)  # most one run may spend
     respect_limit: bool = True  # False: the run ignores its limit (AuCaM cancels it)
     resources: dict = field(default_factory=dict)  # CPUs/GPUs one run may use at once
@@ -83,7 +82,6 @@ class SimWorkerConfig:
 class SimWorkerBConfig:
     # n_iters_b is auto-derived as max(3, n_iters // 3) — not stored here
     stale_timeout_s: float = 60.0
-    declared_spending: dict = field(default_factory=dict)
     spending_limit: dict = field(default_factory=dict)
     respect_limit: bool = True
     resources: dict = field(default_factory=dict)
@@ -93,7 +91,6 @@ class SimWorkerBConfig:
 @dataclass
 class AnalysisWorkerConfig:
     steps: int = 2
-    declared_spending: dict = field(default_factory=dict)
     spending_limit: dict = field(default_factory=dict)
     respect_limit: bool = True
     resources: dict = field(default_factory=dict)
@@ -167,9 +164,6 @@ def load_campaign(path: str | Path) -> CampaignConfig:
                 n_iters=int(sim.get("n_iters", 10)),
                 iter_sleep_s=float(sim.get("iter_sleep_s", 0.08)),
                 stale_timeout_s=float(sim.get("stale_timeout_s", 120.0)),
-                declared_spending={
-                    k: float(v) for k, v in (sim.get("declared_spending") or {}).items()
-                },
                 spending_limit={k: float(v) for k, v in (sim.get("spending_limit") or {}).items()},
                 respect_limit=bool(sim.get("respect_limit", True)),
                 resources={k: float(v) for k, v in (sim.get("resources") or {}).items()},
@@ -177,9 +171,6 @@ def load_campaign(path: str | Path) -> CampaignConfig:
             ),
             sim_worker_b=SimWorkerBConfig(
                 stale_timeout_s=float(simb.get("stale_timeout_s", 60.0)),
-                declared_spending={
-                    k: float(v) for k, v in (simb.get("declared_spending") or {}).items()
-                },
                 spending_limit={k: float(v) for k, v in (simb.get("spending_limit") or {}).items()},
                 respect_limit=bool(simb.get("respect_limit", True)),
                 resources={k: float(v) for k, v in (simb.get("resources") or {}).items()},
@@ -187,9 +178,6 @@ def load_campaign(path: str | Path) -> CampaignConfig:
             ),
             analysis_worker=AnalysisWorkerConfig(
                 steps=int(ana.get("steps", 2)),
-                declared_spending={
-                    k: float(v) for k, v in (ana.get("declared_spending") or {}).items()
-                },
                 spending_limit={k: float(v) for k, v in (ana.get("spending_limit") or {}).items()},
                 respect_limit=bool(ana.get("respect_limit", True)),
                 resources={k: float(v) for k, v in (ana.get("resources") or {}).items()},

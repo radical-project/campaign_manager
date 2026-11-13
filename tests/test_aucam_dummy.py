@@ -107,18 +107,24 @@ async def _run_dummy_campaign() -> None:
         controller=controller,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="fast_job",
                 block=fast_job,
                 launch_on_start=True,
                 on_completion=_on_fast_done,
             ),
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="slow_job",
                 block=slow_job,
                 launch_on_start=True,
                 on_completion=_on_slow_done,
             ),
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="follow_up",
                 block=follow_up,
                 launch_on_start=False,
@@ -198,6 +204,8 @@ async def _run_sequential_campaign() -> None:
         controller=SequentialController(),
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="timed_job",
                 block=timed_job,
                 launch_on_start=True,

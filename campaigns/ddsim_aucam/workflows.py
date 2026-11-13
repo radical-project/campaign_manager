@@ -118,21 +118,15 @@ def _get_adapted_class():
 # ── Block factory ─────────────────────────────────────────────────────────────
 
 
-def _cpu_rate(declared: dict) -> float:
-    """CPUs implied by declared_spending (cpu_hours per wall hour); 1 if not declared."""
-    wall = declared.get("wall_hours", 0.0)
-    return declared.get("cpu_hours", wall) / wall if wall > 0 else 1.0
-
-
-def fit_to_limit(cfg: dict, limit_cpu_h: float, declared: dict) -> int:
+def fit_to_limit(cfg: dict, limit_cpu_h: float, cost_cpu_h: float | None) -> int:
     """How many simulations of this arm fit in ``limit_cpu_h``.
 
     The MiniApps pipeline runs as one call, so a run stays within its limit by
-    sizing its work up front: declared cpu_hours is the cost of total_num_sim
-    simulations, so each simulation costs that / total_num_sim.
+    sizing its work up front: ``cost_cpu_h`` (CPUs × expected run time) is the
+    cost of total_num_sim simulations, so each one costs that / total_num_sim.
     """
     total = int(cfg.get("total_num_sim", 1))
-    cost = declared.get("cpu_hours")
+    cost = cost_cpu_h
     if not cost or math.isinf(limit_cpu_h):
         return total
     per_sim = cost / max(1, total)
@@ -143,15 +137,15 @@ def make_miniapps_worker(
     cfg: dict,
     arm_label: str = "wf",
     engine: str = "concurrent",
-    declared_spending: dict | None = None,
+    expected_wall_hours: float | None = None,
     respect_limit: bool = True,
 ):
     """Return an AuCaM block function bound to the given MiniApps config dict.
 
     AuCaM passes each run its spending limit (context["spending_limit"]).  A run
     that respects it runs only as many simulations as fit (fit_to_limit); every
-    report carries the run's cpu_hours so far (wall time × the declared CPU
-    rate) and the CPUs it uses (cpus_in_use, the same rate), so AuCaM can
+    report carries the run's cpu_hours so far (wall time × the CPUs AuCaM gave
+    it, context["resources"]) and the CPUs it uses (cpus_in_use), so AuCaM can
     cancel a run that spends past its limit or uses more CPUs than it was
     given (WorkflowConfig.resources).  The MiniApps pipeline sets its own
     parallelism, so the run does not resize its tasks to the resources.
@@ -164,12 +158,10 @@ def make_miniapps_worker(
     asyncflow engine.
     """
 
-    declared = dict(declared_spending or {})
-    cpus = _cpu_rate(declared)
-
     async def miniapps_worker(
         reporter: WorkflowReporter, flow=None, context: dict | None = None
     ) -> None:
+        cpus = float((context or {}).get("resources", {}).get("cpus", 1.0))
         root = _ddsim_root()
         adapted_cls = _get_adapted_class()
         t0 = time.monotonic()
@@ -181,7 +173,8 @@ def make_miniapps_worker(
         limit = float((context or {}).get("spending_limit", {}).get("cpu_hours", math.inf))
         if not math.isinf(limit):
             if respect_limit:
-                n = fit_to_limit(worker_cfg, limit, declared)
+                cost = cpus * expected_wall_hours if expected_wall_hours else None
+                n = fit_to_limit(worker_cfg, limit, cost)
                 logger.info(
                     "[miniapps_worker] %s: spending limit %.4f cpu_hours → %d of %s simulations",
                     arm_label,

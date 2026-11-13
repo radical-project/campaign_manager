@@ -2,9 +2,10 @@
 """
 Figures for the AuCaM docs, from real (short, synthetic) AuCaM runs.
 
-  budget   — how AuCaM keeps a campaign within its spending limit: (A) with
-             per-workflow limits, (B) without, where the campaign limit
-             cancels running workflows.  → docs/figures/aucam_budget_burn.png
+  budget   — how AuCaM keeps a campaign within its spending limit: (A) each
+             workflow's limit is held against the campaign, (B) the safety
+             net, when the workflows' limits do not cover what the campaign
+             limits.  → docs/figures/aucam_budget_burn.png
   bandit   — one campaign, two workflow types; the bandit learns which one
              completes and explores less as the budget is used up.
              → docs/figures/aucam_bandit_budget.png
@@ -54,25 +55,25 @@ def cpu_s(hours: float) -> float:
     return hours * H
 
 
-def declared(cpus: float, wall_s: float) -> dict[str, float]:
-    return {"wall_hours": wall_s / H, "cpu_hours": cpus * wall_s / H}
+def cpu_limit(cpu_seconds: float) -> dict[str, float]:
+    return {"cpu_hours": cpu_seconds / H}
 
 
 # ── 1. Campaign spending limit ─────────────────────────────────────────────────
 
 
-async def _budget_case(with_estimate: bool) -> dict:
+async def _budget_case(cpu_limited: bool) -> dict:
     """One campaign, limit 24 CPU·s, up to 3 workflows of 2 CPUs at once.
 
     Each workflow wants to work 0.7–2.5 s (1.4–5 CPU·s) and reports its CPU·s
     every 0.1 s.
-      with_estimate — declared at 1 s (2 CPU·s): every workflow gets a limit
-                      (2.5 CPU·s, then raised after cancels, then learned),
-                      held against the campaign; AuCaM cancels one that
-                      passes it.
-      without       — no estimate, so no limit of its own: when actual spending
-                      passes the campaign limit, AuCaM cancels the running
-                      workflows (on_limit="cancel").
+      cpu_limited — every workflow starts with a 2.5 CPU·s limit (then raised
+                    after cancels, then learned), held against the campaign;
+                    AuCaM cancels one that passes it.
+      otherwise   — the workflows' limits name only GPU-hours, so nothing is
+                    held for CPU-hours: when actual spending passes the
+                    campaign limit, AuCaM cancels the running workflows
+                    (on_limit="cancel").
     """
     t0 = time.monotonic()
     samples: list[dict] = []
@@ -129,12 +130,13 @@ async def _budget_case(with_estimate: bool) -> dict:
             WorkflowConfig(
                 name="sim",
                 block=sim,
-                declared_spending=declared(cpus, 1.0) if with_estimate else {},
+                spending_limit=cpu_limit(2.5) if cpu_limited else {"gpu_hours": 1.0},
+                resources={"cpus": cpus},
             )
         ],
         policy_interval_s=0.1,
-        # B: nothing learned during the run either, so no workflow has a limit.
-        min_cost_samples=3 if with_estimate else 1000,
+        # B: nothing learned during the run either, so nothing is held for CPU-hours.
+        min_cost_samples=3 if cpu_limited else 1000,
     )
     o = await CampaignManager().run(spec)
     return {
@@ -149,7 +151,7 @@ async def _budget_case(with_estimate: bool) -> dict:
 
 
 async def exp_budget() -> dict:
-    """Panel A: every workflow gets a limit; panel B: no estimate, the campaign limit cancels."""
+    """Panel A: each workflow's limit is held; panel B: the campaign limit's safety net."""
     return {"a": await _budget_case(True), "b": await _budget_case(False)}
 
 
@@ -201,8 +203,10 @@ async def exp_bandit() -> dict:
         ),
         controller=CampaignController(launch=["good", "poor"]),
         workflows=[
-            WorkflowConfig(name="good", block=good, declared_spending=declared(1, 0.35)),
-            WorkflowConfig(name="poor", block=poor, declared_spending=declared(1, 0.35)),
+            WorkflowConfig(
+                name=t, block=b, spending_limit=cpu_limit(1.25 * 0.35), resources={"cpus": 1}
+            )
+            for t, b in (("good", good), ("poor", poor))
         ],
         scheduling_policy=RecordingBandit(exploration=2.0),
         policy_interval_s=0.2,
@@ -275,7 +279,7 @@ async def exp_runlimit() -> dict:
             WorkflowConfig(
                 name=k,
                 block=make(k),
-                declared_spending=declared(cpus, 1.2),
+                resources={"cpus": cpus},
                 spending_limit=lim,
                 learn=False,  # keep the limit fixed, so every run has the same one
             )
@@ -353,14 +357,14 @@ def plot_budget(d: dict, plt) -> None:
     _plot_budget_panel(
         a1,
         a,
-        "A — every workflow gets a limit (estimate + 25 %, raised 25 % after each cancel at it, "
+        "A — every workflow gets a limit (2.5 CPU·s at first, 25 % more after each cancel at it, "
         "then\nlearned cost + 25 %), held against the campaign; one that passes it is cancelled (×)",
     )
     _plot_budget_panel(
         a2,
         b,
-        "B — safety net: workflows with no estimate (and nothing learned yet) have no limit of their "
-        'own;\nwhen actual spending passes the campaign limit, AuCaM cancels them (on_limit="cancel")',
+        "B — safety net: the workflows' limits name only GPU-hours, so nothing is held for CPU-hours;"
+        '\nwhen actual spending passes the campaign limit, AuCaM cancels them (on_limit="cancel")',
     )
     from matplotlib.lines import Line2D  # noqa: PLC0415
 

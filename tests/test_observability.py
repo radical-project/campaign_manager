@@ -125,6 +125,8 @@ def test_final_metrics_populated() -> None:
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="reporting_worker",
                 block=reporting_worker,
                 launch_on_start=True,
@@ -165,6 +167,8 @@ def test_final_metrics_empty_for_no_reporter() -> None:
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="silent_worker",
                 block=silent_worker,
                 launch_on_start=True,
@@ -199,6 +203,8 @@ def test_summary_log_emitted(caplog: pytest.LogCaptureFixture) -> None:
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="quick_worker",
                 block=quick_worker,
                 launch_on_start=True,
@@ -267,6 +273,8 @@ def test_max_queue_depth_warning_not_drop(caplog: pytest.LogCaptureFixture) -> N
         controller=ctrl2,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="quick_worker",
                 block=quick_worker,
                 launch_on_start=False,
@@ -319,6 +327,8 @@ def test_event_driven_policy_wakeup() -> None:
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="quick_worker",
                 block=quick_worker,
                 launch_on_start=True,

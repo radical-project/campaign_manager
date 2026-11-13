@@ -195,12 +195,20 @@ async def _run_scalar() -> None:
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="good_worker",
                 block=good_worker,
                 launch_on_start=False,
                 on_completion=good_hook,
             ),
-            WorkflowConfig(name="bad_worker", block=bad_worker, launch_on_start=False),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="bad_worker",
+                block=bad_worker,
+                launch_on_start=False,
+            ),
         ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
@@ -230,9 +238,20 @@ async def _run_dict() -> None:
         controller=ctrl,
         workflows=[
             WorkflowConfig(
-                name="sim_worker", block=sim_worker, launch_on_start=False, on_completion=sim_hook
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="sim_worker",
+                block=sim_worker,
+                launch_on_start=False,
+                on_completion=sim_hook,
             ),
-            WorkflowConfig(name="diverging_worker", block=diverging_worker, launch_on_start=False),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="diverging_worker",
+                block=diverging_worker,
+                launch_on_start=False,
+            ),
         ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
@@ -265,12 +284,20 @@ async def _run_both() -> None:
         controller=scalar_ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="good_worker",
                 block=good_worker,
                 launch_on_start=False,
                 on_completion=good_hook,
             ),
-            WorkflowConfig(name="bad_worker", block=bad_worker, launch_on_start=False),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="bad_worker",
+                block=bad_worker,
+                launch_on_start=False,
+            ),
         ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
@@ -283,9 +310,20 @@ async def _run_both() -> None:
         controller=dict_ctrl,
         workflows=[
             WorkflowConfig(
-                name="sim_worker", block=sim_worker, launch_on_start=False, on_completion=sim_hook
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="sim_worker",
+                block=sim_worker,
+                launch_on_start=False,
+                on_completion=sim_hook,
             ),
-            WorkflowConfig(name="diverging_worker", block=diverging_worker, launch_on_start=False),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="diverging_worker",
+                block=diverging_worker,
+                launch_on_start=False,
+            ),
         ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,

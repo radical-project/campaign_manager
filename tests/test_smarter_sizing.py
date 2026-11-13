@@ -114,7 +114,14 @@ def test_campaign_learns_resource_size_from_reports():
             capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
         ),
         controller=ctl,
-        workflows=[WorkflowConfig(name="sim", block=worker, resources={"cpus": 16})],
+        workflows=[
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                name="sim",
+                block=worker,
+                resources={"cpus": 16},
+            )
+        ],
         policy_interval_s=0.02,
         shutdown_timeout_s=5.0,
     )

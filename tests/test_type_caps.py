@@ -60,8 +60,21 @@ def test_each_type_keeps_its_own_cap(policy, priority):
         ),
         controller=ctl,
         workflows=[
-            WorkflowConfig(name="big", block=work, launch_on_start=False, max_running=1),
-            WorkflowConfig(name="small", block=work, launch_on_start=False),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="big",
+                block=work,
+                launch_on_start=False,
+                max_running=1,
+            ),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="small",
+                block=work,
+                launch_on_start=False,
+            ),
         ],
         scheduling_policy=FIFOSchedulingPolicy() if policy == "fifo" else None,
         policy_interval_s=0.01,
@@ -74,4 +87,10 @@ def test_each_type_keeps_its_own_cap(policy, priority):
 
 def test_max_running_validation():
     with pytest.raises(ValueError):
-        WorkflowConfig(name="x", block=work, max_running=0)
+        WorkflowConfig(
+            spending_limit={"cpu_hours": 1000.0},
+            resources={"cpus": 1},
+            name="x",
+            block=work,
+            max_running=0,
+        )

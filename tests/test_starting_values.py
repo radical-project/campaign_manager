@@ -1,5 +1,4 @@
-"""Every workflow gets an allocation (allocation design note, step 1): the
-type's starting value (as given), or declared_spending × (1 + size_margin);
+"""Every workflow gets an allocation: the type's starting value (as given);
 learned values once the type has enough finished workflows; and, after a
 workflow is cancelled at its own limit, the next ones get 25 % more."""
 
@@ -82,26 +81,27 @@ def _run(ctl, wfc, tmp_path=None):
     return [round(r.spending_limit.get("cpu_hours", 0) * H, 4) for r in ctl.results]
 
 
-def test_declared_plus_margin_then_learned():
+def test_starting_limit_then_learned():
     ctl = Collect(ok=5)
     wfc = WorkflowConfig(
+        resources={"cpus": 1},
         name="sim",
         block=worker(2.0),
         launch_on_start=False,
-        declared_spending={"cpu_hours": 3.0 / H},
+        spending_limit={"cpu_hours": 3.0 / H},
     )
     limits = _run(ctl, wfc)
-    assert limits[:3] == [3.75, 3.75, 3.75]  # declared 3 × 1.25
+    assert limits[:3] == [3.0, 3.0, 3.0]  # the starting limit, as given
     assert limits[3:5] == [2.5, 2.5]  # learned 2 × 1.25
 
 
 def test_explicit_starting_value_is_used_as_given():
     ctl = Collect(ok=1)
     wfc = WorkflowConfig(
+        resources={"cpus": 1},
         name="sim",
         block=worker(2.0),
         launch_on_start=False,
-        declared_spending={"cpu_hours": 3.0 / H},
         spending_limit={"cpu_hours": 2.2 / H},
     )
     assert _run(ctl, wfc) == [2.2]
@@ -110,6 +110,7 @@ def test_explicit_starting_value_is_used_as_given():
 def test_the_request_s_own_amount_wins():
     ctl = Collect(ok=1, request=LaunchRequest.make("sim", spending_limit={"cpu_hours": 9.0 / H}))
     wfc = WorkflowConfig(
+        resources={"cpus": 1},
         name="sim",
         block=worker(2.0),
         launch_on_start=False,
@@ -122,7 +123,11 @@ def test_limit_raised_after_cancels_until_it_fits(tmp_path: Path):
     # Needs 5 CPU·s, starts at 2: each cancel at the limit raises the next by 25 %.
     ctl = Collect(ok=1)
     wfc = WorkflowConfig(
-        name="sim", block=worker(5.0), launch_on_start=False, spending_limit={"cpu_hours": 2.0 / H}
+        resources={"cpus": 1},
+        name="sim",
+        block=worker(5.0),
+        launch_on_start=False,
+        spending_limit={"cpu_hours": 2.0 / H},
     )
     limits = _run(ctl, wfc, tmp_path)
     assert limits[0] == 2.0 and len(limits) >= 4
@@ -138,7 +143,11 @@ def test_limit_raised_after_cancels_until_it_fits(tmp_path: Path):
 def test_resources_raised_after_overuse():
     ctl = Collect(ok=1, n=3)
     wfc = WorkflowConfig(
-        name="sim", block=worker(1.0, cpus_in_use=3), launch_on_start=False, resources={"cpus": 2}
+        spending_limit={"cpu_hours": 1000.0},
+        name="sim",
+        block=worker(1.0, cpus_in_use=3),
+        launch_on_start=False,
+        resources={"cpus": 2},
     )
     _run(ctl, wfc)
     cpus = [r.resources["cpus"] for r in ctl.results]
@@ -151,6 +160,7 @@ def test_fixed_amount_is_not_learned():
     # learn=False: the starting value stays, even after 3 successes.
     ctl = Collect(ok=5)
     wfc = WorkflowConfig(
+        resources={"cpus": 1},
         name="sim",
         block=worker(2.0),
         launch_on_start=False,
@@ -164,6 +174,7 @@ def test_fixed_amount_is_not_raised_after_a_cancel():
     # learn=False: a workflow cancelled at its limit does not raise the next one's.
     ctl = Collect(ok=1, n=3)
     wfc = WorkflowConfig(
+        resources={"cpus": 1},
         name="sim",
         block=worker(5.0),
         launch_on_start=False,

@@ -51,7 +51,14 @@ def _run(ctl, spending):
             spending=spending,
         ),
         controller=ctl,
-        workflows=[WorkflowConfig(name="agent", block=agent)],  # nothing declared
+        workflows=[
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="agent",
+                block=agent,
+            )
+        ],  # nothing declared
         policy_interval_s=0.02,
         shutdown_timeout_s=5.0,
     )

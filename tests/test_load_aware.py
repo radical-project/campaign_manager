@@ -86,7 +86,14 @@ def _run(ctl, cpus=None, capacity=None, **budget):
             **budget,
         ),
         controller=ctl,
-        workflows=[WorkflowConfig(name="sim", block=work, resources=cpus or {})],
+        workflows=[
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                name="sim",
+                block=work,
+                resources=cpus or {"cpus": 1},
+            )
+        ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
     )

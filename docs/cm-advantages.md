@@ -37,8 +37,8 @@ request of each type queued and has a `CancelRule` for `slow_poor`. Its
 scheduling policy is a UCB1 bandit that rewards completed workflows (1) over
 cancelled ones (0).
 
-Spending is measured in CPU-seconds: each workflow declares its expected cost
-(`declared_spending`), and AuCaM charges it for the time it actually ran.
+Spending is measured in CPU-seconds. The workflows report none, so AuCaM
+charges each the CPUs it was given × the time it actually ran.
 
 ---
 

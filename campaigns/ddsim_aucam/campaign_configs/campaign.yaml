@@ -37,18 +37,17 @@ miniapps:
 slow_step_multiplier: 3   # miniapps_slow uses num_step × this
 
 workflows:
-  fast_spending:
-    wall_hours:  0.05    # ~a few seconds locally
-    cpu_hours:   0.05
-  # slow_spending omitted → fast × slow_step_multiplier
+  # Expected run time of one fast run (the slow arm: × slow_step_multiplier);
+  # a run that respects its limit uses it to size its work.
+  fast_wall_hours: 0.05   # ~a few seconds locally
   # Per-run spending limit: AuCaM passes it to each run and cancels a run that
   # spends more.  A run that respects it runs only as many simulations as fit.
   fast_spending_limit:
     cpu_hours:   0.06
   # slow_spending_limit omitted → fast × slow_step_multiplier
   respect_limit: {fast: true, slow: true}
-  # CPUs one run may use at once; a run reports its CPU rate (cpu_hours per
-  # wall hour of fast_spending) as cpus_in_use.  slow_resources omitted → fast.
+  # CPUs one run may use at once (it reports them as cpus_in_use, and its
+  # cpu_hours as CPUs × run time).  slow_resources omitted → fast.
   fast_resources:
     cpus: 1
 

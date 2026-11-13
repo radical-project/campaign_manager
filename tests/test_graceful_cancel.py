@@ -24,8 +24,14 @@ CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
 H = 3600.0
 
 
-def worker(polite: bool, steps: int = 200, step_s: float = 0.02, cpu_per_step: float = 0.0):
-    """Runs `steps` steps; a polite one stops when it gets CANCEL."""
+def worker(
+    polite: bool,
+    steps: int = 200,
+    step_s: float = 0.02,
+    cpu_per_step: float = 0.0,
+    dim: str = "cpu_hours",
+):
+    """Runs `steps` steps, reporting `dim` spent; a polite one stops on CANCEL."""
 
     async def wf(reporter: WorkflowReporter) -> None:
         spent = 0.0
@@ -33,11 +39,11 @@ def worker(polite: bool, steps: int = 200, step_s: float = 0.02, cpu_per_step: f
             if polite:
                 sig = await reporter.poll()
                 if sig == CampaignDecision.CANCEL:
-                    await reporter.emit(score=0.5, metrics={"saved": True, "cpu_hours": spent})
+                    await reporter.emit(score=0.5, metrics={"saved": True, dim: spent})
                     return
             await asyncio.sleep(step_s)
             spent += cpu_per_step
-            await reporter.emit(score=0.5, metrics={"step": i, "cpu_hours": spent})
+            await reporter.emit(score=0.5, metrics={"step": i, dim: spent})
 
     return wf
 
@@ -95,7 +101,18 @@ def _run(ctl, workflows, spending=None, on_limit="cancel", **spec_kw):
 
 def test_graceful_exit_counts_as_cancelled():
     ctl = CancelAfter(["polite"])
-    _run(ctl, [WorkflowConfig(name="polite", block=worker(True), cancel_grace_s=3.0)])
+    _run(
+        ctl,
+        [
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="polite",
+                block=worker(True),
+                cancel_grace_s=3.0,
+            )
+        ],
+    )
     r = ctl.results["polite"]
     assert r.returncode == -1 and r.cancel == "graceful"
     assert r.final_metrics.get("saved") is True
@@ -104,7 +121,18 @@ def test_graceful_exit_counts_as_cancelled():
 
 def test_workflow_ignoring_cancel_is_forced_after_grace():
     ctl = CancelAfter(["deaf"])
-    _run(ctl, [WorkflowConfig(name="deaf", block=worker(False), cancel_grace_s=0.3)])
+    _run(
+        ctl,
+        [
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="deaf",
+                block=worker(False),
+                cancel_grace_s=0.3,
+            )
+        ],
+    )
     r = ctl.results["deaf"]
     assert r.returncode == -1 and r.cancel == "forced"
     assert r.wall_time_s >= 0.3
@@ -115,8 +143,19 @@ def test_no_grace_cancels_at_once_and_campaign_default_applies():
     _run(
         ctl,
         [
-            WorkflowConfig(name="a", block=worker(True)),  # campaign default: 2 s
-            WorkflowConfig(name="b", block=worker(True), cancel_grace_s=0),  # at once
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="a",
+                block=worker(True),
+            ),  # campaign default: 2 s
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="b",
+                block=worker(True),
+                cancel_grace_s=0,
+            ),  # at once
         ],
         cancel_grace_s=2.0,
     )
@@ -130,6 +169,7 @@ def test_over_own_limit_is_cancelled_gracefully():
         ctl,
         [
             WorkflowConfig(
+                resources={"cpus": 1},
                 name="hog",
                 block=worker(True, cpu_per_step=1.0 / H),
                 spending_limit={"cpu_hours": 5.0 / H},
@@ -151,7 +191,18 @@ def test_shutdown_cancels_gracefully():
             return res
 
     ctl = StopSoon(["polite"])
-    _run(ctl, [WorkflowConfig(name="polite", block=worker(True), cancel_grace_s=3.0)])
+    _run(
+        ctl,
+        [
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="polite",
+                block=worker(True),
+                cancel_grace_s=3.0,
+            )
+        ],
+    )
     assert ctl.results["polite"].cancel == "graceful"
 
 
@@ -162,7 +213,12 @@ def test_pause_not_acknowledged_is_cancelled(caplog):
             ctl,
             [
                 WorkflowConfig(
-                    name="deaf", block=worker(False), supports_pause=True, pause_timeout_s=0.2
+                    spending_limit={"cpu_hours": 1000.0},
+                    resources={"cpus": 1},
+                    name="deaf",
+                    block=worker(False),
+                    supports_pause=True,
+                    pause_timeout_s=0.2,
                 )
             ],
         )
@@ -190,40 +246,57 @@ def test_paused_workflow_gets_cancel_through_wait_for_resume():
     ctl = PauseThenCancel(["p"], pause=True)
     _run(
         ctl,
-        [WorkflowConfig(name="p", block=pausable, supports_pause=True, cancel_grace_s=3.0)],
+        [
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="p",
+                block=pausable,
+                supports_pause=True,
+                cancel_grace_s=3.0,
+            )
+        ],
     )
     r = ctl.results["p"]
     assert r.cancel == "graceful" and r.final_metrics.get("saved") is True
 
 
 def test_campaign_limit_cancels_running_workflows():
-    # Two workflows with no estimate (so no limit of their own) that would
-    # each spend 20 CPU·s; the campaign limit stops both near 10.
+    # The campaign limits llm_tokens, which the workflows' own limits do not
+    # name (so nothing is held for it); each would spend 20, the campaign
+    # limit stops both near 10.
     wfs = [
         WorkflowConfig(
+            spending_limit={"cpu_hours": 1000.0},
+            resources={"cpus": 1},
             name=n,
-            block=worker(True, steps=40, cpu_per_step=0.5 / H),
+            block=worker(True, steps=40, cpu_per_step=0.5, dim="llm_tokens"),
             cancel_grace_s=1.0,
         )
         for n in ("a", "b")
     ]
     ctl = CancelAfter(["a", "b"], after_s=99)
-    out, _ = _run(ctl, wfs, spending={"cpu_hours": 10.0 / H})
+    out, _ = _run(ctl, wfs, spending={"llm_tokens": 10.0})
     assert out.exit_reason == "spending_limit"
     assert {r.cancel for r in ctl.results.values()} == {"graceful"}
-    assert out.spent["cpu_hours"] * H <= 12.0  # stopped within about one cycle
+    assert out.spent["llm_tokens"] <= 12.0  # stopped within about one cycle
 
 
 def test_on_limit_finish_lets_them_finish():
-    # No estimate at all: the only workflows without a limit of their own.
+    # llm_tokens: limited by the campaign, not named by the workflows' limits.
     wfs = [
-        WorkflowConfig(name=n, block=worker(True, steps=20, step_s=0.01, cpu_per_step=0.5 / H))
+        WorkflowConfig(
+            spending_limit={"cpu_hours": 1000.0},
+            resources={"cpus": 1},
+            name=n,
+            block=worker(True, steps=20, step_s=0.01, cpu_per_step=0.5, dim="llm_tokens"),
+        )
         for n in ("a", "b")
     ]
     ctl = CancelAfter(["a", "b"], after_s=99)
-    out, _ = _run(ctl, wfs, spending={"cpu_hours": 10.0 / H}, on_limit="finish")
+    out, _ = _run(ctl, wfs, spending={"llm_tokens": 10.0}, on_limit="finish")
     assert all(r.returncode == 0 for r in ctl.results.values())
-    assert abs(out.spent["cpu_hours"] * H - 20.0) < 1e-6
+    assert abs(out.spent["llm_tokens"] - 20.0) < 1e-6
 
 
 def test_over_resources_is_cancelled_gracefully():
@@ -238,7 +311,15 @@ def test_over_resources_is_cancelled_gracefully():
     ctl = CancelAfter(["greedy"], after_s=99)
     out, _ = _run(
         ctl,
-        [WorkflowConfig(name="greedy", block=greedy, resources={"cpus": 2}, cancel_grace_s=2.0)],
+        [
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                name="greedy",
+                block=greedy,
+                resources={"cpus": 2},
+                cancel_grace_s=2.0,
+            )
+        ],
     )
     r = ctl.results["greedy"]
     assert r.over_resources and r.cancel == "graceful"

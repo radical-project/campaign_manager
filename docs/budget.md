@@ -8,34 +8,24 @@ are implementation notes for developers.
 
 ## 1. Concepts
 
-- **Campaign** — a set of workflows working toward one goal, steered by a
-  controller (its decision logic).
-- **Workflow** — one unit of work that AuCaM launches and cancels, such as a
-  simulation run. It runs as an AsyncFlow block and may submit many **tasks**
-  (individual programs or functions) to the execution backend.
+Campaign, workflow and controller are defined in the
+[architecture overview](architecture-overview.md). A workflow runs as an
+AsyncFlow block and may submit many **tasks** to the execution backend.
+
 - **Budget dimension** — what is counted, e.g. `cpu_hours` or `gpu_hours`
   (resource-hours: 2 GPUs for 1 hour = 2 GPU-hours), or any other quantity a
   workflow reports, such as `llm_tokens`. Each dimension is limited separately.
   The tokens an AI scheduling policy or controller uses are charged only if
   the campaign limits `llm_tokens` (developer guide §8, "AI policies").
 - **Spending limit** — the most a campaign may spend over its lifetime, per
-  dimension.
-- **Estimate** — how much one workflow of a given type is expected to cost. It
-  starts as the workflow's `declared_spending` and is replaced by the average
-  actual cost once a few workflows of that type have finished (§6).
-- **Workflow limit** — the most one workflow may spend. Every workflow gets one
-  when it starts, from its type's starting value or estimate + 25 %, then from
-  the learned cost (§4); AuCaM cancels a workflow that spends past it.
+  dimension (`CampaignBudget.spending`).
+- **Workflow limit** — the most one workflow may spend: its type's
+  `spending_limit` at first, then its learned cost + 25 % (§4, §6).
 - **Spent** — what AuCaM has actually charged so far.
 - **In-flight** — what running workflows are held at and is not in *spent*
-  yet: their limits (a workflow without one: its estimate). Counting it lets
-  AuCaM launch only what fits, so running workflows cannot push a campaign
-  over its limit.
+  yet: their limits.
 - **Ledger** — the single place where all of the above is kept
   (`BudgetAllocator`, §8).
-
-The limit is set in `CampaignBudget.spending` and checked before launching
-workflows (§4).
 
 ---
 
@@ -50,12 +40,13 @@ CampaignBudget(
     spending={"cpu_hours": 1.0, "gpu_hours": 0.25},
 )
 
-# Expected cost of one workflow of this type (optional)
+# Each workflow type (both required)
 WorkflowConfig(
     name="sim",
     block=my_workflow,
-    declared_spending={"wall_hours": 0.5, "cpu_hours": 0.5, "gpu_hours": 0.05},
-    spending_limit={"cpu_hours": 1.0},  # starting limit per workflow (optional, §4)
+    spending_limit={"cpu_hours": 1.0},  # starting limit per workflow (§4); no wall_hours
+    resources={"cpus": 8, "gpus": 1},  # what one workflow holds at once
+    max_wall_time_s=3600,  # the run-time limit
     learn=True,  # False: every workflow keeps this limit (§4)
 )
 
@@ -63,18 +54,9 @@ WorkflowConfig(
 LaunchRequest.make("sim", spending_limit={"cpu_hours": 2.0})
 ```
 
-`declared_spending` has two jobs:
-
-- it is the initial **estimate**, which AuCaM holds as in-flight while the
-  workflow runs;
-- its `wall_hours` (expected run time) lets AuCaM **prorate** the cost when
-  nothing better is measured (§3, method C). `wall_hours` itself is never
-  charged.
-
-A workflow type with neither `declared_spending` nor `spending_limit` still
-runs, but AuCaM reserves nothing for it in advance and may charge it nothing. AuCaM logs a warning at start-up
-when a campaign has a spending limit and a workflow type has no
-`declared_spending`.
+A command-line workflow can leave out `resources`: AuCaM takes them from its
+`task_description` (`ranks` × `cores_per_rank` CPUs, `ranks` ×
+`gpus_per_rank` GPUs, or Dragon's `process_template(s)`).
 
 ---
 
@@ -86,8 +68,8 @@ AuCaM uses the most accurate source available for each workflow:
 |---|---|---|---|
 | **A. Per task** | AsyncFlow telemetry: resources each task requested × how long it ran | As each task finishes | `method=exact source=task_telemetry` |
 | **B. Reported** | Values the workflow reports itself | When the workflow ends | `method=exact source=wf_reported` |
-| **C. Prorated** | `declared_spending` × actual / declared run time | When the workflow ends | `method=estimated source=wall_proration` |
-| **D. None** | — | Never | `method=none source=no_declared_spending` |
+| **C. Resources × time** | The CPUs / GPUs it was given × how long it ran | When the workflow ends | `method=estimated source=resources_x_time` |
+| **D. None** | — | Never | `method=none source=not_measured` |
 
 ### A. Per task
 
@@ -129,7 +111,7 @@ what it actually used) and `hours` is how long it ran.
   task's requested resources (not yet released). Without it, or with
   telemetry off, AuCaM uses methods B–D.
 
-While the workflow runs: in-flight = estimate − charged so far (never below 0).
+While the workflow runs: in-flight = its limit − charged so far (never below 0).
 
 ### B. Reported
 
@@ -142,37 +124,31 @@ await reporter.emit(score=s, metrics={"cpu_hours": 1.2, "loss": 0.03, "step": 40
 ```
 
 Metrics that count as spending are `cpu_hours`, `gpu_hours`, and any other
-name that also appears in the workflow's `declared_spending`, its own
-`spending_limit` or the campaign's limit (e.g. `llm_tokens`). Other keys in the same `metrics`, such as `loss` or `step`
+name that also appears in the workflow's own `spending_limit` or the
+campaign's limit (e.g. `llm_tokens`). Other keys in the same `metrics`, such as `loss` or `step`
 above, are not charged; the controller still receives them as usual. When the
 workflow ends, AuCaM charges the totals from its last report.
 
-While the workflow runs: in-flight = the larger of the estimate and the latest
-reported value. It never drops below the estimate, because nothing is in
+While the workflow runs: in-flight = the larger of its limit and the latest
+reported value. It never drops below the limit, because nothing is in
 *spent* yet.
 
-### C. Prorated
+### C. Resources × time
 
-For each dimension in `declared_spending` that the workflow did not report:
+For `cpu_hours` and `gpu_hours`, when the workflow did not report them:
 
 ```
-charge = declared_spending[dim] × actual_wall_hours / declared_spending["wall_hours"]
+charge = resources["cpus"] × actual_wall_hours     (gpu_hours: resources["gpus"] × …)
 ```
 
-A workflow that finishes early is charged less than declared. One that runs
-longer is charged more, unless `WorkflowConfig.max_wall_time_s` cancels it
-first.
-
-While the workflow runs: in-flight = estimate × max(1, elapsed / declared
-wall time), so it grows once the workflow overruns.
-
-Methods B and C combine per dimension: a reported dimension uses B, the others
-use C.
+A workflow is charged for what it holds, as an HPC allocation charges a job,
+whether or not it uses all of it. Methods B and C combine per dimension: a
+reported dimension uses B, `cpu_hours` / `gpu_hours` otherwise use C.
 
 ### D. None
 
-A dimension that is neither reported nor declared (with `wall_hours`) is not
-charged.
+Any other dimension (e.g. `llm_tokens`) that the workflow does not report is
+not charged.
 
 ---
 
@@ -180,77 +156,36 @@ charged.
 
 AuCaM keeps a campaign within its spending limit at three points: before a
 workflow starts, while it runs, and as a safety net for the whole campaign.
+`wall_hours` is not a spending dimension; use `max_wall_time_s` to limit run
+time.
 
-**1. Every workflow gets a limit, and only what fits starts.** When a request
-is about to start, the scheduler gives the workflow its own spending limit
-("Sizing each workflow", below): the controller's amount for this workflow if
-it gave one, else what AuCaM has learned about the type, else the type's
-starting value — `WorkflowConfig.spending_limit` as given, or its
-`declared_spending` + 25 %. Then AuCaM checks every limited dimension:
+### Before a workflow starts
+
+When a request is about to start, the scheduling policy gives the workflow its
+own spending limit and resources: the controller's amount if it gave one,
+else its type's starting value (`spending_limit`), then its learned cost
++ 25 %, and 25 % more after a workflow of the
+type is cancelled at its limit. The full rule, and how to replace it:
+[developer guide](campaign-developer-guide.md) §8, "How much each workflow
+gets". Then AuCaM checks every limited dimension:
 
 ```
 spent + in_flight + the workflow's limit <= campaign limit   →   launch it
 ```
 
-In-flight is what running workflows are held at: their limits. A request that
-does not fit stays queued, and a cheaper one may start instead, even one of
-lower priority; CRITICAL requests are checked too. The log shows
-`[SCHEDULER-<campaign>] WAIT <type>: … stays queued` once per request.
+A request that does not fit waits while other workflows run (a cheaper one,
+even of lower priority, may start instead; CRITICAL requests are checked too),
+and is dropped once nothing else runs. AuCaM never gives a workflow less than
+its amount to make it fit. The log shows `[SCHEDULER-<campaign>] WAIT <type>:
+… stays queued` once per request.
 
-**2. Each workflow stays within its own limit.** While a workflow runs, its
-limit is held against the campaign, so the running workflows together are
-never held at more than what is left; AuCaM cancels a workflow that spends
-past its limit (below). A workflow cancelled at its limit makes the next ones
-of its type get 25 % more, until the type has learned costs. So the campaign
-goes over its limit only by what a workflow spends past its own limit before
-the next check — at most about one policy cycle (panel A).
+### While it runs
 
-**3. The campaign limit cancels running work.** A workflow with no estimate at
-all — no starting value, no `declared_spending`, and nothing learned yet — has
-no limit of its own, so steps 1 and 2 cannot account for it. Every policy
-cycle AuCaM therefore also adds up actual spending: what has been charged plus
-what each running workflow has used so far. Once that goes past the limit, it
-cancels the running workflows (gracefully, if their type has a
-`cancel_grace_s`), charges what they used, and ends the campaign with
-`spending_limit` (panel B). The log shows `[SCHEDULER-<campaign>] campaign
-spending limit exceeded by actual spending: <dim>=… > … — cancelling N running
-workflow(s)`. This is `CampaignBudget.on_limit="cancel"` (the default); with
-`"finish"`, running workflows finish and the campaign can end above its limit.
+The workflow's limit is:
 
-So a campaign ends at most about one policy cycle's spending (plus any grace
-period) above its limit; workflows that check their own limit and stop before
-passing it, as the example campaigns do, keep it within.
-
-The campaign also ends with `spending_limit` when nothing is running and
-either spent + in-flight has reached the limit (`[SCHEDULER-<campaign>]
-spending limit reached: …`) or no queued request fits what is left.
-
-![Campaign spending limit](figures/aucam_budget_burn.png)
-
-*Workflows of 2 CPUs that want 0.7–2.5 s of work, up to 3 at once, against a
-24 CPU·s limit. A: declared at 1 s, each workflow gets a limit — 2.5 CPU·s at
-first, 25 % more after each cancel at it, then its type's learned cost + 25 %
-— held against the campaign; it ends at 23.0 CPU·s. B: with no estimate the
-workflows have no limit of their own and nothing is held for them; when actual
-spending passes 24 CPU·s, AuCaM cancels the running ones (○); it ends at 24.2.
-Generated by `campaigns/hpc_campaign/figures/doc_figures.py --only budget`.*
-
-The check covers the whole campaign, not each workflow type: one expensive
-type can still use up the budget before others run, as long as each of its
-workflows fits.
-
-A campaign that is idle below its limit ends separately, after
-`CampaignSpec.idle_exit_s` (see the developer guide, "How a campaign ends").
-
-### Per-workflow limit
-
-Every workflow with an estimate gets its own spending limit when it starts
-("Sizing each workflow", below). `wall_hours` is not a spending dimension here;
-use `max_wall_time_s` to limit run time. The limit is:
-
-- **Held against the campaign.** While the workflow is running, its in-flight
-  amount is its limit, not its estimate, in every dimension the limit names:
-  the campaign reserves what the workflow may spend.
+- **Held against the campaign.** Its in-flight amount is its limit, in every
+  dimension the limit names, so the running workflows together are never held
+  at more than what is left.
 - **Passed to the workflow.** A Python workflow with a `context` parameter
   finds it in `context["spending_limit"]`; a command-line workflow gets one
   environment variable per dimension, e.g. `CM_SPENDING_LIMIT_CPU_HOURS=1.0`.
@@ -258,44 +193,20 @@ use `max_wall_time_s` to limit run time. The limit is:
 - **Enforced.** Every policy cycle, AuCaM measures each workflow's spending so
   far, with the best source available, in the same order it charges (§3):
   per-task charges (finished tasks plus the elapsed share of running ones),
-  else the running totals the workflow reports, else `declared_spending`
-  prorated by elapsed time. A dimension with none of these is not checked.
+  else the running totals the workflow reports, else the CPUs / GPUs it holds
+  × elapsed time. A dimension with none of these is not checked.
   When spending so far exceeds the limit in any dimension, AuCaM cancels the
-  workflow — gracefully if its type has a `cancel_grace_s` (developer guide,
-  "How a campaign ends") — and logs `[WORKFLOW-…] spending limit exceeded
-  <dim>=… > … — auto-cancel`. The workflow is charged what it used; its `WorkflowResult` has
+  workflow — gracefully if its type has a `cancel_grace_s` — and logs
+  `[WORKFLOW-…] spending limit exceeded <dim>=… > … — auto-cancel`. The
+  workflow is charged what it used; its `WorkflowResult` has
   `over_budget=True` and the limit in `spending_limit`;
   `CampaignOutcome.budget_cancels` counts such workflows.
 
 The check runs once per policy cycle, so a workflow can overshoot its limit by
 what it spends in one `policy_interval_s` (more if it reports rarely, plus its
-grace period if it has one). AuCaM's check is the safety net: a workflow that
-must stay within its limit should check it itself — it receives the limit —
+grace period), and the campaign its limit by as much. AuCaM's check is the
+safety net: a workflow that must stay within its limit should check it itself
 and stop before a step that would pass it, as all the example campaigns do.
-
-### Sizing each workflow
-
-How much a workflow gets is decided when it starts, by the scheduling policy's
-`size()`. Per spending dimension, the first that applies:
-
-1. the controller's amount for this workflow (`LaunchRequest.spending_limit`);
-2. the type's learned cost (§6) + 25 % (`size_margin`), once it has 3
-   successful workflows (`min_cost_samples`);
-3. after a workflow of the type was cancelled at its own limit: that limit
-   + 25 %, until learned costs take over;
-4. the type's starting value, `WorkflowConfig.spending_limit`, as given;
-5. the type's `declared_spending` + 25 % (the margin covers ordinary variation,
-   so most early workflows finish and learning can start).
-
-If the amount does not fit what is left in the campaign budget, the request
-waits while other workflows run, and is dropped once nothing else runs.
-AuCaM never gives a workflow less than this amount to make it fit. A type
-with `WorkflowConfig(..., learn=False)` keeps a fixed amount: steps 2 and 3
-are skipped. Resources (`cpus`,
-`gpus`) follow the same order, with the type's learned peak use instead of
-learned cost and no declared step; AuCaM enforces them like the spending
-limit. A campaign can replace this rule with its own (developer guide, "How
-much each workflow gets").
 
 ![Per-workflow spending limit](figures/aucam_run_limit.png)
 
@@ -304,13 +215,43 @@ its limit and sizes its work to fit; `runaway` ignores it, and AuCaM cancels
 every `runaway` workflow as it passes the limit (the tick on each bar). Generated by
 `campaigns/hpc_campaign/figures/doc_figures.py --only runlimit`.*
 
-Each example campaign shows this with a ready-made configuration:
-`campaigns/demo_campaign/run_campaign.py --overspend`,
-`campaigns/hpc_campaign/campaign_configs/campaign_overuse.yaml` and
-`campaigns/ddsim_aucam/campaign_configs/campaign_overuse.yaml`. The same for
-resources (a workflow that uses more CPUs than it was given):
-`campaigns/demo_campaign/run_campaign.py --overcpu` and
-`campaigns/hpc_campaign/campaign_configs/campaign_overuse_cpus.yaml`.
+Ready-made configurations show this: `campaigns/demo_campaign/run_campaign.py
+--overspend`, `campaigns/hpc_campaign/campaign_configs/campaign_overuse.yaml`
+and `campaigns/ddsim_aucam/campaign_configs/campaign_overuse.yaml`; for
+resources (a workflow that uses more CPUs than it was given),
+`run_campaign.py --overcpu` and `campaign_overuse_cpus.yaml`.
+
+### Safety net: the campaign limit
+
+A workflow's limit covers only the dimensions it names. If the campaign
+limits another one — e.g. `llm_tokens`, or `gpu_hours` for a type whose limit
+names only `cpu_hours` — nothing is held for it. Every policy cycle AuCaM therefore also adds up actual
+spending: what has been charged plus what each running workflow has used so
+far. Once that goes past the limit, it cancels the running workflows
+(gracefully, if their type has a `cancel_grace_s`), charges what they used,
+and ends the campaign with `spending_limit`. The log shows
+`[SCHEDULER-<campaign>] campaign spending limit exceeded by actual spending:
+<dim>=… > … — cancelling N running workflow(s)`. This is
+`CampaignBudget.on_limit="cancel"` (the default); with `"finish"`, running
+workflows finish and the campaign can end above its limit.
+
+The campaign also ends with `spending_limit` when nothing is running and
+either spent + in-flight has reached the limit (`[SCHEDULER-<campaign>]
+spending limit reached: …`) or no queued request fits what is left.
+
+![Campaign spending limit](figures/aucam_budget_burn.png)
+
+*Workflows of 2 CPUs that want 0.7–2.5 s of work, up to 3 at once, against a
+24 CPU·s limit. A: each workflow gets a limit — 2.5 CPU·s at first, 25 % more
+after each cancel at it, then its type's learned cost + 25 % — held against the
+campaign; it ends at 23.0 CPU·s. B: the workflows' limits name only GPU-hours,
+so nothing is held for CPU-hours; when actual spending passes 24 CPU·s, AuCaM
+cancels the running ones (○); it ends at 24.4.
+Generated by `campaigns/hpc_campaign/figures/doc_figures.py --only budget`.*
+
+The check covers the whole campaign, not each workflow type: one expensive
+type can still use up the budget before others run, as long as each of its
+workflows fits.
 
 ---
 
@@ -358,7 +299,7 @@ Per limited dimension in `burn`:
 | `remaining` | `max(0, limit − spent − in_flight)` |
 | `fraction_left` | `remaining / limit` |
 | `rate_per_hour` | Spending charged per hour over the last (up to 20) policy cycles; 0 in the first cycle |
-| `projected` | spent + in-flight + the estimated cost of the queued requests (each at its own limit, else the learned or declared cost) |
+| `projected` | spent + in-flight + the estimated cost of the queued requests (each at its own limit) |
 | `hours_to_limit` | `remaining / rate_per_hour`; `None` while the rate is 0 |
 
 `by_type` covers every finished workflow of each type: `completed` /
@@ -401,12 +342,12 @@ but costs twice the average earns a third of the reward instead of a half.
 
 ---
 
-## 6. Learned cost estimates
+## 6. Learned costs
 
 After 3 workflows of a type have completed (`CampaignSpec.min_cost_samples`),
-AuCaM uses their average actual cost as the estimate for new workflows of that
-type, instead of `declared_spending`, and their average peak CPUs / GPUs in use
-for its resources. Only completed workflows count, since cancelled and
+new workflows of that type get their average actual cost + 25 % as their limit,
+instead of the starting `spending_limit`, and their average peak CPUs / GPUs in
+use + 25 % as their resources. Only completed workflows count, since cancelled and
 failed ones are partial. A type with `learn=False` keeps its starting
 amount; its averages are still shown.
 

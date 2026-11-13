@@ -6,12 +6,37 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from .types import WorkflowResult
 
 if TYPE_CHECKING:
     pass
+
+
+def resources_from_task_description(td: dict[str, Any] | None) -> dict[str, float]:
+    """The CPUs / GPUs a command-line task requests, from its task_description.
+
+    RADICAL-Pilot: ``ranks`` × ``cores_per_rank`` CPUs and ``ranks`` ×
+    ``gpus_per_rank`` GPUs.  Dragon: one process per ``process_template``, or
+    the ranks of ``process_templates`` [(ranks, template), ...]; each counts
+    as ``cores_per_rank`` CPUs (default 1) and ``gpus_per_rank`` GPUs.  Empty
+    when the description states no resources.
+    """
+    td = td or {}
+    if "process_templates" in td:
+        ranks = sum(int(n) for n, _ in td["process_templates"])
+    elif "process_template" in td:
+        ranks = 1
+    elif any(k in td for k in ("ranks", "cores_per_rank", "gpus_per_rank")):
+        ranks = int(td.get("ranks", 1))
+    else:
+        return {}
+    out = {"cpus": float(ranks * float(td.get("cores_per_rank", 1)))}
+    gpus = ranks * float(td.get("gpus_per_rank", 0))
+    if gpus:
+        out["gpus"] = float(gpus)
+    return out
 
 
 @dataclass
@@ -50,15 +75,10 @@ class WorkflowConfig(BaseModel):
     name: str
     block: Callable | None = None
     launch_cmd: list[str] | None = None
-    # Expected cost for one full execution: wall_hours (expected run time, used
-    # only to prorate) plus any budget dimension (cpu_hours, gpu_hours,
-    # llm_tokens, ...).  Counts against the campaign's spending limit while the
-    # workflow runs (until learned costs replace it) and prorates actual
-    # spending when nothing better is measured.  See docs/budget.md.
-    declared_spending: dict[str, float] = {}
     # Starting spending limit for workflows of this type, per dimension (e.g.
-    # {"cpu_hours": 2.0}): used as given until AuCaM has learned the type's cost
-    # (then learned cost + size_margin).  Empty: declared_spending + size_margin.
+    # {"cpu_hours": 2.0}; required): used as given until AuCaM has learned the
+    # type's cost (then learned cost + size_margin).  It is also the estimate
+    # AuCaM holds against the campaign while a workflow runs.
     # A LaunchRequest can set an amount for one workflow.  While a workflow runs,
     # its limit is held against the campaign's spending limit; the workflow
     # receives it (context["spending_limit"] for a Python workflow,
@@ -66,15 +86,18 @@ class WorkflowConfig(BaseModel):
     # its spending so far exceeds the limit.
     spending_limit: dict[str, float] = {}
     # Starting resources each workflow of this type may use at once, e.g.
-    # {"cpus": 8, "gpus": 1}: used until AuCaM has learned the type's peak use.
+    # {"cpus": 8, "gpus": 1} (required): used until AuCaM has learned the
+    # type's peak use.  A command-line workflow can leave it out: AuCaM takes it
+    # from task_description (ranks × cores_per_rank CPUs, ranks × gpus_per_rank
+    # GPUs).  When a workflow's spending is not measured otherwise, AuCaM
+    # charges what it was given × its run time (CPU / GPU hours).
     # A LaunchRequest can set them for one workflow.  The workflow receives them
     # (context["resources"], or CM_RESOURCES_<KEY> for a command-line program)
     # and must size its tasks to them; AuCaM cancels a workflow that uses more
     # (measured from its running tasks, or reported as cpus_in_use / gpus_in_use).
     resources: dict[str, float] = {}
     # False: every workflow of this type gets the same amount — spending_limit /
-    # resources as given (declared_spending + size_margin without one) — and
-    # AuCaM does not learn or raise it.  A LaunchRequest can still set an
+    # resources as given — and AuCaM does not learn or raise it.  A LaunchRequest can still set an
     # amount for one workflow.
     learn: bool = True
     # Graceful cancel (P1): seconds this workflow gets to save its state and
@@ -108,21 +131,52 @@ class WorkflowConfig(BaseModel):
     env: dict[str, str] = {}
     # launch_cmd only: resource request of the executable task, passed to AsyncFlow
     # as its task_description (backend-specific, e.g. {"ranks": 4,
-    # "cores_per_rank": 8, "gpus_per_rank": 1}).  With telemetry enabled the
-    # task is charged requested resources × duration.
+    # "cores_per_rank": 8, "gpus_per_rank": 1}, or Dragon's process_template(s)).
+    # Also the workflow's resources when it sets none.
     task_description: dict[str, Any] = {}
     on_completion: Callable[[WorkflowResult], None] | None = None
 
     model_config = {"arbitrary_types_allowed": True}
 
-    def model_post_init(self, __context: Any) -> None:
-        if self.block is None and self.launch_cmd is None:
+    @model_validator(mode="before")
+    @classmethod
+    def _no_declared_spending(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "declared_spending" in data:
             raise ValueError(
-                f"WorkflowConfig '{self.name}': one of block or launch_cmd is required"
+                "declared_spending was removed: set spending_limit (the starting "
+                "limit per workflow) and resources; AuCaM charges unmeasured "
+                "workflows resources × run time.  See the developer guide, "
+                "'Changes from earlier versions'."
             )
+        return data
+
+    def model_post_init(self, __context: Any) -> None:
+        name = f"WorkflowConfig '{self.name}'"
+        if self.block is None and self.launch_cmd is None:
+            raise ValueError(f"{name}: one of block or launch_cmd is required")
         if self.block is not None and self.launch_cmd is not None:
+            raise ValueError(f"{name}: block and launch_cmd are mutually exclusive")
+        if not self.spending_limit:
             raise ValueError(
-                f"WorkflowConfig '{self.name}': block and launch_cmd are mutually exclusive"
+                f"{name}: spending_limit is required, e.g. spending_limit="
+                '{"cpu_hours": 2.0} (the starting limit per workflow)'
+            )
+        if "wall_hours" in self.spending_limit:
+            raise ValueError(f"{name}: spending_limit has no wall_hours; use max_wall_time_s")
+        derived = resources_from_task_description(self.task_description)
+        if derived and self.resources:
+            for key in ("cpus", "gpus"):
+                if float(self.resources.get(key, 0)) != derived.get(key, 0.0):
+                    raise ValueError(
+                        f"{name}: resources {self.resources} disagree with task_description "
+                        f"({derived}); set only task_description"
+                    )
+        if not self.resources:
+            self.resources = derived
+        if not any(float(self.resources.get(k, 0) or 0) > 0 for k in ("cpus", "gpus")):
+            raise ValueError(
+                f"{name}: resources is required, e.g. resources="
+                '{"cpus": 4} (a command-line workflow can give a task_description instead)'
             )
 
     @field_validator("max_running")
@@ -208,8 +262,8 @@ class CampaignSpec(BaseModel):
     age_threshold_s: float = 300.0
     shutdown_timeout_s: float = 120.0
     # Finished successful workflows of a type needed before AuCaM uses their
-    # mean spending (learned cost) and peak resource use instead of the
-    # declared amounts or a range's maximum (B3).
+    # mean spending (learned cost) and peak resource use instead of the type's
+    # starting values (B3).
     min_cost_samples: int = 3
     # Default WorkflowConfig.cancel_grace_s for workflow types that set none
     # (P1).  0: cancel at once.

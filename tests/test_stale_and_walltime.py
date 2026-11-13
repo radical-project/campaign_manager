@@ -140,12 +140,16 @@ async def _run_stale() -> None:
         controller=ctrl2,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="good_worker",
                 block=good_worker,
                 launch_on_start=True,
                 on_completion=_on_good2,
             ),
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="stale_worker",
                 block=stale_worker,
                 launch_on_start=True,
@@ -180,12 +184,16 @@ async def _run_walltime() -> None:
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="fast_worker",
                 block=fast_worker,
                 launch_on_start=True,
                 on_completion=_on_fast,
             ),
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="walltime_worker",
                 block=walltime_worker,
                 launch_on_start=True,
@@ -219,18 +227,24 @@ async def _run_both() -> None:
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="fast_worker",
                 block=fast_worker,
                 launch_on_start=True,
                 on_completion=_on_fast,
             ),
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="stale_worker",
                 block=stale_worker,
                 launch_on_start=True,
                 stale_timeout_s=0.3,
             ),
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="walltime_worker",
                 block=walltime_worker,
                 launch_on_start=True,

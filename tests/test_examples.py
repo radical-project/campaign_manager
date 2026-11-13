@@ -56,7 +56,7 @@ def test_demo_campaign(monkeypatch, flags, check):
     )
     spec = mod.build_spec("demo", **{"goal_analyses": 4, **flags})
     outcome = asyncio.run(asyncio.wait_for(CampaignManager().run(spec), timeout=120))
-    assert outcome.exit_reason == "controller_terminate"
+    assert outcome.exit_reason == "goals_satisfied"
     assert check(outcome), outcome
 
 
@@ -70,7 +70,7 @@ def test_demo_learns_how_much_each_sim_gets(monkeypatch, caplog):
     )
     with caplog.at_level("INFO"):
         outcome = asyncio.run(asyncio.wait_for(CampaignManager().run(spec), timeout=120))
-    assert outcome.exit_reason == "controller_terminate"
+    assert outcome.exit_reason == "goals_satisfied"
     tried = {
         line.split("×")[1].split()[0] for line in caplog.text.splitlines() if "[LEARN]" in line
     }
@@ -94,7 +94,7 @@ def _hpc(config: str) -> dict[str, int]:
 
 def test_hpc_campaign_runs():
     r = _hpc("campaign.yaml")
-    assert r["exit"] == "controller_terminate" and r["resources"] == 0
+    assert r["exit"] == "goals_satisfied" and r["resources"] == 0
 
 
 def test_hpc_campaign_overspending_workflows_are_cancelled():

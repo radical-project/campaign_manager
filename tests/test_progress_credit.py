@@ -86,8 +86,19 @@ def test_analysis_progress_is_credited_to_the_sim_that_led_to_it(tmp_path: Path)
     recs = _run(
         ctl,
         [
-            WorkflowConfig(name="sim", block=make()),
-            WorkflowConfig(name="analysis", block=make(), launch_on_start=False),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="sim",
+                block=make(),
+            ),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="analysis",
+                block=make(),
+                launch_on_start=False,
+            ),
         ],
         tmp_path,
     )
@@ -106,9 +117,18 @@ def test_failed_analysis_gives_no_credit_and_pending_while_it_runs():
     _run(
         ctl,
         [
-            WorkflowConfig(name="sim", block=make()),
             WorkflowConfig(
-                name="analysis", block=make(fail=True, sleep=0.1), launch_on_start=False
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="sim",
+                block=make(),
+            ),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="analysis",
+                block=make(fail=True, sleep=0.1),
+                launch_on_start=False,
             ),
         ],
     )
@@ -128,8 +148,19 @@ def test_controller_progress_adds_to_the_credit():
         for r in _run(
             ctl,
             [
-                WorkflowConfig(name="sim", block=make()),
-                WorkflowConfig(name="analysis", block=make(), launch_on_start=False),
+                WorkflowConfig(
+                    spending_limit={"cpu_hours": 1000.0},
+                    resources={"cpus": 1},
+                    name="sim",
+                    block=make(),
+                ),
+                WorkflowConfig(
+                    spending_limit={"cpu_hours": 1000.0},
+                    resources={"cpus": 1},
+                    name="analysis",
+                    block=make(),
+                    launch_on_start=False,
+                ),
             ],
         ).values()
     }
@@ -150,8 +181,19 @@ def test_controller_launch_with_source_gets_credit_before_its_source_finishes():
     recs = _run(
         ctl,
         [
-            WorkflowConfig(name="sim", block=make(sleep=0.2)),
-            WorkflowConfig(name="analysis", block=make(), launch_on_start=False),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="sim",
+                block=make(sleep=0.2),
+            ),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="analysis",
+                block=make(),
+                launch_on_start=False,
+            ),
         ],
     )
     sim = next(r for r in recs.values() if r["workflow_type"] == "sim")

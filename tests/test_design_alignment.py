@@ -66,7 +66,11 @@ def test_signal_shuts_campaign_down_gracefully(tmp_path) -> None:
     spec = _spec(
         "sig",
         CampaignController(),
-        [WorkflowConfig(name="s", block=sleeper)],
+        [
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1.0}, resources={"cpus": 1}, name="s", block=sleeper
+            )
+        ],
         checkpoint_dir=str(tmp_path),
     )
     cm = CampaignManager()
@@ -128,7 +132,15 @@ def test_per_type_cap_enforced(priority) -> None:
     spec = _spec(
         "cap",
         Burst(priority),
-        [WorkflowConfig(name="c", block=counted, launch_on_start=False)],
+        [
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="c",
+                block=counted,
+                launch_on_start=False,
+            )
+        ],
         budget=CampaignBudget(
             capacity=CAPACITY, max_concurrent_workflows=4, max_concurrency_per_workflow=1
         ),
@@ -171,7 +183,16 @@ def test_restore_does_not_duplicate_initial_requests(tmp_path) -> None:
         )
     )
     ctl = StopWhenIdle()
-    spec = _spec("rst", ctl, [WorkflowConfig(name="q", block=quick)], checkpoint_dir=str(tmp_path))
+    spec = _spec(
+        "rst",
+        ctl,
+        [
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0}, resources={"cpus": 1}, name="q", block=quick
+            )
+        ],
+        checkpoint_dir=str(tmp_path),
+    )
     cm = CampaignManager()
     asyncio.run(asyncio.wait_for(cm.run(spec), timeout=30.0))
     assert ctl.completed == {"q": 1}
@@ -192,7 +213,15 @@ class GoalCtl(CampaignController):
 
 def test_goal_reached_when_goals_satisfied() -> None:
     cm = CampaignManager()
-    spec = _spec("goal", GoalCtl(), [WorkflowConfig(name="s", block=sleeper)])
+    spec = _spec(
+        "goal",
+        GoalCtl(),
+        [
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1.0}, resources={"cpus": 1}, name="s", block=sleeper
+            )
+        ],
+    )
     outcome = asyncio.run(asyncio.wait_for(cm.run(spec), timeout=30.0))
     assert outcome.goal_reached is True
     assert outcome.exit_reason == "goals_satisfied"
@@ -216,7 +245,11 @@ def test_budget_observation_is_campaign_ledger() -> None:
     spec = _spec(
         "b",
         spy,
-        [WorkflowConfig(name="s", block=sleeper)],
+        [
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1.0}, resources={"cpus": 1}, name="s", block=sleeper
+            )
+        ],
         budget=CampaignBudget(
             capacity=CAPACITY,
             max_concurrent_workflows=1,
@@ -263,7 +296,14 @@ def test_final_report_read_for_remote_backend() -> None:
     spec = _spec(
         "fin",
         ctl,
-        [WorkflowConfig(name="e", block=emit_and_exit)],
+        [
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="e",
+                block=emit_and_exit,
+            )
+        ],
         data_backend=RemoteLikeBackend(),
         policy_interval_s=30.0,
     )
@@ -306,7 +346,18 @@ def test_run_returns_outcome_and_runs_again() -> None:
     cm = CampaignManager()
 
     async def main() -> None:
-        spec = _spec("r1", CampaignController(), [WorkflowConfig(name="s", block=sleeper)])
+        spec = _spec(
+            "r1",
+            CampaignController(),
+            [
+                WorkflowConfig(
+                    spending_limit={"cpu_hours": 1000.0},
+                    resources={"cpus": 1},
+                    name="s",
+                    block=sleeper,
+                )
+            ],
+        )
         task = asyncio.ensure_future(cm.run(spec))
         await asyncio.sleep(0.3)
         with pytest.raises(RuntimeError, match="one campaign at a time"):
@@ -318,7 +369,21 @@ def test_run_returns_outcome_and_runs_again() -> None:
         ctl = CampaignController()
         ctl.decide = lambda obs: PolicyResult(terminate=True)
         second = await asyncio.wait_for(
-            cm.run(_spec("r2", ctl, [WorkflowConfig(name="s", block=sleeper)])), timeout=20.0
+            cm.run(
+                _spec(
+                    "r2",
+                    ctl,
+                    [
+                        WorkflowConfig(
+                            spending_limit={"cpu_hours": 1000.0},
+                            resources={"cpus": 1},
+                            name="s",
+                            block=sleeper,
+                        )
+                    ],
+                )
+            ),
+            timeout=20.0,
         )
         assert second.campaign_name == "r2"
         assert second.exit_reason == "controller_terminate"
@@ -333,7 +398,9 @@ def test_removed_manager_settings() -> None:
     for kw in ("slurm_account", "qos", "telemetry_interval_s", "global_budget"):
         with pytest.raises(TypeError):
             CampaignManager(**{kw: "x"})
-    wfc = WorkflowConfig(name="w", block=sleeper)
+    wfc = WorkflowConfig(
+        spending_limit={"cpu_hours": 1000.0}, resources={"cpus": 1}, name="w", block=sleeper
+    )
     assert not hasattr(wfc, "metrics_cls") and not hasattr(wfc, "score_directions")
 
 
@@ -354,7 +421,14 @@ def test_policy_instance_reused_across_runs() -> None:
         spec = _spec(
             name,
             CampaignController(launch=["q"], goal_type="q", goal_n=2),
-            [WorkflowConfig(name="q", block=quick)],
+            [
+                WorkflowConfig(
+                    spending_limit={"cpu_hours": 1000.0},
+                    resources={"cpus": 1},
+                    name="q",
+                    block=quick,
+                )
+            ],
             scheduling_policy=shared,
         )
         asyncio.run(asyncio.wait_for(cm.run(spec), timeout=30.0))

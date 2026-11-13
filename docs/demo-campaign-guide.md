@@ -114,19 +114,17 @@ WorkflowConfig(
     name="fast_sim",
     block=fast_sim,
     cancel_grace_s=2.0,  # it stops on CANCEL; AuCaM waits up to 2 s
-    # Expected cost of one workflow and its wall time. AuCaM charges it, prorated
-    # by actual wall time, only if the workflow reports no spending.
-    declared_spending={"wall_hours": 6 * STEP_S / H, "cpu_hours": 6 * FAST_STEP_CPU_H},
     # Starting limit: 9 steps (1.5x expected). Once 3 fast_sims have finished,
     # each new one gets their average spending + 25 %.
     spending_limit={"cpu_hours": 9 * FAST_STEP_CPU_H},
-    resources={"cpus": 1},  # CPUs it may use at once
+    # CPUs it may use at once.  A workflow that reported no spending would be
+    # charged these × its run time; the sims report their own.
+    resources={"cpus": 1},
 )
 ```
 
-`precise_sim` sets no `spending_limit`, so its first workflows get its
-`declared_spending` + 25 % (0.00375 CPU-hours). A controller can give one
-workflow a different amount:
+`precise_sim` starts at 12.5 steps (0.00375 CPU-hours, 1.25× expected), with
+2 CPUs. A controller can give one workflow a different amount:
 `LaunchRequest.make("precise_sim", spending_limit={"cpu_hours": 0.006})`.
 
 With `--policy learn`, `AllocationLearner` (`scheduler.py`) overrides the

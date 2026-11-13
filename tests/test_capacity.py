@@ -72,7 +72,13 @@ def _run(ctl, capacity, wfc):
 
 def test_workflows_start_only_within_capacity():
     ctl = Fill([LaunchRequest.make("w") for _ in range(6)])
-    wfc = WorkflowConfig(name="w", block=work, launch_on_start=False, resources={"cpus": 2})
+    wfc = WorkflowConfig(
+        spending_limit={"cpu_hours": 1000.0},
+        name="w",
+        block=work,
+        launch_on_start=False,
+        resources={"cpus": 2},
+    )
     _run(ctl, {"cpus": 4}, wfc)
     assert len(ctl.results) == 6  # all ran, two at a time
     assert ctl.peak_cpus == 4
@@ -81,13 +87,25 @@ def test_workflows_start_only_within_capacity():
 
 def test_more_than_the_whole_capacity_is_dropped():
     ctl = Fill([LaunchRequest.make("w", resources={"cpus": 8})])
-    wfc = WorkflowConfig(name="w", block=work, launch_on_start=False)
+    wfc = WorkflowConfig(
+        spending_limit={"cpu_hours": 1000.0},
+        resources={"cpus": 1},
+        name="w",
+        block=work,
+        launch_on_start=False,
+    )
     out = _run(ctl, {"cpus": 4}, wfc)
     assert ctl.results == [] and out.unfit_dropped == 1
 
 
 def test_gpus_not_in_capacity_count_as_zero():
     ctl = Fill([LaunchRequest.make("w", resources={"gpus": 1})])
-    wfc = WorkflowConfig(name="w", block=work, launch_on_start=False)
+    wfc = WorkflowConfig(
+        spending_limit={"cpu_hours": 1000.0},
+        resources={"cpus": 1},
+        name="w",
+        block=work,
+        launch_on_start=False,
+    )
     out = _run(ctl, {"cpus": 4}, wfc)
     assert ctl.results == [] and out.unfit_dropped == 1

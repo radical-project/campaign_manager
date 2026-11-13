@@ -1,7 +1,7 @@
 # Code walkthrough
 
 A map of the code for contributors: what each module holds and the main paths
-through it. Concepts and design decisions are in the [architecture overview](architecture-overview.md),
+through it. Concepts, components and the reasons behind them are in the [architecture overview](architecture-overview.md),
 planned work in [known gaps](known-gaps.md), and budget internals in
 [budgets and spending](budget.md) §8–9.
 
@@ -63,8 +63,9 @@ run()
   reporter, wall time, per-workflow limits)
   → apply decisions (CANCEL / PAUSE / RESUME, `cancel_queued`, new requests,
   goal changes) → `_start_refresh()` (the policy's `refresh()` in the
-  background; model usage via `_collect_usage()`) → write checkpoint → end if `terminate` (`controller_terminate`)
-  or all goals met (`goals_satisfied`).
+  background; model usage via `_collect_usage()`) → write checkpoint → end if `terminate` (`goals_satisfied` if
+  the controller's `is_goal_reached()`, else `controller_terminate`) or all goals
+  met (`goals_satisfied`).
 - **`_scheduler_loop()`** calls `_drain_queue()` whenever a slot frees up or a
   request arrives (at least every 2 s): stop if the spending limit is reached;
   otherwise launch CRITICAL requests, then the requests the `SchedulingPolicy`

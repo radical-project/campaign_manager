@@ -10,7 +10,7 @@ the workflow-count limits (``CampaignBudget.max_concurrent_workflows`` etc.).
 The ledger keeps, for the campaign:
   limits    — the campaign's spending limit (``CampaignBudget.spending``)
   spent     — actual spending of finished workflows
-  in_flight — estimated spending of running workflows (their declared_spending),
+  in_flight — what running workflows are held at (their spending limits),
               replaced by the actual amount when the workflow finishes
 
 The "limit reached" check, the controller's budget observation and the

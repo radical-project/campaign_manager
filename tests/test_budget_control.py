@@ -7,7 +7,7 @@ Budget-control integration test — three tiers of workflow cancellation.
 
 Workers
 -------
-  good_worker  2 GPU  5×0.05 s  score=0.9   completes normally; relaunched
+  good_worker  4 GPU  5×0.05 s  score=0.9   completes normally; relaunched
   bad_worker   2 GPU  infinite  score=0.1   killed by score threshold
   hog_worker   8 GPU  infinite  score=0.8   killed by per-wf GPU-hours limit
 
@@ -231,20 +231,24 @@ def test_three_tier_budget_control() -> None:
             WorkflowConfig(
                 name="good_worker",
                 block=good_worker,
-                declared_spending={"wall_hours": 0.1 / 3600, "gpu_hours": 0.4 / 3600},
+                spending_limit={"gpu_hours": 3e-4},
+                resources={"cpus": 1, "gpus": 4},
                 launch_on_start=False,
                 on_completion=_on_good_complete,
             ),
             WorkflowConfig(
                 name="bad_worker",
                 block=bad_worker,
-                declared_spending={"wall_hours": 0.1 / 3600, "gpu_hours": 0.2 / 3600},
+                spending_limit={"gpu_hours": 3e-4},
+                resources={"cpus": 1, "gpus": 2},
                 launch_on_start=False,
             ),
             WorkflowConfig(
                 name="hog_worker",
                 block=hog_worker,
-                declared_spending={"wall_hours": 0.1 / 3600, "gpu_hours": 0.8 / 3600},
+                # Above PER_WF_GPU_LIMIT, so the controller (tier 2) acts first.
+                spending_limit={"gpu_hours": 3.5e-4},
+                resources={"cpus": 1, "gpus": 8},
                 launch_on_start=False,
             ),
         ],

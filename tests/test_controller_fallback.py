@@ -55,7 +55,14 @@ def _run(ctl, decide_timeout_s=None):
             capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
         ),
         controller=ctl,
-        workflows=[WorkflowConfig(name="quick", block=quick)],
+        workflows=[
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="quick",
+                block=quick,
+            )
+        ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
         decide_timeout_s=decide_timeout_s,

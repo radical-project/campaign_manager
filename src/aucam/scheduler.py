@@ -98,8 +98,6 @@ class SizingContext:
                    this workflow); None: treat ``proposal`` as requested.
     start        — the type's starting values (WorkflowConfig.spending_limit /
                    resources), used until it has learned values.
-    declared     — the type's declared_spending (no wall_hours); starting value
-                   × (1 + size_margin) where the type gives none.
     raised       — spending / resources raised after a workflow of this type was
                    cancelled at its own limit, until learned values take over.
     allocations  — the allocation history: one AllocationRecord per finished
@@ -118,7 +116,6 @@ class SizingContext:
     by_type: dict[str, dict] = field(default_factory=dict)
     requested: Allocation | None = None
     start: Allocation | None = None
-    declared: dict[str, float] = field(default_factory=dict)
     raised: dict[str, float] = field(default_factory=dict)
     raised_resources: dict[str, float] = field(default_factory=dict)
     # Every finished workflow so far, oldest first (AllocationRecord): what it
@@ -206,7 +203,7 @@ class SchedulingPolicy:
         return {}
 
     # Sizing settings, used by the default size(); set them on an instance.
-    size_margin: float = 0.25  # learned cost (and declared) × (1 + margin)
+    size_margin: float = 0.25  # learned amounts and raises × (1 + margin)
 
     def value(self, workflow_type: str, ctx: SizingContext) -> float:
         """How much budget to give this type relative to its learned cost (default 1.0).
@@ -228,10 +225,8 @@ class SchedulingPolicy:
              enough finished workflows (min_cost_samples);
           3. the raised amount, after a workflow of the type was cancelled at
              its own limit (that limit × (1 + size_margin));
-          4. the type's starting value (WorkflowConfig.spending_limit) — as given;
-          5. the type's declared_spending × (1 + size_margin).
-        Resources follow the same order with learned peak use (rounded up) and
-        no declared step.  Returns None if the spending does not fit what is
+          4. the type's starting value (WorkflowConfig.spending_limit) — as given.
+        Resources follow the same order with learned peak use (rounded up).  Returns None if the spending does not fit what is
         left in the campaign budget: the request waits while other workflows
         run, and is dropped once nothing else runs.
         """
@@ -245,7 +240,6 @@ class SchedulingPolicy:
             | set(ctx.learned_cost)
             | set(ctx.raised)
             | set(start.spending_limit)
-            | set(ctx.declared)
         ) - {"wall_hours"}
         for key in s_keys:
             if key in requested.spending_limit:
@@ -254,10 +248,8 @@ class SchedulingPolicy:
                 value = ctx.learned_cost[key] * margin * self.value(request.workflow_type, ctx)
             elif key in ctx.raised:
                 value = ctx.raised[key]
-            elif key in start.spending_limit:
-                value = start.spending_limit[key]
             else:
-                value = ctx.declared[key] * margin
+                value = start.spending_limit[key]
             spend[key] = float(value)
 
         res: dict[str, float] = {}

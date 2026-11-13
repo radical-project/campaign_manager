@@ -60,7 +60,14 @@ def _spec(policy=None, controller=None, spending=None, decide_timeout_s=None, n=
             spending=spending or {},
         ),
         controller=controller or CampaignController(launch=["quick"], goal_type="quick", goal_n=n),
-        workflows=[WorkflowConfig(name="quick", block=quick)],
+        workflows=[
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="quick",
+                block=quick,
+            )
+        ],
         scheduling_policy=policy,
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
@@ -139,7 +146,7 @@ def test_decide_async_is_awaited(caplog):
     ctl = AsyncCtl()
     with caplog.at_level(logging.INFO, logger="src.aucam"):
         out = _run(_spec(controller=ctl))
-    assert out.goal_reached and out.exit_reason == "controller_terminate"
+    assert out.goal_reached and out.exit_reason == "goals_satisfied"
     assert ctl.calls > 0
     assert "decide=controller" in caplog.text
     assert out.controller_errors == 0

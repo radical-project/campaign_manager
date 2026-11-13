@@ -81,6 +81,8 @@ def _asyncflow_reports_exit_code() -> bool:
 def test_exit_code_reaches_workflow_result() -> None:
     wfs = [
         WorkflowConfig(
+            spending_limit={"cpu_hours": 1000.0},
+            resources={"cpus": 1},
             name=f"exit{c}",
             launch_on_start=False,
             launch_cmd=[sys.executable, "-c", f"import sys; sys.exit({c})"],
@@ -101,6 +103,8 @@ def test_program_environment(tmp_path) -> None:
         "json.dump({k: os.environ.get(k) for k in keys}, open(sys.argv[1], 'w'))"
     )
     wf = WorkflowConfig(
+        spending_limit={"cpu_hours": 1000.0},
+        resources={"cpus": 1},
         name="envprog",
         launch_on_start=False,
         env={"MY_VAR": "x y 'z'"},

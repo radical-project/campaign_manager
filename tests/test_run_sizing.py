@@ -101,7 +101,13 @@ def test_python_workflow_receives_its_resources() -> None:
     async def reads(context: dict) -> None:
         seen.append(context.get("resources"))
 
-    wf = WorkflowConfig(name="reads", block=reads, launch_on_start=False, resources={"cpus": 8})
+    wf = WorkflowConfig(
+        spending_limit={"cpu_hours": 1000.0},
+        name="reads",
+        block=reads,
+        launch_on_start=False,
+        resources={"cpus": 8},
+    )
     ctl, _ = _run([wf], [LaunchRequest.make("reads", resources={"cpus": 4, "gpus": 1})])
     assert seen == [{"cpus": 4.0, "gpus": 1.0}]
     assert ctl.results[0].resources == {"cpus": 4.0, "gpus": 1.0}
@@ -115,6 +121,7 @@ def test_command_line_workflow_receives_its_resources(tmp_path) -> None:
         "open(sys.argv[1], 'w'))"
     )
     wf = WorkflowConfig(
+        spending_limit={"cpu_hours": 1000.0},
         name="prog",
         launch_on_start=False,
         launch_cmd=[sys.executable, "-c", script, str(out)],
@@ -131,7 +138,13 @@ def test_run_using_more_resources_is_cancelled() -> None:
             await asyncio.sleep(0.05)
             await reporter.emit(score=1.0, iteration=step, metrics={"cpus_in_use": 12})
 
-    wf = WorkflowConfig(name="greedy", block=greedy, launch_on_start=False, resources={"cpus": 8})
+    wf = WorkflowConfig(
+        spending_limit={"cpu_hours": 1000.0},
+        name="greedy",
+        block=greedy,
+        launch_on_start=False,
+        resources={"cpus": 8},
+    )
     ctl, out = _run([wf], [LaunchRequest.make("greedy")])
     (r,) = ctl.results
     assert r.returncode == -1 and r.over_resources and not r.over_budget
@@ -142,7 +155,13 @@ def test_request_that_does_not_fit_is_dropped() -> None:
     async def quick() -> None:
         await asyncio.sleep(0.05)
 
-    wf = WorkflowConfig(name="quick", block=quick, launch_on_start=False)
+    wf = WorkflowConfig(
+        spending_limit={"cpu_hours": 1000.0},
+        resources={"cpus": 1},
+        name="quick",
+        block=quick,
+        launch_on_start=False,
+    )
     ctl, out = _run(
         [wf],
         [LaunchRequest.make("quick", spending_limit={"cpu_hours": 2.0})],

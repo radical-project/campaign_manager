@@ -33,8 +33,9 @@ def _spec(name: str, limit_cpu_h: float) -> CampaignSpec:
             WorkflowConfig(
                 name="job",
                 block=quick_job,
-                # declared 1 cpu_hour per hour of wall time → ~1.4e-5 per 0.05 s run
-                declared_spending={"wall_hours": 1.0, "cpu_hours": 1.0},
+                # 1 CPU, reporting nothing: charged 1 CPU × run time (~1.4e-5 per 0.05 s)
+                spending_limit={"cpu_hours": 1.0},
+                resources={"cpus": 1},
             )
         ],
         policy_interval_s=0.05,
@@ -45,5 +46,5 @@ def _spec(name: str, limit_cpu_h: float) -> CampaignSpec:
 def test_spending_is_charged_and_returned_in_outcome() -> None:
     out = asyncio.run(asyncio.wait_for(CampaignManager().run(_spec("a", 6.0)), timeout=30.0))
     assert out.goal_reached
-    assert out.exit_reason == "controller_terminate"
+    assert out.exit_reason == "goals_satisfied"
     assert 0.0 < out.spent.get("cpu_hours", 0.0) < 1e-3

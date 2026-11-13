@@ -58,7 +58,15 @@ def test_python_workflow_gets_context_argument_not_env() -> None:
             capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=2
         ),
         controller=TwoLaunches(),
-        workflows=[WorkflowConfig(name="w", block=ctx_worker, launch_on_start=False)],
+        workflows=[
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="w",
+                block=ctx_worker,
+                launch_on_start=False,
+            )
+        ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
     )
@@ -85,7 +93,11 @@ def test_reporter_injected_by_name_in_any_position() -> None:
             capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
         ),
         controller=CampaignController(goal_type="w", goal_n=1),
-        workflows=[WorkflowConfig(name="w", block=wf)],
+        workflows=[
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0}, resources={"cpus": 1}, name="w", block=wf
+            )
+        ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
     )

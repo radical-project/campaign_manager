@@ -181,7 +181,13 @@ def test_shell_workflow_reports_through_cli(redis_endpoint) -> None:
         ),
         controller=ctl,
         workflows=[
-            WorkflowConfig(name="sh", launch_on_start=False, launch_cmd=["bash", "-c", script])
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="sh",
+                launch_on_start=False,
+                launch_cmd=["bash", "-c", script],
+            )
         ],
         data_backend=RhapsodyRedisBackend(redis_endpoint),
         policy_interval_s=0.05,

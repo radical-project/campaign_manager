@@ -41,40 +41,42 @@ its tasks, and what those tasks cost is charged to the workflow.
 
 ![AuCaM architecture](figures/aucam-architecture.png)
 
-AuCaM runs one campaign at a time:
+- **Campaign Manager** — sets up execution, runs one campaign and returns
+  its outcome:
 
-```python
-cm = CampaignManager()
-outcome = await cm.run(spec)  # returns when the campaign ends
-```
+  ```python
+  cm = CampaignManager()
+  outcome = await cm.run(spec)  # returns when the campaign ends
+  ```
 
-- **Campaign Manager** — sets up execution, runs the campaign and returns its
-  outcome. The caller can then call `run()` again with the next spec.
-- **Budget ledger** (`BudgetAllocator`) — the campaign's limits, actual
-  spending and what its running workflows are held at (their own limits).
-  Used to launch only what fits the spending limit.
-- **Data backend** — the channel through which workflows report to AuCaM (a
-  score and metrics). An in-process store for local runs; Redis or Dragon for
-  multi-node runs.
-- **Execution** — an AsyncFlow engine on a RHAPSODY backend; AuCaM launches
-  and cancels workflows through it.
+  A second `run()` while one is running raises an error. *Why:* the caller
+  decides what to run next from each outcome; a scheduling policy passed to
+  several specs keeps what it learned.
+- **Controller** — the campaign's decision logic: which workflows to launch
+  and cancel, and when the campaign ends. Built in, with no code:
+  - **Launch** (`LaunchRule`) — keeps a request of each type in its `launch`
+    list queued, so new workflows start as slots free up.
+  - **Cancel** (`CancelRule`, `CostCancelRule`) — cancels a workflow whose
+    latest report meets a condition, such as a score below a threshold, or
+    that keeps spending without improving.
+  - **Goal** — ends the campaign after N successful workflows of a type
+    (`goal_type`, `goal_n`), or when all its goals (target values of metrics)
+    are met.
+  - **ADR** (`ADRController`) — an ADR policy makes these decisions instead.
+  - **Fallback** — if custom or ADR decision logic fails or is too slow
+    (`decide_timeout_s`), the built-in rules decide that cycle.
 
-Each of the following works out of the box; a campaign can replace the
-controller or the scheduling policy with its own.
-
-- **Controller** — the campaign's decision logic. Out of the box it keeps
-  launching new workflows of the types in its `launch` list (set in the
-  campaign spec), up to the campaign's concurrency limits (`LaunchRule`);
-  cancels workflows whose latest report meets a condition, such as a score below a
-  threshold (`CancelRule`); and ends the campaign after N successful workflows or
-  when its goals are met — no code needed. A subclass can extend or replace
-  this with any logic, including an LLM or ADR.
+  A campaign can extend or replace this with its own logic, including one
+  that calls an LLM. AuCaM itself cancels a workflow only when it stops
+  reporting, runs past its wall-time limit, or goes past its own limits.
+  *Why:* what counts as a poor result depends on the science.
 - **Queue** — waiting launch requests, ordered by priority (CRITICAL, HIGH,
   NORMAL, LOW) and arrival; NORMAL requests that wait too long become HIGH.
 - **Scheduler** — starts a queued request when there is a free slot: the
   workflow-count limits, the free CPUs / GPUs and the remaining budget all
-  allow it. CRITICAL requests go first; a scheduling policy picks among the rest and decides how
-  much each workflow gets. Built in:
+  allow it. CRITICAL requests go first; a scheduling policy picks among the
+  rest and decides how much each workflow gets (see "Budgets and resources").
+  Built in:
   - **Bandit** (default) — a UCB1 (Upper Confidence Bound) bandit over
     workflow types: it balances *exploring* (trying types it knows little
     about) with *exploiting* (launching the types that complete most often),
@@ -83,56 +85,85 @@ controller or the scheduling policy with its own.
   - **LLM** and **ADR** — a language model or an ADR policy ranks the
     workflow types; AuCaM asks it in the background, so launches never wait
     for it, and uses the bandit until it answers.
-  - **Sizing**, for every policy — each workflow gets a spending limit and
-    CPUs / GPUs when it starts: its type's starting value at first, then
-    what earlier workflows of the type used + 25 %.
+  - **Load-aware launching** — with telemetry, how many workflows may run
+    follows the allocation: fewer when tasks back up in the backend, more
+    while the nodes have room, up to `max_concurrent_workflows`.
 
-  A campaign can replace the policy, or just its sizing, with its own.
+  A campaign can replace the policy, or just its sizing, with its own. AuCaM
+  chooses which workflows start; each running workflow's tasks go straight to
+  Dragon / RHAPSODY, which places them. *Why:* work handed to the backend
+  runs in the backend's order and AuCaM can only cancel it; work held in
+  AuCaM's queue can still be re-ranked, re-sized or dropped.
+- **Budget ledger** (`BudgetAllocator`) — the campaign's limits, what it has
+  spent, and what its running workflows are held at.
+- **Data backend** — the channel through which workflows report to AuCaM (a
+  score and metrics). An in-process store for local runs; Redis or Dragon for
+  multi-node runs.
+- **Execution** — an AsyncFlow engine on a RHAPSODY backend; AuCaM launches
+  and cancels workflows through it.
 
-**What a campaign gets without writing any code**, compared with launching
-workflows by hand:
+**Also built in:**
 
-- poor workflows are cancelled early (`CancelRule`), and so are workflows
-  that stop reporting or overrun their wall time;
-- the bandit shifts launches toward workflow types that complete;
-- AuCaM records what each workflow costs (CPU-hours, GPU-hours or another unit
-  such as LLM tokens), based on the resources its tasks requested and how long
-  they ran, or on what the workflow reports; it gives each workflow its own
-  spending limit and CPUs / GPUs when it starts, learned from earlier workflows
-  of its type, and launches it only if they fit what is left of the campaign's
-  spending limit and capacity;
-- a workflow type can wait for another to succeed (dependencies);
-- state is checkpointed, and a restarted campaign continues: it adopts command-line
-  workflows that are still running and charges the work lost with the others;
-- the outcome — counts, spending, the controller's summary — goes back to the
-  caller, which can analyse it and plan the next campaign (for example, drop
-  workflow types that never succeeded, or adjust parameters and limits).
+- **Dependencies** — a workflow type can wait for another to succeed.
+- **Checkpoint and restart** — a restarted campaign continues where it
+  stopped: it adopts command-line workflows that are still running and
+  charges the work lost with the others.
+- **The outcome** — counts, spending, whether the goal was reached and the
+  controller's summary go back to the caller, which can plan the next
+  campaign (for example, drop workflow types that never succeeded, or adjust
+  parameters and limits).
 
 The [capability demo](cm-advantages.md) shows cancellation, the bandit and
 accounting on one campaign.
 
 ---
 
-## Example: one policy cycle with the out-of-the-box controller (no code needed)
+## Example: one policy cycle
 
-1. Three of the campaign's simulations are running. A policy cycle starts,
-   either because the policy interval has passed since the last cycle, or
-   because one of the campaign's workflows has just finished (a finished
-   workflow triggers a cycle right away).
-2. AuCaM collects each running simulation's latest report, telemetry (including
-   how many of the campaign's tasks are still waiting to start and how many are
-   running), the queue and the campaign's budget state.
-3. The controller's built-in rules decide. `CancelRule` sees one simulation
-   scoring 0.1, below the campaign's 0.4 threshold, and cancels it.
-   `LaunchRule` sees no simulation request waiting in the queue and adds one.
-4. AuCaM cancels the simulation and queues the request.
-5. When the cancelled simulation ends, its slot is freed, its spending is
-   recorded and the controller is told its result.
-6. The scheduler starts the queued request in the freed slot, within the
-   campaign's workflow-count and spending limits and its capacity.
+1. Three simulations are running. A policy cycle starts, because
+   `policy_interval_s` has passed or a workflow has just finished.
+2. AuCaM collects each simulation's latest report, the queue and the
+   budget, and passes them to the controller.
+3. The built-in rules decide: `CancelRule` sees one simulation scoring 0.1,
+   below the 0.4 threshold, and cancels it; `LaunchRule` sees no simulation
+   queued and adds a request.
+4. When the cancelled simulation has ended and its spending is recorded, the
+   scheduler starts the queued request, since a workflow, its CPUs and its
+   budget are now free.
 
 A custom controller could decide anything else in step 3, such as launching
 several workflows at once or changing goals.
+
+---
+
+## Budgets and resources
+
+A campaign states the CPUs / GPUs of its allocation (`capacity`), how many
+workflows may run at once (in total, and per type), and optionally a spending
+limit per dimension (CPU-hours, GPU-hours, LLM tokens, …).
+
+- **Accounting** — AuCaM charges each workflow what it costs: from the
+  resources its tasks requested and how long they ran, from what the
+  workflow reports, or else the CPUs / GPUs it was given × its run time.
+- **Per-workflow allocation** — each workflow gets a spending limit and the
+  CPUs / GPUs it may use at once when it starts: the controller's amount if
+  it gives one, else its type's starting value at first, then what earlier
+  workflows of the type used + 25 %, and 25 % more after one is cancelled at
+  its limit. It starts only if these fit what is left of the campaign's
+  limit and capacity, receives them, and is cancelled if it goes past them.
+  *Why:* AuCaM cannot know which nodes a workflow's tasks hold; the
+  workflow, which does, is told its share and held to it.
+- **Safety net** — a workflow's limit covers only the dimensions it names
+  (e.g. not `llm_tokens`). If actual spending still goes past the campaign's
+  limit, AuCaM cancels the running workflows and ends the campaign
+  (`on_limit="cancel"`, the default), or lets them finish (`"finish"`).
+- **Graceful cancel** — for a workflow type with a grace period
+  (`cancel_grace_s`), AuCaM first sends the workflow CANCEL so it can save
+  its state and exit, and cancels it for real only if it is still running
+  when the grace period ends.
+
+See [budgets and spending](budget.md) for how spending is measured and
+limited.
 
 ---
 
@@ -140,81 +171,17 @@ several workflows at once or changing goals.
 
 | Exit reason | When |
 |---|---|
-| `goals_satisfied` | Ended by AuCaM: the controller declares goals (target values for metrics, e.g. "best energy ≤ −8"), AuCaM checks them every cycle, and all are met. The goal is reached. |
-| `controller_terminate` | Ended by the controller, which decides to stop for its own reason: its goal is reached (the built-in "N successful workflows" goal ends this way), or it gives up (e.g. the goal looks unreachable). The goal may or may not be reached. |
+| `goals_satisfied` | The goal is reached: all declared goals (target values for metrics, e.g. "best energy ≤ −8", checked by AuCaM every cycle) are met, or the controller's own goal is (e.g. the built-in "N successful workflows"). |
+| `controller_terminate` | The controller ended the campaign before its goal was reached, e.g. because the goal looks unreachable. |
 | `spending_limit` | The spending limit is reached and no workflows are running, or actual spending went past it and AuCaM cancelled the running workflows |
-| `campaign_idle` | Nothing queued or running for a while (`idle_exit_s`, configurable or off) |
+| `campaign_idle` | Nothing queued or running for a while (`idle_exit_s`). On by default — *why:* a campaign without goals would otherwise wait forever and hold the allocation; set `idle_exit_s=None` for a controller that waits on purpose. |
 | `signal` | AuCaM receives SIGTERM or SIGINT, e.g. before a SLURM job's time limit, or the caller calls `cm.stop()` |
 
-In each case the queue is cleared, running workflows are cancelled with a
-grace period, a final checkpoint is written (if enabled), and `run()` returns
-a `CampaignOutcome`: the exit reason, workflow counts per type, time,
-spending, whether the goal was reached, and the controller's summary (e.g. the
-best score). The caller can use it to plan the next campaign.
-
----
-
-## Budgets
-
-A campaign limits how many workflows run at once (`max_concurrent_workflows`
-in total, and `max_concurrency_per_workflow` or a type's own `max_running` for
-each workflow type) and can
-set a spending limit. Every workflow gets its own spending limit when it
-starts — the controller's amount, what AuCaM has learned about its type, or
-the type's starting value — held against the campaign while it runs. A new
-workflow starts only if its limit fits what is left, and a workflow that
-spends past its own limit is cancelled. A workflow type with no estimate has
-no limit of its own; if actual spending still goes past the campaign limit,
-AuCaM cancels the running workflows and ends the campaign
-(`CampaignBudget.on_limit="cancel"`, the default), or lets them finish
-(`"finish"`).
-
-A cancel can be graceful: for a workflow type with a grace period
-(`cancel_grace_s`), AuCaM first sends the workflow CANCEL through the data
-backend so it can save its state and exit, and cancels it for real only if it
-is still running when the grace period ends.
-
-See [budgets and spending](budget.md) for how spending is measured.
-
----
-
-## Design decisions
-
-*Choices that may look like missing features, and why AuCaM makes them.*
-
-- **One campaign at a time.** `run()` runs one campaign and returns its
-  outcome; a second `run()` while one is running raises an error. *Why:* the
-  caller decides what to run next from each outcome. A scheduling policy
-  instance passed to several specs keeps what it learned across campaigns.
-- **Resources are given per workflow, within the campaign's capacity.** The
-  campaign states the CPUs and GPUs of its allocation (`CampaignBudget.capacity`),
-  what it may spend, and how many workflows run. Each workflow is given an
-  allocation when it starts — a spending limit and the CPUs and GPUs it may use
-  at once — sized by the scheduler from the controller's request, the type's
-  starting values and learned costs, the remaining budget and the free capacity;
-  it starts only if that fits.
-  The workflow must size its own tasks to it; AuCaM cancels a workflow that spends
-  past its limit or uses more than it was given. *Why:* AuCaM cannot know which
-  nodes a workflow's tasks hold, so the workflow, which does know, is told its
-  share and held to it.
-- **AuCaM chooses which workflows start; the backend places their tasks.**
-  Requests wait in AuCaM's queue until a slot is free, and each running
-  workflow's tasks go straight to Dragon / RHAPSODY. *Why:* work handed to
-  the backend runs in the backend's order, and AuCaM can only cancel it;
-  work held in AuCaM's queue can still be re-ranked, re-sized or dropped. The
-  cost is that limits set too low leave part of the allocation idle. So, with
-  telemetry, the number of workflows that may run follows the nodes'
-  utilization and the tasks waiting in the backend, up to
-  `max_concurrent_workflows`.
-- **The controller makes the scientific decisions.** AuCaM itself cancels a
-  workflow only when it stops reporting, runs past its wall-time limit, or
-  spends past its own spending limit; every
-  other launch and cancel comes from the controller. *Why:* what counts as a
-  poor result depends on the science. AuCaM ships default rules, and a campaign
-  can replace them.
-- **Idle campaigns end by default.** *Why:* a campaign without goals would
-  otherwise wait forever and hold the allocation. Set `idle_exit_s=None`
-  for a controller that waits on purpose.
+In each case the queue is cleared, running workflows are cancelled (with
+their grace period), a final checkpoint is written (if enabled), and `run()`
+returns a `CampaignOutcome`: the exit reason, workflow counts per type, time,
+spending, whether the goal was reached, and the controller's summary (e.g.
+the best score).
 
 ---
 

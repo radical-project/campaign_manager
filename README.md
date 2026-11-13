@@ -71,7 +71,14 @@ spec = CampaignSpec(
         max_concurrent_workflows=4, max_concurrency_per_workflow=4, capacity={"cpus": 8}
     ),
     controller=CampaignController(launch=["sim"], goal_type="sim", goal_n=10),
-    workflows=[WorkflowConfig(name="sim", block=my_sim)],
+    workflows=[
+        WorkflowConfig(
+            name="sim",
+            block=my_sim,
+            spending_limit={"cpu_hours": 0.01},  # most one workflow may spend, at first
+            resources={"cpus": 1},  # what one workflow holds at once
+        )
+    ],
     policy_interval_s=0.5,
 )
 
@@ -90,7 +97,7 @@ asyncio.run(main())
 
 | Doc | For | What it covers |
 |---|---|---|
-| [Architecture overview](docs/architecture-overview.md) | Everyone | Concepts, components and design decisions, without code |
+| [Architecture overview](docs/architecture-overview.md) | Everyone | Concepts, components and why they work as they do, without code |
 | [Demo campaign guide](docs/demo-campaign-guide.md) | New users | Run a demo campaign in a few minutes |
 | [Capability demo](docs/cm-advantages.md) | Everyone | What AuCaM adds, shown on one campaign |
 | [Campaign developer guide](docs/campaign-developer-guide.md) | Campaign authors | Workflows, controllers, scheduling, budgets, running campaigns |

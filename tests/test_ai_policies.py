@@ -45,7 +45,12 @@ def _spec(policy, controller=None, n=12, decide_timeout_s=None):
             capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
         ),
         controller=controller or CampaignController(launch=["a", "b"], goal_type="b", goal_n=n),
-        workflows=[WorkflowConfig(name=t, block=quick) for t in ("a", "b")],
+        workflows=[
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0}, resources={"cpus": 1}, name=t, block=quick
+            )
+            for t in ("a", "b")
+        ],
         scheduling_policy=policy,
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
@@ -258,7 +263,7 @@ def test_adr_controller_and_scheduling_policy_share_one_decision(caplog):
     pol = ADRSchedulingPolicy(controller=ctl)
     with caplog.at_level(logging.INFO, logger="src.aucam"):
         out = _run(_spec(pol, controller=ctl))
-    assert out.goal_reached and out.exit_reason == "controller_terminate"
+    assert out.goal_reached and out.exit_reason == "goals_satisfied"
     assert all(
         "cycle" in o for o in adr.observations
     )  # one ADR call per cycle, from the controller

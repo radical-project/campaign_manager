@@ -56,6 +56,15 @@ class _DecideTimeoutError(Exception):
     """decide() did not return within spec.decide_timeout_s."""
 
 
+def _charge_rate(resources: dict[str, float]) -> dict[str, float]:
+    """What holding these resources costs per hour: cpus → cpu_hours, gpus → gpu_hours."""
+    rate = {}
+    for res, dim in (("cpus", "cpu_hours"), ("gpus", "gpu_hours")):
+        if float(resources.get(res, 0) or 0) > 0:
+            rate[dim] = float(resources[res])
+    return rate
+
+
 def _node_utilization(nodes: dict, gpus: bool) -> float | None:
     """Mean CPU use over the nodes, 0–1; with ``gpus``, the busier of CPU and GPU.
 
@@ -280,7 +289,7 @@ class _WorkflowInstance:
         "workflow_type",
         "future",
         "started_at",
-        "declared_spending",
+        "charge_rate",
         "last_report",
         "request",
         "spending_limit",
@@ -299,7 +308,6 @@ class _WorkflowInstance:
         workflow_type: str,
         future: asyncio.Future,
         started_at: float,
-        declared_spending: dict[str, float],
         request: LaunchRequest,
         spending_limit: dict[str, float] | None = None,
         resources: dict[str, float] | None = None,
@@ -308,7 +316,6 @@ class _WorkflowInstance:
         self.workflow_type = workflow_type
         self.future = future
         self.started_at = started_at
-        self.declared_spending = declared_spending  # in-flight spending estimate
         self.request = request
         self.last_report: Any = None
         # Per-run spending limit; over_budget is set when AuCaM cancels the run
@@ -318,6 +325,9 @@ class _WorkflowInstance:
         # Resources the run may use at once; over_resources is set when AuCaM
         # cancels it for using more.
         self.resources: dict[str, float] = dict(resources or {})
+        # What holding them costs per hour (cpus → cpu_hours, gpus → gpu_hours):
+        # charged × run time when nothing better is measured (method C).
+        self.charge_rate = _charge_rate(self.resources)
         self.over_resources = False
         # Most CPUs / GPUs seen in use at once (task telemetry or reports), U2.
         self.peak_use: dict[str, float] = {}
@@ -451,24 +461,11 @@ class _CampaignInstance:
         # telemetry is on (_tracking_tasks).
         self._task_states: dict[str, tuple[str, str]] = {}
         self._tracking_tasks = False
-        # Cost estimate set at launch (learned or declared, B3), per running
+        # Cost estimate set at launch (its limit, B3), per running
         # workflow.  The in-flight estimate is always derived from it.
         self._estimates: dict[str, dict[str, float]] = {}
         # Exit code of each finished command-line workflow's program.
         self._exit_codes: dict[str, int] = {}
-
-        # Warn when spending limits are set but a workflow has no declared_spending.
-        if spec.budget.spending:
-            for wfc in spec.workflows:
-                if not wfc.declared_spending:
-                    logger.warning(
-                        "[CM] %s: spending limits are set but workflow '%s' has no "
-                        "declared_spending — its budget contribution will be zero. "
-                        "Set declared_spending={wall_hours, cpu_hours, gpu_hours} "
-                        "in WorkflowConfig.",
-                        spec.name,
-                        wfc.name,
-                    )
 
         # Determine which types start without waiting for a DAG dependency.
         target_types = {d.target for d in spec.dependencies}
@@ -513,21 +510,13 @@ class _CampaignInstance:
             s["mean"] = (s["mean"] * n + val) / (n + 1)
             s["n"] = n + 1
 
-    def _learned_cost(
-        self,
-        wf_type: str,
-        declared: dict[str, float],
-        min_samples: int | None = None,
-    ) -> dict[str, float]:
-        """Return the in-flight cost estimate for a workflow type.
-
-        Uses the mean actual cost once ``min_samples`` completions are observed;
-        falls back to ``declared`` before that threshold.
-        """
+    def _learned_cost(self, wf_type: str, min_samples: int | None = None) -> dict[str, float]:
+        """The mean actual cost of a type's successful workflows, once ``min_samples``
+        have finished (per dimension; empty before)."""
         if min_samples is None:
             min_samples = self.spec.min_cost_samples
         stats = self._type_cost_stats.get(wf_type, {})
-        result = dict(declared)
+        result: dict[str, float] = {}
         for key, s in stats.items():
             if s["n"] >= min_samples:
                 result[key] = s["mean"]
@@ -536,7 +525,7 @@ class _CampaignInstance:
     def _compute_workflow_spent(
         self,
         wf_id: str,
-        declared_spending: dict[str, float],
+        charge_rate: dict[str, float],
         wall_s: float,
         final_metrics: dict,
         extra_keys: Iterable[str] = (),
@@ -547,32 +536,26 @@ class _CampaignInstance:
 
         In order of priority, per dimension:
           1. Reported: values the workflow emitted via reporter.emit().
-          2. Prorated: declared × (actual_wall / declared_wall); the ratio can
-             exceed 1 when the workflow runs longer than declared.
-          3. Zero: declared_spending absent — campaign emitted a warning at init.
+          2. Resources × run time: the CPUs / GPUs it was given × its run time
+             (``charge_rate`` per hour), for cpu_hours and gpu_hours.
+          3. Otherwise not charged.
         """
         wall_h = wall_s / 3600.0
         spending: dict[str, float] = {}
 
         # 1. Reported values take top priority.
-        # Always check cpu_hours/gpu_hours (supplied by AsyncFlow telemetry); also
-        # pick up any custom dimensions declared in declared_spending (e.g. llm_tokens).
-        reported_keys = ({"cpu_hours", "gpu_hours"} | set(declared_spending) | set(extra_keys)) - {
-            "wall_hours"
-        }
+        # Always check cpu_hours/gpu_hours; also any other dimension of the
+        # workflow's limit or the campaign's (e.g. llm_tokens).
+        reported_keys = ({"cpu_hours", "gpu_hours"} | set(extra_keys)) - {"wall_hours"}
         for key in reported_keys:
             val = final_metrics.get(key)
             if val is not None:
                 spending[key] = float(val)
 
-        # 2. Prorate declared spending by actual / declared wall time.
-        # Only prorate dimensions that appear in declared_spending (need a base value).
-        decl_wall_h = declared_spending.get("wall_hours", 0.0)
-        if decl_wall_h > 0:
-            ratio = wall_h / decl_wall_h  # < 1 = underspend; > 1 = overrun
-            for key in (k for k in declared_spending if k != "wall_hours"):
-                if key not in spending:
-                    spending[key] = declared_spending[key] * ratio
+        # 2. The resources it was given × its run time.
+        for key, rate in charge_rate.items():
+            if key not in spending:
+                spending[key] = rate * wall_h
 
         # Observability profile: actual utilisation data for WorkflowResult.resource_profile.
         # Priority: asyncflow JSONL telemetry (CM-side) → workflow-reported resource_usage.
@@ -796,7 +779,7 @@ class _CampaignInstance:
         inst = self._active.get(wf_id)
         if inst is not None:
             # Charges are already in `spent`; in-flight is what is still expected.
-            est = self._estimates.get(wf_id, inst.declared_spending)
+            est = self._estimates.get(wf_id, {})
             remaining = {
                 k: max(0.0, v - charged.get(k, 0.0)) for k, v in est.items() if k != "wall_hours"
             }
@@ -1031,11 +1014,6 @@ class _CampaignInstance:
                 },
                 resources={k: float(v) for k, v in wfc.resources.items() if v is not None},
             ),
-            declared={
-                k: float(v)
-                for k, v in wfc.declared_spending.items()
-                if k != "wall_hours" and v is not None
-            },
             raised=dict(self._type_raised.get(request.workflow_type, {})) if wfc.learn else {},
             raised_resources=(
                 dict(self._type_raised_res.get(request.workflow_type, {})) if wfc.learn else {}
@@ -1256,12 +1234,10 @@ class _CampaignInstance:
     def _held_estimate(self, request: LaunchRequest, limit: dict[str, float]) -> dict[str, float]:
         """What a workflow is held at against the campaign while it runs.
 
-        Its own spending limit where it has one (it can never spend more), else
-        the learned cost of its type, else the type's declared_spending.
+        Its own spending limit (it can never spend more); in a dimension the
+        limit does not name, the learned cost of its type.
         """
-        wfc = self._wf_config(request.workflow_type)
-        est = self._learned_cost(request.workflow_type, dict(wfc.declared_spending))
-        return {**est, **limit} if limit else est
+        return {**self._learned_cost(request.workflow_type), **limit}
 
     def _launch(self, request: LaunchRequest, alloc: Allocation | None = None) -> None:
         wfc = self._wf_config(request.workflow_type)
@@ -1284,16 +1260,13 @@ class _CampaignInstance:
             workflow_type=request.workflow_type,
             future=future,
             started_at=time.time(),
-            declared_spending=dict(wfc.declared_spending),
             request=request,
             spending_limit=limit,
             resources=resources,
         )
         self._active[wf_id] = inst
-        # Use learned cost estimate for in-flight tracking once enough completions
-        # exist; falls back to declared_spending before min_samples threshold (B3).
-        # A run with its own spending limit holds that limit against the
-        # campaign's (like a reservation): it can never spend more.
+        # A workflow holds its spending limit against the campaign's (like a
+        # reservation): it can never spend more.
         in_flight_est = self._held_estimate(request, limit)
         self._estimates[wf_id] = in_flight_est
         self._allocator.set_in_flight(self.name, wf_id, in_flight_est)
@@ -1394,16 +1367,12 @@ class _CampaignInstance:
         self._slot_event.set()
 
         # Replace the in-flight estimate with the workflow's actual spending.
-        # Dimensions a workflow may report besides CPU/GPU hours (B0): those it
-        # declares, its own limit's and the campaign's.
-        extra_keys = (
-            set(_inst.declared_spending)
-            | set(_inst.spending_limit)
-            | set(self._allocator.limits(self.name))
-        )
+        # Dimensions a workflow may report besides CPU/GPU hours (B0): its own
+        # limit's and the campaign's.
+        extra_keys = set(_inst.spending_limit) | set(self._allocator.limits(self.name))
         contribution, resource_profile = self._compute_workflow_spent(
             _inst.wf_id,
-            _inst.declared_spending,
+            _inst.charge_rate,
             wall,
             final_metrics,
             extra_keys,
@@ -1435,10 +1404,10 @@ class _CampaignInstance:
                 spend_source = "wf_reported"
             elif contribution:
                 spend_method = "estimated"
-                spend_source = "wall_proration"
+                spend_source = "resources_x_time"
             else:
                 spend_method = "none"
-                spend_source = "no_declared_spending"
+                spend_source = "not_measured"
         # Update the per-type cost model (B3) from successful runs only:
         # cancelled and failed runs are partial and would bias the mean.
         if rc == 0 and actual_spent:
@@ -1565,7 +1534,6 @@ class _CampaignInstance:
                 wf_id=inst.wf_id,
                 workflow_type=inst.workflow_type,
                 started_at=inst.started_at,
-                declared_spending=dict(inst.declared_spending),
                 request=_request_record(inst.request),
                 spending_limit=dict(inst.spending_limit),
                 resources=dict(inst.resources),
@@ -1608,9 +1576,9 @@ class _CampaignInstance:
         )
 
     def _spend_keys(self, inst: _WorkflowInstance) -> set[str]:
-        """Dimensions to measure for a workflow: CPU/GPU, limits, declared."""
+        """Dimensions to measure for a workflow: CPU/GPU hours and the limits'."""
         keys = {"cpu_hours", "gpu_hours", *self._allocator.limits(self.name)}
-        keys |= set(inst.spending_limit) | set(inst.declared_spending)
+        keys |= set(inst.spending_limit)
         keys.discard("wall_hours")
         return keys
 
@@ -1767,9 +1735,9 @@ class _CampaignInstance:
     def _spending_limit_reached(self) -> bool:
         """Return True when actual + in-flight spending meets any campaign limit.
 
-        The ledger counts each running workflow with its full declared_spending
-        (conservative, like SLURM job accounting); the estimate is replaced by
-        the actual amount when the workflow finishes.
+        The ledger counts each running workflow at its full spending limit
+        (conservative, like SLURM job accounting); that is replaced by the
+        actual amount when the workflow finishes.
         """
         hit = self._allocator.limit_reached(self.name)
         if hit is None:
@@ -2043,15 +2011,10 @@ class _CampaignInstance:
             consumption: dict[str, float] = {"cpu_wall_seconds": cpu_s}
             if gpu_s is not None:
                 consumption["gpu_wall_seconds"] = float(gpu_s)
-            # Estimate in-flight spending: prorate declared by elapsed/declared_wall.
-            decl = inst.declared_spending
-            decl_wall_h = decl.get("wall_hours", 0.0)
-            if decl_wall_h > 0:
-                elapsed_h = wall_s / 3600.0
-                ratio = elapsed_h / decl_wall_h
-                for key in ("cpu_hours", "gpu_hours"):
-                    if key in decl:
-                        consumption[key] = decl[key] * ratio
+            # Spending so far from the resources it holds × elapsed time.
+            elapsed_h = wall_s / 3600.0
+            for key, rate in inst.charge_rate.items():
+                consumption[key] = rate * elapsed_h
             running_consumption[wf_id] = consumption
 
             # Live in-flight update for workflows not charged per task (those
@@ -2061,16 +2024,15 @@ class _CampaignInstance:
             # cost (consumed so far + still to come), never less than the launch
             # estimate.  It grows when a workflow reports, or runs, beyond it.
             if wf_id not in self._task_level:
-                est = self._estimates.get(wf_id, decl)
+                est = self._estimates.get(wf_id, {})
                 expected = {k: v for k, v in est.items() if k != "wall_hours"}
                 metrics = report.metrics if report is not None and report.metrics else {}
-                overrun = (wall_s / 3600.0) / decl_wall_h if decl_wall_h > 0 else 0.0
                 for key, base in list(expected.items()):
                     reported_val = metrics.get(key)
                     if reported_val is not None:
                         expected[key] = max(base, float(reported_val))
-                    elif overrun > 1.0:
-                        expected[key] = base * overrun
+                    elif key in inst.charge_rate:
+                        expected[key] = max(base, inst.charge_rate[key] * elapsed_h)
                 if expected:
                     self._allocator.set_in_flight(self.name, wf_id, expected)
 
@@ -2089,8 +2051,8 @@ class _CampaignInstance:
 
         Best source first, as when it is charged: per-task charges from AsyncFlow
         telemetry (finished tasks plus the elapsed share of running ones), then
-        the running totals the workflow reports, then declared_spending prorated
-        by elapsed / declared wall time.  A dimension with no source is absent.
+        the running totals the workflow reports, then the resources it holds ×
+        elapsed time (CPU / GPU hours).  A dimension with no source is absent.
         """
         out: dict[str, float] = {}
         task_level = inst.wf_id in self._task_level
@@ -2109,8 +2071,6 @@ class _CampaignInstance:
                     live[key] = live.get(key, 0.0) + float(res.get(field_, 0.0)) * hours
         metrics = inst.last_report.metrics if inst.last_report is not None else None
         metrics = metrics or {}
-        decl = inst.declared_spending
-        decl_wall_h = decl.get("wall_hours", 0.0)
         elapsed_h = (now - inst.started_at) / 3600.0
         for key in inst.spending_limit if keys is None else keys:
             if task_level and key in ("cpu_hours", "gpu_hours"):
@@ -2120,20 +2080,20 @@ class _CampaignInstance:
                     out[key] = float(metrics[key])
                 except (TypeError, ValueError):
                     pass
-            elif decl_wall_h > 0 and key in decl:
-                out[key] = decl[key] * elapsed_h / decl_wall_h
+            elif key in inst.charge_rate:
+                out[key] = inst.charge_rate[key] * elapsed_h
         return out
 
     def _wf_spend(self, now: float) -> dict[str, dict[str, float]]:
         """Spending so far of every running workflow (``obs["wf_spend"]``).
 
         Dimensions: CPU and GPU hours, the campaign's limits, and the
-        workflow's own limit and declared spending; one with no source is absent.
+        workflow's own limit; one with no source is absent.
         """
         base = {"cpu_hours", "gpu_hours", *self._allocator.limits(self.name)}
         out: dict[str, dict[str, float]] = {}
         for wf_id, inst in self._active.items():
-            keys = base | set(inst.spending_limit) | set(inst.declared_spending)
+            keys = base | set(inst.spending_limit)
             keys.discard("wall_hours")
             out[wf_id] = self._spent_so_far(inst, now, keys)
         return out
@@ -2189,7 +2149,6 @@ class _CampaignInstance:
 
     def _adopt(self, rec: ActiveWorkflowRecord) -> None:
         """Track a still-running command-line workflow by its reports (R1)."""
-        wfc = self._wf_config(rec.workflow_type)
         req = (
             _request_from_record(rec.request)
             if rec.request is not None
@@ -2201,7 +2160,6 @@ class _CampaignInstance:
             workflow_type=rec.workflow_type,
             future=future,
             started_at=rec.started_at,
-            declared_spending=dict(wfc.declared_spending),
             request=req,
             spending_limit=rec.spending_limit,
             resources=rec.resources,
@@ -2701,8 +2659,18 @@ class _CampaignInstance:
             )
 
         if result.terminate:
-            logger.info(f"[CM] {self.name}: controller requested terminate")
-            await self._shutdown(reason="controller_terminate")
+            # The controller's own goal (goal_type / goal_n, or a custom
+            # is_goal_reached()) counts as a goal: one reason for "goal reached".
+            try:
+                reached = bool(self.spec.controller.is_goal_reached())
+            except Exception:  # e.g. no CampaignController.__init__()
+                reached = False
+            if reached:
+                logger.info(f"[CM] {self.name}: controller's goal reached")
+                await self._shutdown(reason="goals_satisfied")
+            else:
+                logger.info(f"[CM] {self.name}: controller requested terminate")
+                await self._shutdown(reason="controller_terminate")
             return
 
         if self._goals and self._check_goals(obs):

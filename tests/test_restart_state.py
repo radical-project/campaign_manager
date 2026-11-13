@@ -125,8 +125,20 @@ def test_held_requests_and_triggers_are_restored(tmp_path: Path):
         ),
         controller=ctl,
         workflows=[
-            WorkflowConfig(name="sim", block=sim, launch_on_start=False),
-            WorkflowConfig(name="analysis", block=analysis, launch_on_start=False),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="sim",
+                block=sim,
+                launch_on_start=False,
+            ),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="analysis",
+                block=analysis,
+                launch_on_start=False,
+            ),
         ],
         dependencies=[WorkflowDependency(source="sim", target="analysis")],
         policy_interval_s=0.02,

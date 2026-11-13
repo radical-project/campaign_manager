@@ -95,8 +95,18 @@ def test_stuck_workflow_is_cancelled_improving_one_completes():
         ),
         controller=ctl,
         workflows=[
-            WorkflowConfig(name="stuck", block=make(False)),
-            WorkflowConfig(name="improving", block=make(True)),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="stuck",
+                block=make(False),
+            ),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="improving",
+                block=make(True),
+            ),
         ],
         policy_interval_s=0.02,
         shutdown_timeout_s=5.0,

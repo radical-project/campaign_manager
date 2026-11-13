@@ -303,25 +303,23 @@ def build_spec(
             goal_analyses=goal_analyses, cancel_threshold=cancel_threshold
         ),
         workflows=[
-            # declared_spending: what one workflow is expected to cost, with its
-            #   expected wall time.  AuCaM uses it only when the workflow reports
-            #   no spending (it then charges it prorated by actual wall time) or
-            #   has no spending_limit.  These sims report cpu_hours, so it is a fallback.
-            # spending_limit (fast_sim): the starting limit, here 1.5x expected;
-            #   once 3 have finished, AuCaM gives each its learned cost + 25 %.
-            #   precise_sim sets none: it starts at declared_spending + 25 %.
-            #   AuCaM holds the limit against the campaign while the workflow runs,
-            #   passes it to the workflow, and cancels the workflow if it spends more.
+            # spending_limit: the starting limit per workflow (fast_sim 1.5x its
+            #   expected cost, precise_sim 1.25x); once 3 have finished, AuCaM
+            #   gives each its learned cost + 25 %.  AuCaM holds the limit against
+            #   the campaign while the workflow runs, passes it to the workflow,
+            #   and cancels the workflow if it spends more.
+            # resources: the CPUs it may use at once, passed in
+            #   context["resources"]; AuCaM cancels a workflow that reports more
+            #   cpus_in_use.  The sims report cpu_hours; a workflow that reports
+            #   nothing is charged its CPUs × run time.
             WorkflowConfig(
                 name="fast_sim",
                 block=fast_sim,
                 launch_on_start=True,
                 stale_timeout_s=30.0,
                 cancel_grace_s=2.0,  # it stops on CANCEL; AuCaM waits up to 2 s
-                declared_spending={"wall_hours": 6 * STEP_S / H, "cpu_hours": 6 * FAST_STEP_CPU_H},
                 spending_limit={"cpu_hours": round(9 * FAST_STEP_CPU_H, 6)},
-                resources={"cpus": 1},  # passed in context["resources"]; AuCaM
-                # cancels a workflow that reports more cpus_in_use
+                resources={"cpus": 1},
             ),
             WorkflowConfig(
                 name="precise_sim",
@@ -329,18 +327,15 @@ def build_spec(
                 launch_on_start=True,
                 stale_timeout_s=60.0,
                 cancel_grace_s=2.0,
-                declared_spending={
-                    "wall_hours": 10 * STEP_S / H,
-                    "cpu_hours": 10 * PRECISE_STEP_CPU_H,
-                },
+                spending_limit={"cpu_hours": round(12.5 * PRECISE_STEP_CPU_H, 6)},
                 resources={"cpus": 2},
             ),
             WorkflowConfig(
                 name="analysis",
                 block=analysis,
                 launch_on_start=False,  # only triggered by dependency below
-                declared_spending={"wall_hours": ANALYSIS_S / H, "cpu_hours": ANALYSIS_CPU_H},
                 spending_limit={"cpu_hours": 2 * ANALYSIS_CPU_H},
+                resources={"cpus": 1},
             ),
         ],
         dependencies=[
