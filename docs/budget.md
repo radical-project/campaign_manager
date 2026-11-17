@@ -48,6 +48,7 @@ WorkflowConfig(
     resources={"cpus": 8, "gpus": 1},  # what one workflow holds at once
     max_wall_time_s=3600,  # the run-time limit
     learn=True,  # False: every workflow keeps this limit (§4)
+    budget_floor={"cpu_hours": 0.006},  # optional: drop launches below this (§4)
 )
 
 # A different limit for one workflow (optional; overrides the type's)
@@ -178,6 +179,18 @@ even of lower priority, may start instead; CRITICAL requests are checked too),
 and is dropped once nothing else runs. AuCaM never gives a workflow less than
 its amount to make it fit. The log shows `[SCHEDULER-<campaign>] WAIT <type>:
 … stays queued` once per request.
+
+**`budget_floor`** — a workflow type can declare a minimum viable
+`spending_limit` per dimension (`WorkflowConfig.budget_floor`). If the
+`spending_limit` AuCaM would pass to this launch is below that floor in any
+dimension, the request is dropped immediately (before any workflow starts), and
+`CampaignOutcome.unfit_dropped` increments. This avoids launching a workflow
+that would spin up only to reject the job immediately from the inside (e.g.
+because its own inner budget admission check sees an amount too small to run a
+single task). IMPRESS-A workflows populate this automatically from the offer's
+per-cycle cost floor; other workflows should set it to the smallest
+`spending_limit` that lets them do real work. The log shows
+`[SCHEDULER-<campaign>] DROP <type>: spending_limit[<dim>]=… < budget_floor …`.
 
 ### While it runs
 
@@ -387,7 +400,9 @@ after the workflow has ended go into the ledger but not into `spent`.)
 | `[WORKFLOW-…] CANCEL signal sent; grace …s` | INFO | A graceful cancel starts |
 | `[WORKFLOW-…] did not exit within its grace period — cancelling` | WARNING | A graceful cancel ends in a forced one |
 | `[SCHEDULER-…] WAIT <type>: …; stays queued` | INFO | A request does not fit the remaining budget or the free CPUs / GPUs yet (§4); logged once per request |
-| `[SCHEDULER-…] DROP <type>: …` | INFO | A request was dropped: it does not fit with nothing else running, or needs more than the capacity |
+| `[SCHEDULER-…] DROP <type>: its allocation does not fit the remaining budget` | INFO | A request was dropped: it does not fit with nothing else running |
+| `[SCHEDULER-…] DROP <type>: resources … exceed the campaign's capacity …` | INFO | A request was dropped: it needs more than the capacity |
+| `[SCHEDULER-…] DROP <type>: spending_limit[<dim>]=… < budget_floor …` | INFO | A request was dropped: remaining `spending_limit` is below `WorkflowConfig.budget_floor` (§4) |
 | `[BANDIT] …  budget_rem=…%  c_eff=…  arms={type: μ=…}` | INFO | The bandit chooses among queued requests |
 | `[BANDIT] …  → <type>  ucb=…  c_eff=…` | INFO | The bandit picks a type it has seen before |
 | `[CM] Campaign … SUMMARY — exit=… spent={…}` | INFO | A campaign ends |

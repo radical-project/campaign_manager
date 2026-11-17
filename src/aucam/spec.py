@@ -85,6 +85,13 @@ class WorkflowConfig(BaseModel):
     # CM_SPENDING_LIMIT_<DIM> for a command-line one); and AuCaM cancels it once
     # its spending so far exceeds the limit.
     spending_limit: dict[str, float] = {}
+    # Minimum spending_limit per dimension that makes a launch viable.  When
+    # AuCaM would pass a spending_limit smaller than this floor in any dimension,
+    # it drops the request (unfit_dropped++) before the workflow starts rather
+    # than letting it spin up only to be immediately rejected inside.  For
+    # IMPRESS workflows this is populated automatically from the offer's per-cycle
+    # cost floor; for other workflows set it to the smallest meaningful budget.
+    budget_floor: dict[str, float] = {}
     # Starting resources each workflow of this type may use at once, e.g.
     # {"cpus": 8, "gpus": 1} (required): used until AuCaM has learned the
     # type's peak use.  A command-line workflow can leave it out: AuCaM takes it

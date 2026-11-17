@@ -1851,6 +1851,24 @@ class _CampaignInstance:
                     f"its allocation does not fit the remaining budget"
                 )
                 return "dropped"
+            # B2b: budget_floor — drop if the spending_limit to be passed is below
+            # the workflow's declared minimum viable budget.  The workflow would spin
+            # up only to be immediately rejected inside (e.g. IMPRESS gate 5), so
+            # we drop it here before it starts.
+            wfc = self._wf_config(req.workflow_type)
+            for dim, floor_val in wfc.budget_floor.items():
+                if alloc.spending_limit.get(dim, 0.0) < floor_val - 1e-12:
+                    self._queue.remove_request(req)
+                    self._unfit_logged.discard(id(req))
+                    self._unfit_dropped += 1
+                    dropped += 1
+                    logger.info(
+                        f"[SCHEDULER-{self.name}] DROP {req.workflow_type}: "
+                        f"spending_limit[{dim}]="
+                        f"{alloc.spending_limit.get(dim, 0.0):.4g} < "
+                        f"budget_floor {floor_val:.4g}"
+                    )
+                    return "dropped"
             # Capacity: the resources it is given must fit what is free.
             cap = self.spec.budget.capacity
             over_total = {k: v for k, v in alloc.resources.items() if v > float(cap.get(k, 0.0))}

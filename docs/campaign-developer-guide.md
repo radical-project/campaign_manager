@@ -107,6 +107,7 @@ WorkflowConfig(
     block=my_async_fn,  # a Python workflow ── or ──
     launch_cmd=["./sim", "--fast"],  # a command-line program (any language)
     spending_limit={"cpu_hours": 6.0},  # required: starting limit per workflow (§8)
+    budget_floor={"cpu_hours": 0.006},  # optional: drop launches below this (§8)
     resources={"cpus": 8},  # required: starting CPUs / GPUs per workflow (§8, §9)
     learn=True,  # False: keep spending_limit / resources fixed (§8)
     task_description={"ranks": 4, "cores_per_rank": 8},  # launch_cmd: resource request
@@ -125,6 +126,8 @@ WorkflowConfig(
 Exactly one of `block` and `launch_cmd` must be set. `spending_limit` and
 `resources` are required; a command-line workflow can leave out `resources`,
 and AuCaM takes them from its `task_description` (here 4 × 8 = 32 CPUs).
+`budget_floor` is optional: when set, any launch whose `spending_limit` would
+fall below it in any dimension is dropped before the workflow starts (§8).
 
 ### Python workflows
 
@@ -566,6 +569,14 @@ its allocation: a spending limit and the resources it may use at once.
   Then it checks the remaining campaign budget: if the amount does not fit,
   `size()` returns nothing: the request waits while other workflows run, and is dropped
   (`CampaignOutcome.unfit_dropped`) once nothing else runs.
+
+  After `size()` returns an allocation, the scheduler also checks
+  `WorkflowConfig.budget_floor`: if the resulting `spending_limit` for any
+  dimension is below the declared floor, the request is dropped immediately
+  (before the workflow starts), and `unfit_dropped` increments. Set `budget_floor`
+  to the smallest `spending_limit` that lets the workflow do real work — a launch
+  below it would spin up only to reject itself immediately from the inside. See
+  [budget docs](budget.md) §4 for details and the log signal.
 - **Give more to better types** by overriding the policy's `value(workflow_type,
   ctx)`: `size()` multiplies the learned-cost amount by it (default 1.0), then
   checks it against the remaining budget. What
