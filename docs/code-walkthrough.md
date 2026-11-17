@@ -1,7 +1,7 @@
 # Code walkthrough
 
 A map of the code for contributors: what each module holds and the main paths
-through it. Concepts and design decisions are in the [architecture overview](architecture-overview.md),
+through it. Concepts, components and the reasons behind them are in the [architecture overview](architecture-overview.md),
 planned work in [known gaps](known-gaps.md), and budget internals in
 [budgets and spending](budget.md) §8–9.
 
@@ -11,44 +11,39 @@ planned work in [known gaps](known-gaps.md), and budget internals in
 
 | Module | Holds |
 |---|---|
-| `src/aucam/manager.py` | `CampaignManager`: admission (`submit()`, `_admit()`), driver bookkeeping (`expect_driver()`, `driver_done()`), the main `run()` loop, auto-close, signal handling |
+| `src/aucam/manager.py` | `CampaignManager`: `run(spec)` (engine set-up, one campaign, its outcome), `stop()`, signal handling |
 | `src/aucam/campaign.py` | `_CampaignInstance`: everything that runs one campaign — launch, policy cycle, scheduler, accounting, dependencies, checkpoint, shutdown |
 | `src/aucam/controller.py` | `CampaignController` base class, `CancelRule`, `LaunchRule`, `Goal`, `PolicyResult` |
-| `src/aucam/scheduler.py` | `SchedulingPolicy` (FIFO base), `FIFOSchedulingPolicy`, `BanditSchedulingPolicy` (UCB1), `ADRSchedulingPolicy` / `LLMSchedulingPolicy` (stubs), `SchedulingContext` |
+| `src/aucam/scheduler.py` | `SchedulingPolicy` (FIFO base; `size()` sizes each workflow), `FIFOSchedulingPolicy`, `BanditSchedulingPolicy` (UCB1), `RankingSchedulingPolicy` and `LLMSchedulingPolicy` (AI ranking, `refresh()`), `SchedulingContext`, `SizingContext` |
+| `src/aucam/adr.py` | `ADRController`, `ADRSchedulingPolicy`: bridges to radical.adr policies |
 | `src/aucam/queue.py` | `WorkflowQueue`: priority heap with aging |
-| `src/aucam/budget.py` | `BudgetAllocator`: the spending ledger for all campaigns |
+| `src/aucam/budget.py` | `BudgetAllocator`: the campaign's spending ledger |
 | `src/aucam/spec.py` | `CampaignSpec`, `CampaignBudget`, `WorkflowConfig`, `WorkflowDependency` |
-| `src/aucam/types.py` | `WorkflowResult`, `LaunchRequest`, `GlobalBudget`, `CampaignOutcome`, `SubmitResult`, snapshots and enums |
+| `src/aucam/types.py` | `WorkflowResult`, `LaunchRequest`, `Allocation`, `AllocationRecord`, `CampaignOutcome`, snapshots and enums |
 | `src/aucam/reporter.py` | `WorkflowReport`, `WorkflowReporter` (interface), `LocalDictReporter` |
 | `src/aucam/data_backend.py` | `DataBackend` protocol; `LocalDictBackend`, `RadexDragonBackend`, `RhapsodyRedisBackend` and their reporters |
 | `src/aucam/checkpoint.py` | `CampaignCheckpoint` and its JSON read/write |
 | `src/aucam/profiler.py` | `BlockProfiler`, `TaskProfiler`: optional CPU/memory sampling inside workflows |
 | `src/aucam_client/` | `Reporter` and the `aucam-report` command for command-line workflows (any language) |
-| `campaigns/` | Example campaigns: `demo_campaign` (quick start, capability demo), `ddsim_aucam` (HPC example) |
+| `campaigns/` | Example campaigns: `demo_campaign` (API walkthrough, all capabilities), `hpc_campaign` (production HPC example), `ddsim_aucam` (DeepDriveSim integration) |
 
 ---
 
 ## Main paths
 
-### Admission — `CampaignManager`
+### Running a campaign — `CampaignManager.run(spec)`
 
 ```
-submit(spec) / submit_campaign(spec)
-└── _admit(spec)
-    ├── _policy_check()          scheduling-policy instance not used by another campaign
-    ├── _admission_check()       running campaigns, total concurrent workflows (GlobalBudget)
-    └── BudgetAllocator.admit()  spent + committed limits + new limit ≤ global spending
+run(spec)
+├── WorkflowEngine.create(backend)   a local backend if none was given; telemetry if enabled
+├── _CampaignInstance(spec, BudgetAllocator(), flow).run()   as a task; SIGTERM/SIGINT → stop()
+├── _outcome()                       CampaignOutcome from the instance, controller and ledger
+└── flow.shutdown()                  the backend too, unless it was passed in
 ```
 
-Rejected → `SubmitResult(accepted=False, reason=…)`. Accepted → the spec goes
-to the submission queue; `run()` starts it with `_start_campaign()`, which
-creates a `_CampaignInstance` and a task for its `run()`. When the task ends,
-`_resolve_future()` closes the campaign in the ledger and resolves the
-driver's `CampaignOutcome`.
-
-`run()` creates the shared AsyncFlow engine (and telemetry, if enabled), then
-waits on campaign tasks, the submission queue and a shutdown event until all
-drivers are done and all campaigns have finished.
+`stop()` cancels the campaign task; the instance shuts down gracefully and the
+outcome has `exit_reason="signal"`. One `run()` at a time; the manager can run
+again after it returns.
 
 ### One campaign — `_CampaignInstance.run()`
 
@@ -63,21 +58,31 @@ run()
 - **`_policy_loop()`** wakes every `policy_interval_s` or when a workflow
   finishes and calls `_run_policy_cycle()`:
   `_collect_live_reports()` → `_collect_telemetry()` → `controller.observe()`
-  → `controller.decide()` → `_apply_auto_cancels()` (stale reporter, wall time)
+  → `_decide()` (the controller's `decide()` or awaited `decide_async()`, or
+  the built-in rules if it raises or exceeds `decide_timeout_s`) → `_apply_auto_cancels()` (stale
+  reporter, wall time, per-workflow limits)
   → apply decisions (CANCEL / PAUSE / RESUME, `cancel_queued`, new requests,
-  goal changes) → write checkpoint → end if `terminate` (`controller_terminate`)
-  or all goals met (`goals_satisfied`).
+  goal changes) → `_start_refresh()` (the policy's `refresh()` in the
+  background; model usage via `_collect_usage()`) → write checkpoint → end if `terminate` (`goals_satisfied` if
+  the controller's `is_goal_reached()`, else `controller_terminate`) or all goals
+  met (`goals_satisfied`).
 - **`_scheduler_loop()`** calls `_drain_queue()` whenever a slot frees up or a
   request arrives (at least every 2 s): stop if the spending limit is reached;
   otherwise launch CRITICAL requests, then the requests the `SchedulingPolicy`
-  selects, within the workflow-count limits. It also ends the campaign on
-  `spending_limit` (nothing running) and `campaign_idle` (`idle_exit_s`).
+  selects, within the workflow-count limits. Each request is sized
+  (`_size()` → the policy's `size()`) and launched only if its spending fits
+  what is left of the budget (`BudgetAllocator.shortfall()`) and its resources
+  fit the free capacity (`_free_capacity()`); one that does not fit waits while
+  others run and is dropped once nothing runs, and the policy is asked again
+  without it. It also ends the campaign on `spending_limit` (nothing
+  running, and the limit reached or nothing queued fits) and `campaign_idle`
+  (`idle_exit_s`).
 
 ### Launching a workflow — `_launch()`
 
 ```
 _launch(request)
-├── _learned_cost() → estimate → BudgetAllocator.set_in_flight()
+├── _held_estimate() → BudgetAllocator.set_in_flight()   its limit, else its estimate
 └── _make_future()
     ├── Python block:  _run_as_block(block)            reporter / flow= / context= injected
     └── launch_cmd:    _run_as_block(_cmd_block)       one executable task: _wrap_cmd() → bash -c 'export …; exec cmd'
@@ -92,8 +97,11 @@ to the workflow (`_wf_tags`) so task telemetry events can be charged to it
 2. charges spending (`_compute_workflow_spent()`, unless charged per task) and
    updates the learned cost (`_update_type_cost()`, successful runs only);
 3. builds the `WorkflowResult` and passes it, in this order, to
-   `SchedulingPolicy.on_outcome()`, `controller.on_complete()`, the workflow's
-   `on_completion` hook and `_check_dag()` (dependencies).
+   `SchedulingPolicy.on_outcome()` and `controller.on_complete()`;
+4. raises the type's next limit after a cancel at the limit
+   (`_raise_after_limit_cancel()`) and records the allocation, its progress
+   and credit (`_record_allocation()`, `controller.progress()`);
+5. calls the workflow's `on_completion` hook and `_check_dag()` (dependencies).
 
 ### Dependencies — `enqueue()` and `_check_dag()`
 
@@ -110,7 +118,8 @@ AsyncFlow's own (pass one task's future to another).
 A Python workflow gets `backend.make_reporter(wf_id)` and calls `emit()`;
 command-line workflows use `aucam_client` with Redis or Dragon. Each policy
 cycle `_collect_live_reports()` reads `get_report()` for every running workflow;
-PAUSE / RESUME go out with `write_signal()`.
+PAUSE / RESUME, and CANCEL for a graceful cancel (`_cancel()`, with a timer that
+cancels the block when the grace period ends), go out with `write_signal()`.
 
 ---
 
@@ -118,8 +127,8 @@ PAUSE / RESUME go out with `write_signal()`.
 
 | To add | Implement | Pass it via |
 |---|---|---|
-| Decision logic | subclass `CampaignController` (`observe`, `decide`, `on_complete`, `get_summary`, `goals`) | `CampaignSpec.controller` |
-| Scheduling policy | subclass `SchedulingPolicy` (`select`, optionally `on_outcome`) | `CampaignSpec.scheduling_policy` |
+| Decision logic | subclass `CampaignController` (`observe`, `decide` or `decide_async`, `on_complete`, `progress`, `get_summary`, `goals`, `state` / `restore`, `take_usage`) | `CampaignSpec.controller` |
+| Scheduling policy | subclass `SchedulingPolicy` (`select`; optionally `on_outcome`, `size`, `value`, `refresh`, `state` / `restore`, `take_usage`), or `RankingSchedulingPolicy` (`refresh` calls `set_ranking`) | `CampaignSpec.scheduling_policy` |
 | Data channel | the `DataBackend` protocol and a `WorkflowReporter` | `CampaignSpec.data_backend` |
 
 ## Tests
@@ -137,5 +146,5 @@ code changes (the scripts need matplotlib: `pip install matplotlib`):
 | Figure | Script |
 |---|---|
 | `aucam-architecture.png` | `python docs/figures/src/architecture.py` |
-| `aucam_budget_burn.png`, `aucam_bandit_budget.png`, `aucam_global_budget.png` | `python campaigns/demo_campaign/figures/doc_figures.py` (real runs, ~1 min) |
-| `aucam_impact.png` | `campaigns/demo_campaign/figures/run_impact.py --json-out …`, then `figures/gen_impact_fig.py` |
+| `aucam_budget_burn.png`, `aucam_bandit_budget.png`, `aucam_run_limit.png` | `python campaigns/hpc_campaign/figures/doc_figures.py` (real runs, ~1 min) |
+| `aucam_impact.png` | `campaigns/hpc_campaign/figures/run_impact.py --json-out …`, then `figures/gen_impact_fig.py` |

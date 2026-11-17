@@ -1,0 +1,64 @@
+# Per-run spending limits — use case: the slow arm overspends.
+#
+# Same as campaign.yaml, except the slow arm's limit is below what its runs
+# need and the slow arm ignores it (respect_limit.slow: false), so AuCaM cancels
+# every miniapps_slow run once its reported cpu_hours pass the limit.  The fast
+# arm sizes its runs to fit its limit.
+#
+# Run:  python run_campaign.py --campaign-config campaign_configs/campaign_overuse.yaml
+#
+# Each campaign runs two arms simultaneously:
+#   miniapps_fast — num_step as given below
+#   miniapps_slow — num_step × slow_step_multiplier
+#
+# Estimated runtime per replica (local, concurrent backend):
+#   fast: total_num_sim=5, num_step=50  →  a few seconds per run
+#   slow: total_num_sim=5, num_step=150 →  slightly longer
+# With goal_n=2 and max_concurrent=2, expect ~30–90 s per campaign.
+
+controller:
+  goal_n: 2              # stop after N miniapps workflow completions
+  score_ceiling: 0.90    # cancel workflow if mean MSE exceeds this
+
+budget:
+  max_concurrent: 2      # max parallel miniapps replicas per campaign
+  max_concurrency_per_workflow: 1
+  capacity:   # CPUs available at once (each workflow is given 1)
+    cpus: 2
+  spending: {}           # e.g. {cpu_hours: 0.5}
+
+miniapps:
+  total_num_sim:           5    # total simulations per replica
+  max_sim_batch:           1    # max concurrent sims at once
+  training_cores:          1
+  miniapps_data_ready:     2    # signal ready after this many sims (MiniApps internal)
+  num_step:               50    # simulation timesteps (slow variant uses 3×)
+  num_epochs:             50    # training epochs per cycle
+  stale_timeout_s:       120.0
+  home_dir: ""                  # empty → ~/MiniApps
+  debug: false
+  free_resources_for_train: true
+  clean_unregistered_sims: false
+  executable: "${MINIAPPS_PYTHON}"
+
+slow_step_multiplier: 3   # miniapps_slow uses num_step × this
+
+workflows:
+  # Expected run time of one fast run (the slow arm: × slow_step_multiplier);
+  # a run that respects its limit uses it to size its work.
+  fast_wall_hours: 0.05   # ~a few seconds locally
+  # Per-run spending limit: AuCaM passes it to each run and cancels a run that
+  # spends more.  A run that respects it runs only as many simulations as fit.
+  fast_spending_limit:
+    cpu_hours:   0.06
+  slow_spending_limit:
+    cpu_hours:   0.02    # less than a slow run needs
+  respect_limit: {fast: true, slow: false}
+  # CPUs one run may use at once (it reports them as cpus_in_use, and its
+  # cpu_hours as CPUs × run time).  slow_resources omitted → fast.
+  fast_resources:
+    cpus: 1
+
+policy_interval_s: 1.0
+shutdown_timeout_s: 30.0
+checkpoint_dir: ~

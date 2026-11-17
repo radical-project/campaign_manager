@@ -35,6 +35,9 @@ from src.aucam import (
     WorkflowResult,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 # ── Workers ───────────────────────────────────────────────────────────────────
 
 
@@ -131,16 +134,22 @@ async def _run_stale() -> None:
 
     spec = CampaignSpec(
         name="stale_test",
-        budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=3, max_concurrency_per_workflow=2
+        ),
         controller=ctrl2,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="good_worker",
                 block=good_worker,
                 launch_on_start=True,
                 on_completion=_on_good2,
             ),
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="stale_worker",
                 block=stale_worker,
                 launch_on_start=True,
@@ -152,8 +161,7 @@ async def _run_stale() -> None:
     )
 
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    await asyncio.wait_for(cm.run(), timeout=15.0)
+    await asyncio.wait_for(cm.run(spec), timeout=15.0)
 
     assert ctrl2.completions >= 1, "Expected ≥1 good_worker completion"
     # stale_worker must have been cancelled (returncode -1); it never completes (rc=0)
@@ -170,16 +178,22 @@ async def _run_walltime() -> None:
 
     spec = CampaignSpec(
         name="walltime_test",
-        budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=3, max_concurrency_per_workflow=2
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="fast_worker",
                 block=fast_worker,
                 launch_on_start=True,
                 on_completion=_on_fast,
             ),
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="walltime_worker",
                 block=walltime_worker,
                 launch_on_start=True,
@@ -191,8 +205,7 @@ async def _run_walltime() -> None:
     )
 
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    await asyncio.wait_for(cm.run(), timeout=15.0)
+    await asyncio.wait_for(cm.run(spec), timeout=15.0)
 
     assert ctrl.completions >= 1, "Expected ≥1 fast_worker completion"
 
@@ -208,22 +221,30 @@ async def _run_both() -> None:
 
     spec = CampaignSpec(
         name="both_test",
-        budget=CampaignBudget(max_concurrent_workflows=4, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=4, max_concurrency_per_workflow=2
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="fast_worker",
                 block=fast_worker,
                 launch_on_start=True,
                 on_completion=_on_fast,
             ),
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="stale_worker",
                 block=stale_worker,
                 launch_on_start=True,
                 stale_timeout_s=0.3,
             ),
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="walltime_worker",
                 block=walltime_worker,
                 launch_on_start=True,
@@ -235,7 +256,6 @@ async def _run_both() -> None:
     )
 
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    await asyncio.wait_for(cm.run(), timeout=15.0)
+    await asyncio.wait_for(cm.run(spec), timeout=15.0)
 
     assert completions[0] >= 1, "Expected ≥1 fast_worker completion"

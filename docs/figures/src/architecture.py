@@ -15,7 +15,7 @@ from matplotlib.patches import FancyArrowPatch, FancyBboxPatch  # noqa: E402
 OUT = Path(__file__).resolve().parents[1] / "aucam-architecture.png"
 
 BOX, EDGE, TEXT, FRAME, LABEL = "#dbe9f6", "#4a6fa5", "#1f2d3d", "#8a99b0", "#3d4b5c"
-# Outside AuCaM: drivers and the execution engine.
+# Outside AuCaM: the caller and the execution engine.
 EXT_BOX, EXT_EDGE = "#eceff1", "#7b8794"
 
 fig, ax = plt.subplots(figsize=(16, 11))
@@ -115,11 +115,11 @@ def path(points, text="", tx=None, ty=None, ha="center"):
         )
 
 
-drv = box(8, 10.45, 5.4, 0.9, "Drivers", "decide which campaigns to run", fc=EXT_BOX, ec=EXT_EDGE)
+drv = box(8, 10.45, 5.4, 0.9, "Caller", "a script, an agent or a person", fc=EXT_BOX, ec=EXT_EDGE)
 
 frame(0.4, 2.55, 15.6, 9.55, "CampaignManager (AuCaM)", "#f7f9fc")
 db = box(3.0, 8.45, 4.0, 1.0, "DataBackend", "Local · Redis · Dragon")
-di = box(8, 8.45, 3.9, 1.0, "Driver interface", "admit or reject · return outcomes")
+di = box(8, 8.45, 3.9, 1.0, "run(spec)", "run the campaign · return its outcome")
 ba = box(
     13.15,
     8.45,
@@ -130,7 +130,7 @@ ba = box(
 )
 
 frame(1.0, 2.9, 15.0, 7.45, "", "#ffffff")
-ax.text(14.8, 7.2, "Campaign 1 … N", ha="right", va="top", fontsize=13, weight="bold", color=LABEL)
+ax.text(14.8, 7.2, "Campaign", ha="right", va="top", fontsize=13, weight="bold", color=LABEL)
 pl = box(4.0, 6.2, 3.0, 1.1, "Policy loop", "each interval and completion")
 cc = box(9.0, 6.2, 4.2, 1.1, "CampaignController", "observe · decide (rules, code, LLM, ADR)")
 q = box(5.4, 3.85, 2.6, 1.1, "WorkflowQueue", "priority · aging")
@@ -150,7 +150,7 @@ ex = box(
 arrow(
     (drv["x"] - 0.6, drv["b"]),
     (di["x"] - 0.6, di["t"]),
-    "submit(spec)",
+    "CampaignSpec",
     tx=drv["x"] - 0.65,
     ha="right",
 )
@@ -161,7 +161,6 @@ arrow(
     tx=drv["x"] + 0.65,
     ha="left",
 )
-arrow((di["r"], di["y"]), (ba["l"], ba["y"]), "admission", both=True)
 arrow((4.0, db["b"]), (4.0, pl["t"]), "latest reports", tx=4.1, ha="left")
 arrow((pl["r"], pl["y"] + 0.2), (cc["l"], cc["y"] + 0.2), "observation", ty=pl["y"] + 0.48)
 arrow((cc["l"], cc["y"] - 0.2), (pl["r"], pl["y"] - 0.2), "PolicyResult", ty=pl["y"] - 0.48)

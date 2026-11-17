@@ -241,12 +241,11 @@ def test_compute_spent_jsonl(tmp_path):
 
 
 def test_compute_spent_fallback_no_telemetry():
-    """Fallback: prorate declared cpu_hours/gpu_hours by actual/declared wall time."""
+    """Fallback: the resources it was given × its run time."""
     camp = _make_campaign(telemetry_mock=None)
-    # declared: 4 cpu_hours over a declared wall of 1h; actual wall = 2h → ratio = 2.0
-    declared = {"wall_hours": 1.0, "cpu_hours": 4.0}
-    spending, profile = camp._compute_workflow_spent("wf1", declared, 7200.0, {})
-    assert spending == {"cpu_hours": pytest.approx(8.0)}  # 4 × (2h / 1h) = 8 cpu_hours
+    rate = {"cpu_hours": 4.0, "gpu_hours": 1.0}  # 4 CPUs and 1 GPU given
+    spending, profile = camp._compute_workflow_spent("wf1", rate, 7200.0, {})
+    assert spending == {"cpu_hours": pytest.approx(8.0), "gpu_hours": pytest.approx(2.0)}
     assert profile == {}
 
 

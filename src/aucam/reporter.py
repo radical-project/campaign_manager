@@ -26,6 +26,11 @@ class WorkflowReport:
     metrics: dict = field(default_factory=dict)
     emitted_at: float = field(default_factory=time.time)
     iteration: int = 0
+    # Final report of a command-line program (aucam-report done): it has
+    # finished with this exit code.  Lets a restarted AuCaM finish a workflow
+    # it adopted (R1), whose task it no longer has a handle to.
+    done: bool = False
+    returncode: int | None = None
 
 
 class WorkflowReporter(ABC):
@@ -52,13 +57,16 @@ class WorkflowReporter(ABC):
 
         Consumes and returns the signal if one is waiting, or returns None.
         The workflow should call this at the start of each iteration and act
-        on CampaignDecision.PAUSE by checkpointing then calling wait_for_resume().
+        on CampaignDecision.PAUSE by checkpointing then calling wait_for_resume(),
+        and on CampaignDecision.CANCEL by saving what it needs and returning
+        (it then has its type's cancel_grace_s before AuCaM cancels it).
         """
         ...
 
-    async def wait_for_resume(self) -> None:
-        """Block until the CM sends a RESUME signal.
+    async def wait_for_resume(self) -> CampaignDecision:
+        """Block until the CM sends RESUME or CANCEL; return which one.
 
+        A paused workflow that gets CANCEL should save what it needs and return.
         Yields to the event loop every 50 ms so the policy cycle can run.
         Subclasses may override for a backend-native wait (e.g. Redis BLPOP).
         Only meaningful after poll() returned PAUSE.
@@ -67,8 +75,8 @@ class WorkflowReporter(ABC):
 
         while True:
             sig = await self.poll()
-            if sig == CampaignDecision.RESUME:
-                return
+            if sig in (CampaignDecision.RESUME, CampaignDecision.CANCEL):
+                return sig
             await asyncio.sleep(0.05)
 
 

@@ -1,7 +1,7 @@
 """
 Reporter integration test for AuCaM.
 
-Two campaigns run concurrently:
+Two campaigns, each tested alone and then one after the other on one manager:
 
   scalar  — good_worker emits score=0.9 (float); bad_worker emits score=0.1.
             Controller cancels workers with score < THRESHOLD.
@@ -31,6 +31,9 @@ from src.aucam import (
     WorkflowReporter,
     WorkflowResult,
 )
+
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
 
 THRESHOLD = 0.5
 GOAL_COMPLETIONS = 2
@@ -172,8 +175,8 @@ def test_dict_score_cancellation() -> None:
     asyncio.run(_run_dict())
 
 
-def test_both_campaigns_concurrently() -> None:
-    """Scalar and dict campaigns run in the same CampaignManager."""
+def test_both_campaigns_in_sequence() -> None:
+    """Scalar and dict campaigns run one after the other on the same CampaignManager."""
     asyncio.run(_run_both())
 
 
@@ -186,24 +189,33 @@ async def _run_scalar() -> None:
 
     spec = CampaignSpec(
         name="scalar",
-        budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=3),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=3, max_concurrency_per_workflow=3
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="good_worker",
                 block=good_worker,
                 launch_on_start=False,
                 on_completion=good_hook,
             ),
-            WorkflowConfig(name="bad_worker", block=bad_worker, launch_on_start=False),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="bad_worker",
+                block=bad_worker,
+                launch_on_start=False,
+            ),
         ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
     )
 
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    await asyncio.wait_for(cm.run(), timeout=15.0)
+    await asyncio.wait_for(cm.run(spec), timeout=15.0)
 
     assert ctrl.completions >= GOAL_COMPLETIONS, (
         f"Expected {GOAL_COMPLETIONS} good completions, got {ctrl.completions}"
@@ -220,21 +232,33 @@ async def _run_dict() -> None:
 
     spec = CampaignSpec(
         name="dict",
-        budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=3),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=3, max_concurrency_per_workflow=3
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
-                name="sim_worker", block=sim_worker, launch_on_start=False, on_completion=sim_hook
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="sim_worker",
+                block=sim_worker,
+                launch_on_start=False,
+                on_completion=sim_hook,
             ),
-            WorkflowConfig(name="diverging_worker", block=diverging_worker, launch_on_start=False),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="diverging_worker",
+                block=diverging_worker,
+                launch_on_start=False,
+            ),
         ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
     )
 
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    await asyncio.wait_for(cm.run(), timeout=15.0)
+    await asyncio.wait_for(cm.run(spec), timeout=15.0)
 
     assert ctrl.completions >= 1, "Expected ≥1 sim_worker completion"
     assert len(ctrl.cancelled) >= 1, "Expected ≥1 diverging_worker cancellation"
@@ -254,38 +278,61 @@ async def _run_both() -> None:
 
     scalar_spec = CampaignSpec(
         name="scalar",
-        budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=3),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=3, max_concurrency_per_workflow=3
+        ),
         controller=scalar_ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="good_worker",
                 block=good_worker,
                 launch_on_start=False,
                 on_completion=good_hook,
             ),
-            WorkflowConfig(name="bad_worker", block=bad_worker, launch_on_start=False),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="bad_worker",
+                block=bad_worker,
+                launch_on_start=False,
+            ),
         ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
     )
     dict_spec = CampaignSpec(
         name="dict",
-        budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=3),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=3, max_concurrency_per_workflow=3
+        ),
         controller=dict_ctrl,
         workflows=[
             WorkflowConfig(
-                name="sim_worker", block=sim_worker, launch_on_start=False, on_completion=sim_hook
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="sim_worker",
+                block=sim_worker,
+                launch_on_start=False,
+                on_completion=sim_hook,
             ),
-            WorkflowConfig(name="diverging_worker", block=diverging_worker, launch_on_start=False),
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="diverging_worker",
+                block=diverging_worker,
+                launch_on_start=False,
+            ),
         ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
     )
 
+    # One manager runs the two campaigns one after the other.
     cm = CampaignManager()
-    cm.submit_campaign(scalar_spec)
-    cm.submit_campaign(dict_spec)
-    await asyncio.wait_for(cm.run(), timeout=15.0)
+    await asyncio.wait_for(cm.run(scalar_spec), timeout=15.0)
+    await asyncio.wait_for(cm.run(dict_spec), timeout=15.0)
 
     assert scalar_ctrl.completions >= GOAL_COMPLETIONS
     assert len(scalar_ctrl.cancelled) >= 1

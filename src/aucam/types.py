@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class WorkflowStatus(str, Enum):
+class WorkflowStatus(StrEnum):
     PENDING = "PENDING"
     RUNNING = "RUNNING"
     PAUSED = "PAUSED"
@@ -18,14 +17,14 @@ class WorkflowStatus(str, Enum):
     CANCELLED = "CANCELLED"
 
 
-class CampaignDecision(str, Enum):
+class CampaignDecision(StrEnum):
     CANCEL = "CANCEL"
     PAUSE = "PAUSE"
     RESUME = "RESUME"
     NOOP = "NOOP"
 
 
-class LaunchPriority(str, Enum):
+class LaunchPriority(StrEnum):
     CRITICAL = "CRITICAL"
     HIGH = "HIGH"
     NORMAL = "NORMAL"
@@ -54,6 +53,18 @@ class WorkflowResult:
     # workflow's reported values or proration (see docs/budget.md).  Empty when
     # nothing was charged.
     spent: dict = field(default_factory=dict)
+    # The spending limit this run was launched with (empty: none), and whether
+    # AuCaM cancelled it for spending past that limit.
+    spending_limit: dict = field(default_factory=dict)
+    over_budget: bool = False
+    # The resources it was given at once (e.g. {"cpus": 8, "gpus": 1}), and
+    # whether AuCaM cancelled it for using more.
+    resources: dict = field(default_factory=dict)
+    over_resources: bool = False
+    # How a cancelled workflow ended (P1): "graceful" — it received CANCEL and
+    # exited on its own within its grace period; "forced" — AuCaM cancelled it
+    # (no grace period, or it did not exit in time).  None if not cancelled.
+    cancel: str | None = None
 
 
 @dataclass
@@ -64,6 +75,11 @@ class LaunchRequest:
     campaign_name: str = ""  # stamped by _CampaignInstance.enqueue()
     context: dict = field(default_factory=dict)
     requester: str = "unknown"
+    # The controller's amount for this workflow: its spending limit (e.g.
+    # {"cpu_hours": 2.0}) and resources (e.g. {"cpus": 8}), used as given.
+    # None: the scheduler decides (SchedulingPolicy.size()).
+    spending_limit: dict | None = None
+    resources: dict | None = None
 
     @classmethod
     def make(
@@ -73,6 +89,8 @@ class LaunchRequest:
         *,
         context: dict | None = None,
         requester: str = "policy_agent",
+        spending_limit: dict | None = None,
+        resources: dict | None = None,
     ) -> LaunchRequest:
         return cls(
             workflow_type=workflow_type,
@@ -80,7 +98,57 @@ class LaunchRequest:
             enqueued_at=time.time(),
             context=context or {},
             requester=requester,
+            spending_limit=spending_limit,
+            resources=resources,
         )
+
+
+# Resource keys (amounts in use at once); every other key in an allocation is a
+# spending dimension (cpu_hours, gpu_hours, ...).
+RESOURCE_KEYS = ("cpus", "gpus")
+
+
+@dataclass
+class Allocation:
+    """What one workflow is given: a spending limit and resources in use at once."""
+
+    spending_limit: dict[str, float] = field(default_factory=dict)
+    resources: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
+class AllocationRecord:
+    """One finished workflow, for learning how much each workflow should get.
+
+    outcome  — "completed", "cancelled_at_limit" (it spent past its own limit or
+               used more resources than given), "cancelled" or "failed".
+    source   — the workflow that led to this one (LaunchRequest.context
+               ["source"]: a dependency trigger, or set by the controller).
+    progress — how much it moved the campaign toward its goal itself
+               (CampaignController.progress()).
+    credit   — the progress of the workflows it led to, passed back along the
+               chain (full credit to every earlier step); grows as they finish.
+    pending  — True while workflows it led to are still queued or running, so
+               its credit is not final yet.
+    """
+
+    workflow_id: str
+    workflow_type: str
+    outcome: str
+    wall_time_s: float
+    spending_limit: dict = field(default_factory=dict)
+    resources: dict = field(default_factory=dict)
+    spent: dict = field(default_factory=dict)
+    source: str | None = None
+    progress: float = 0.0
+    credit: float = 0.0
+    pending: bool = False
+    finished_at: float = 0.0
+
+    @property
+    def total_progress(self) -> float:
+        """Its own progress plus the credit passed back to it."""
+        return self.progress + self.credit
 
 
 @dataclass
@@ -136,48 +204,14 @@ class TelemetrySnapshot:
 
 
 @dataclass
-class GlobalBudget:
-    """Cross-campaign resource limits enforced by CampaignManager at admission time.
-
-    Checked when a driver calls ``cm.submit(spec)``; a campaign is rejected before
-    it starts if accepting it would violate any limit.
-
-    max_concurrent_campaigns          — hard cap on the number of campaigns running
-                                        simultaneously.
-    max_total_concurrent_workflows    — sum of each campaign's
-                                        max_concurrent_workflows must not exceed this.
-    spending                          — per-dimension global spending caps
-                                        (same keys as CampaignBudget.spending,
-                                        e.g. ``{"cpu_hours": 1.0}``).  Admission
-                                        checks: actual spending by completed
-                                        campaigns + declared limits of running
-                                        campaigns + incoming campaign's declared
-                                        limit must not exceed this cap.
-    n_campaigns                       — auto-close after this many campaigns complete.
-                                        The CM signals no-more-submissions internally;
-                                        the driver does not need to call ``close()``.
-    max_rejections                    — auto-close after this many budget-spending
-                                        rejections.  Handles the case where remaining
-                                        global budget is too small for any campaign the
-                                        driver proposes but not exactly zero.
-    """
-
-    max_concurrent_campaigns: int | None = None
-    max_total_concurrent_workflows: int | None = None
-    spending: dict[str, float] = field(default_factory=dict)
-    n_campaigns: int | None = None
-    max_rejections: int | None = None
-
-
-@dataclass
 class CampaignOutcome:
-    """Summary of a completed campaign, returned by ``SubmitResult.wait()``.
+    """Summary of a finished campaign, returned by ``CampaignManager.run()``.
 
-    Drivers use this to decide what to submit next::
+    An agent or script uses it to decide what to run next::
 
-        outcome = await result.wait()
+        outcome = await cm.run(spec)
         if not outcome.goal_reached:
-            # re-submit with adjusted parameters
+            ...  # run again with adjusted parameters
         cancel_rate = (
             sum(outcome.cancelled.values()) /
             max(1, sum(outcome.completed.values()) + sum(outcome.cancelled.values()))
@@ -190,38 +224,25 @@ class CampaignOutcome:
     failed: dict[str, int]  # workflow_type → hard failures (other returncode)
     elapsed_s: float
     goal_reached: bool
+    # Why the campaign ended: goals_satisfied, controller_terminate,
+    # spending_limit, campaign_idle or signal.
+    exit_reason: str = "unknown"
     spent: dict[str, float] = field(default_factory=dict)  # actual resource consumption
     summary: dict = field(default_factory=dict)  # controller-provided scientific aggregates
-
-
-@dataclass
-class SubmitResult:
-    """Return value of ``CampaignManager.submit()``.
-
-    Call ``await result.wait()`` to block until the campaign finishes and
-    receive its :class:`CampaignOutcome`.
-    """
-
-    accepted: bool
-    campaign_name: str
-    reason: str | None = None
-    # Set by CampaignManager.submit() when accepted; None for rejected submissions
-    # and for campaigns submitted via submit_campaign().
-    outcome_future: asyncio.Future[CampaignOutcome] | None = field(
-        default=None, init=False, repr=False, compare=False
-    )
-
-    async def wait(self) -> CampaignOutcome:
-        """Wait for the campaign to finish and return its outcome.
-
-        Raises :exc:`RuntimeError` if the campaign was rejected or was
-        submitted via ``submit_campaign()``.
-        """
-        if not self.accepted:
-            raise RuntimeError(f"Campaign '{self.campaign_name}' was not accepted: {self.reason}")
-        if self.outcome_future is None:
-            raise RuntimeError(
-                f"Campaign '{self.campaign_name}' has no outcome future; "
-                "it was submitted via submit_campaign(); use submit() to get one."
-            )
-        return await self.outcome_future
+    # Workflows cancelled for spending past their own spending limit, or for
+    # using more resources at once than they were given.
+    budget_cancels: int = 0
+    resource_cancels: int = 0
+    # Launch requests dropped because their allocation did not fit the
+    # remaining budget or the capacity, with nothing else running.
+    unfit_dropped: int = 0
+    # Policy cycles where the controller's decide() or observe() failed or
+    # timed out; AuCaM used its built-in rules for those cycles.
+    controller_errors: int = 0
+    # Model usage reported by the scheduling policy and controller
+    # (take_usage()), e.g. {"llm_tokens": 5400}; charged to `spent` only if
+    # the campaign limits that dimension or the object sets charge_usage.
+    model_usage: dict[str, float] = field(default_factory=dict)
+    # The campaign's goals when it ended, including changes the controller
+    # made while it ran (Goal objects).
+    goals: list = field(default_factory=list)

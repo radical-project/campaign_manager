@@ -37,6 +37,9 @@ from src.aucam.checkpoint import (
     _to_json,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 # ── Workers ───────────────────────────────────────────────────────────────────
 
 
@@ -69,8 +72,7 @@ class _SimpleCtrl(CampaignController):
 
 async def _run(spec: CampaignSpec) -> None:
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    await cm.run()
+    await cm.run(spec)
 
 
 # ── 1. Unit: CampaignCheckpoint JSON round-trip ───────────────────────────────
@@ -93,7 +95,7 @@ def test_checkpoint_json_roundtrip() -> None:
                 wf_id="test_camp.worker_a.abc123",
                 workflow_type="worker_a",
                 started_at=1234.0,
-                declared_spending={"wall_hours": 1.0, "gpu_hours": 4.0},
+                resources={"cpus": 2, "gpus": 4},
             )
         ],
         paused_wf_ids=["test_camp.worker_a.abc123"],
@@ -116,7 +118,7 @@ def test_checkpoint_json_roundtrip() -> None:
     assert restored.queue[0].workflow_type == "worker_a"
     assert restored.queue[0].context == {"key": "val"}
     assert len(restored.active) == 1
-    assert restored.active[0].declared_spending == {"wall_hours": 1.0, "gpu_hours": 4.0}
+    assert restored.active[0].resources == {"cpus": 2, "gpus": 4}
     assert restored.paused_wf_ids == ["test_camp.worker_a.abc123"]
     assert restored.spent == {"gpu_hours": 0.042}
     assert restored.policy_cycles == 7
@@ -172,10 +174,14 @@ def test_checkpoint_file_created(tmp_path: Path) -> None:
 
     spec = CampaignSpec(
         name="ckpt_create_test",
-        budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="fast_worker",
                 block=fast_worker,
                 launch_on_start=True,
@@ -207,10 +213,14 @@ def test_checkpoint_content_counters(tmp_path: Path) -> None:
 
     spec = CampaignSpec(
         name="ckpt_content_test",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=2
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="fast_worker",
                 block=fast_worker,
                 launch_on_start=True,
@@ -273,10 +283,14 @@ def test_recovery_restores_queue_and_completes(tmp_path: Path) -> None:
 
     spec = CampaignSpec(
         name="recovery_test",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=2
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="fast_worker",
                 block=fast_worker,
                 launch_on_start=False,  # don't auto-enqueue — queue comes from checkpoint
@@ -315,7 +329,6 @@ def test_recovery_active_workflows_reenqueued(tmp_path: Path) -> None:
                 wf_id="active_recovery_test.fast_worker.deadbeef",
                 workflow_type="fast_worker",
                 started_at=time.time() - 10,
-                declared_spending={},
             )
         ],
         policy_cycles=3,
@@ -330,10 +343,14 @@ def test_recovery_active_workflows_reenqueued(tmp_path: Path) -> None:
 
     spec = CampaignSpec(
         name="active_recovery_test",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=2
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="fast_worker",
                 block=fast_worker,
                 launch_on_start=False,
@@ -347,3 +364,20 @@ def test_recovery_active_workflows_reenqueued(tmp_path: Path) -> None:
 
     asyncio.run(asyncio.wait_for(_run(spec), timeout=15.0))
     assert ctrl.completions >= 1, "Re-enqueued active workflow did not complete"
+
+
+def test_an_older_checkpoint_never_replaces_a_newer_one(tmp_path):
+    """A policy-cycle checkpoint written in a thread can finish after the final
+    one written at shutdown; it must not replace it."""
+    import threading
+
+    from src.aucam.campaign import _CampaignInstance
+
+    inst = _CampaignInstance.__new__(_CampaignInstance)
+    inst._ckpt_lock, inst._ckpt_written = threading.Lock(), 0
+    path = tmp_path / "c.json"
+    newer = CampaignCheckpoint(campaign_name="c", policy_cycles=9)
+    older = CampaignCheckpoint(campaign_name="c", policy_cycles=8)
+    inst._write_ckpt(2, path, newer)  # the final checkpoint
+    inst._write_ckpt(1, path, older)  # a late cycle checkpoint
+    assert read_checkpoint(path).policy_cycles == 9

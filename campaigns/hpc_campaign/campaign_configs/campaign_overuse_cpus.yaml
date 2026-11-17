@@ -1,0 +1,56 @@
+# Per-workflow resources — use case: one workflow type uses more CPUs than it was given.
+#
+# Every workflow gets resources from AuCaM (resources below), passed in
+# context["resources"] / CM_RESOURCES_CPUS.  sim_worker uses what it is given.
+# sim_worker_b is configured to use twice its CPUs (respect_resources: false)
+# and reports cpus_in_use, so AuCaM cancels every sim_worker_b workflow once it
+# reports using more than it was given.  Look for
+#   [WORKFLOW-…sim_worker_b…] resources exceeded cpus=2 > 1 — auto-cancel
+# and "resources=N" in the campaign SUMMARY line.
+#
+# Run:
+#   python run_campaign.py --campaign-config campaign_configs/campaign_overuse_cpus.yaml
+
+controller:
+  goal_analyses: 3            # number of analysis_worker completions before terminating
+  score_floor: 0.4            # simulations scoring below this are cancelled
+
+budget:
+  max_concurrent: 4           # max concurrent workflows in this campaign
+  max_concurrency_per_workflow: 2
+  capacity:   # CPUs available at once (each workflow is given 1)
+    cpus: 4
+  spending:
+    cpu_hours: 0.004          # spending limit; remove to disable
+    gpu_hours: ~
+
+workflows:
+  sim_worker:
+    n_iters: 10               # simulation steps per block
+    iter_sleep_s: 0.08        # sleep per step (total: n_iters × iter_sleep_s ≈ 0.8 s)
+    stale_timeout_s: 120.0    # max gap between reporter.emit() calls
+    spending_limit:           # most one run may spend; AuCaM passes it to the run
+      cpu_hours:  0.0003      # and cancels a run that spends more
+    respect_limit: true       # the run stops before it would pass its limit
+    resources:                # CPUs one workflow may use at once; AuCaM passes them
+      cpus: 1                 # to it and cancels a workflow that uses more
+  sim_worker_b:
+    # n_iters_b is auto-derived as max(3, n_iters // 3) — not set here
+    stale_timeout_s: 60.0
+    spending_limit:
+      cpu_hours:  0.0003      # room for 2 CPUs: only the resource check fires
+    respect_limit: true
+    resources:
+      cpus: 1
+    respect_resources: false  # uses 2 CPUs: AuCaM cancels it
+  analysis_worker:
+    steps: 2                  # post-processing steps
+    spending_limit:
+      cpu_hours:  0.0006      # ≈ 2 s; the run's profiler samples once a second
+    respect_limit: true
+    resources:
+      cpus: 1
+
+policy_interval_s: 0.1         # checks often: sim_worker_b runs only ≈ 0.3 s
+shutdown_timeout_s: 10.0
+checkpoint_dir: ~

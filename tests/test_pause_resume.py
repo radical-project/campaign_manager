@@ -33,6 +33,9 @@ from src.aucam import (
     WorkflowResult,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 # ── Shared state ──────────────────────────────────────────────────────────────
 
 events: list[str] = []  # lifecycle log — written by pausable_worker
@@ -116,10 +119,14 @@ def test_pause_resume_lifecycle() -> None:
 
     spec = CampaignSpec(
         name="pause_resume_test",
-        budget=CampaignBudget(max_concurrent_workflows=3, max_concurrency_per_workflow=2),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=3, max_concurrency_per_workflow=2
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="pausable_worker",
                 block=pausable_worker,
                 supports_pause=True,
@@ -127,6 +134,8 @@ def test_pause_resume_lifecycle() -> None:
                 on_completion=_on_done,
             ),
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="short_worker",
                 block=short_worker,
                 launch_on_start=True,
@@ -137,8 +146,7 @@ def test_pause_resume_lifecycle() -> None:
     )
 
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    asyncio.run(asyncio.wait_for(cm.run(), timeout=30.0))
+    asyncio.run(asyncio.wait_for(cm.run(spec), timeout=30.0))
 
     # Workflow completed
     assert "COMPLETED" in events, f"Worker never completed; events={events}"

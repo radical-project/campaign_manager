@@ -23,6 +23,9 @@ from src.aucam import (  # noqa: E402
     WorkflowConfig,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
+
 SLEEP_S = 0.3
 
 
@@ -39,43 +42,32 @@ async def gpu_workflow(flow=None) -> None:
 def test_task_level_accounting_charges_requested_resources() -> None:
     spec = CampaignSpec(
         name="acct",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=1
+        ),
         controller=CampaignController(goal_type="cmd", goal_n=1),
         workflows=[
             WorkflowConfig(
                 name="gpu",
                 block=gpu_workflow,
-                # deliberately wrong declaration: task-level accounting must win
-                declared_spending={"wall_hours": 1.0, "gpu_hours": 100.0},
+                # deliberately too many GPUs: task-level accounting must win over
+                # resources × run time
+                spending_limit={"gpu_hours": 100.0},
+                resources={"cpus": 1, "gpus": 50},
             ),
             WorkflowConfig(
                 name="cmd",
                 launch_cmd=[sys.executable, "-c", f"import time; time.sleep({SLEEP_S})"],
-                task_description={"ranks": 1, "cores_per_rank": 4},
-                declared_spending={"wall_hours": 1.0, "cpu_hours": 100.0},
+                task_description={"ranks": 1, "cores_per_rank": 4},  # also its resources
+                spending_limit={"cpu_hours": 100.0},
             ),
         ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
     )
-    outcome: dict = {}
-
-    async def main() -> None:
-        cm = CampaignManager(enable_telemetry=True)
-        cm.expect_driver()
-
-        async def driver() -> None:
-            try:
-                res = await cm.submit(spec)
-                outcome["o"] = await res.wait()
-            finally:
-                cm.driver_done()
-
-        asyncio.ensure_future(driver())
-        await asyncio.wait_for(cm.run(), timeout=60.0)
-
-    asyncio.run(main())
-    spent = outcome["o"].spent
+    cm = CampaignManager(enable_telemetry=True)
+    outcome = asyncio.run(asyncio.wait_for(cm.run(spec), timeout=60.0))
+    spent = outcome.spent
     # gpu: 2 GPUs × ~0.3 s;  cmd: 4 cores × ~0.3 s  (generous bounds for CI jitter)
     assert 2 * SLEEP_S / 3600 * 0.8 <= spent.get("gpu_hours", 0.0) <= 2 * 3.0 / 3600
     assert 4 * SLEEP_S / 3600 * 0.8 <= spent.get("cpu_hours", 0.0) <= 4 * 3.0 / 3600
@@ -94,28 +86,24 @@ def test_task_counts_reach_the_controller() -> None:
 
     spec = CampaignSpec(
         name="counts",
-        budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
+        ),
         controller=Recorder(launch=["gpu"], goal_type="gpu", goal_n=1),
-        workflows=[WorkflowConfig(name="gpu", block=gpu_workflow)],
+        workflows=[
+            WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
+                name="gpu",
+                block=gpu_workflow,
+            )
+        ],
         policy_interval_s=0.05,
         shutdown_timeout_s=5.0,
     )
 
-    async def main() -> None:
-        cm = CampaignManager(enable_telemetry=True)
-        cm.expect_driver()
-
-        async def driver() -> None:
-            try:
-                await (await cm.submit(spec)).wait()
-            finally:
-                cm.driver_done()
-
-        asyncio.ensure_future(driver())
-        await asyncio.wait_for(cm.run(), timeout=60.0)
-
-    asyncio.run(main())
+    cm = CampaignManager(enable_telemetry=True)
+    asyncio.run(asyncio.wait_for(cm.run(spec), timeout=60.0))
     assert seen, "no observation carried task counts"
-    assert set(seen[0]) == {"waiting", "submitted", "running", "all"}
+    assert set(seen[0]) == {"waiting", "submitted", "running"}
     assert max(s["running"] for s in seen) >= 1
-    assert max(s["all"]["running"] for s in seen) >= 1

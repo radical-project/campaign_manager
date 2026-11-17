@@ -1,0 +1,12 @@
+# Global CampaignManager configuration.
+# verbose and telemetry.enabled can be overridden via --verbose and --telemetry-dir CLI flags.
+
+engine: concurrent
+verbose: false
+
+scheduling:
+  policy: bandit              # bandit | fifo
+
+telemetry:
+  enabled: false
+  dir: ~

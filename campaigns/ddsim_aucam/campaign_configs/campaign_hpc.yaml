@@ -18,6 +18,8 @@ controller:
 budget:
   max_concurrent: 1
   max_concurrency_per_workflow: 1
+  capacity:   # the allocation's CPUs; set to yours
+    cpus: 64
   spending:
     cpu_hours: 0.25       # ~6 completions at ~120–220 s each; 0 or remove to disable
 
@@ -37,15 +39,20 @@ miniapps:
 
 slow_step_multiplier: 3   # miniapps_slow uses num_step × this
 
-# Declared spending per workflow arm (wall_hours, cpu_hours, gpu_hours).
-# Budget accounting: reserved at launch, settled (prorated) at completion.
-# With max_wall_time_s set, actual ≤ declared; without it, a run may overrun.
 workflows:
-  fast_spending:
-    wall_hours:  0.5     # ~15–30 min; used as proration denominator
-    cpu_hours:   0.5     # 16 CPUs × 0.5 h but most time is GPU-bound sims
-    gpu_hours:   0.05    # GPU used only for training (~few min out of 30)
-  # slow_spending omitted → fast_spending × slow_step_multiplier (× 3)
+  # Expected run time of one fast run (the slow arm: × slow_step_multiplier);
+  # a run that respects its limit uses it to size its work.
+  fast_wall_hours: 0.5    # ~15–30 min
+  # Per-run spending limit: AuCaM passes it to each run and cancels a run that
+  # spends more; a run that respects it runs only as many simulations as fit.
+  fast_spending_limit:
+    cpu_hours:   0.6
+  # slow_spending_limit omitted → fast × slow_step_multiplier
+  respect_limit: {fast: true, slow: true}
+  # CPUs one run may use at once (it reports them as cpus_in_use, and its
+  # cpu_hours as CPUs × run time).  slow_resources omitted → fast.
+  fast_resources:
+    cpus: 1
 
 policy_interval_s: 10.0
 shutdown_timeout_s: 300.0

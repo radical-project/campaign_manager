@@ -1,0 +1,44 @@
+# Campaign template — Dragon HPC (two-node allocation).
+# Longer blocks, more analyses, tighter timeouts relative to block duration.
+
+controller:
+  goal_analyses: 8
+  score_floor: 0.4
+
+budget:
+  max_concurrent: 3           # max concurrent workflows in this campaign
+  max_concurrency_per_workflow: 2
+  capacity:   # the allocation's CPUs; set to yours
+    cpus: 64
+  spending:
+    cpu_hours: 0.042          # ~3 sim_worker completions at ≈50 s each; remove to disable
+    gpu_hours: ~
+
+workflows:
+  sim_worker:
+    n_iters: 100              # 100 iters × 0.5 s ≈ 50 s per block
+    iter_sleep_s: 0.5
+    stale_timeout_s: 120.0
+    spending_limit:
+      cpu_hours:  0.018
+    respect_limit: true
+    resources:                # CPUs one workflow may use at once; AuCaM passes them
+      cpus: 1                 # to it and cancels a workflow that uses more
+  sim_worker_b:
+    stale_timeout_s: 60.0     # n_iters_b ≈ 33 iters × 0.5 s ≈ 16 s
+    spending_limit:
+      cpu_hours:  0.006
+    respect_limit: true
+    resources:
+      cpus: 1
+  analysis_worker:
+    steps: 20                 # 20 × 0.5 s ≈ 10 s
+    spending_limit:
+      cpu_hours:  0.004
+    respect_limit: true
+    resources:
+      cpus: 1
+
+policy_interval_s: 0.5
+shutdown_timeout_s: 10.0
+checkpoint_dir: ~

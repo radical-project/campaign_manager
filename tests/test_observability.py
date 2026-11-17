@@ -29,6 +29,8 @@ from src.aucam import (
     WorkflowResult,
 )
 
+CAPACITY = {"cpus": 1024, "gpus": 64}  # the allocation tests run on
+
 # ── Workers ───────────────────────────────────────────────────────────────────
 
 
@@ -83,8 +85,7 @@ def _run_and_capture(
 
 async def _run(spec: CampaignSpec) -> None:
     cm = CampaignManager()
-    cm.submit_campaign(spec)
-    await cm.run()
+    await cm.run(spec)
 
 
 # ── Simple controller ─────────────────────────────────────────────────────────
@@ -118,10 +119,14 @@ def test_final_metrics_populated() -> None:
 
     spec = CampaignSpec(
         name="final_metrics_test",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=1
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="reporting_worker",
                 block=reporting_worker,
                 launch_on_start=True,
@@ -156,10 +161,14 @@ def test_final_metrics_empty_for_no_reporter() -> None:
 
     spec = CampaignSpec(
         name="no_reporter_test",
-        budget=CampaignBudget(max_concurrent_workflows=1, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="silent_worker",
                 block=silent_worker,
                 launch_on_start=True,
@@ -188,10 +197,14 @@ def test_summary_log_emitted(caplog: pytest.LogCaptureFixture) -> None:
 
     spec = CampaignSpec(
         name="summary_test",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=1
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="quick_worker",
                 block=quick_worker,
                 launch_on_start=True,
@@ -254,10 +267,14 @@ def test_max_queue_depth_warning_not_drop(caplog: pytest.LogCaptureFixture) -> N
 
     spec = CampaignSpec(
         name="queue_depth_test",
-        budget=CampaignBudget(max_concurrent_workflows=5, max_concurrency_per_workflow=5),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=5, max_concurrency_per_workflow=5
+        ),
         controller=ctrl2,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="quick_worker",
                 block=quick_worker,
                 launch_on_start=False,
@@ -304,10 +321,14 @@ def test_event_driven_policy_wakeup() -> None:
 
     spec = CampaignSpec(
         name="event_wake_test",
-        budget=CampaignBudget(max_concurrent_workflows=2, max_concurrency_per_workflow=1),
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=2, max_concurrency_per_workflow=1
+        ),
         controller=ctrl,
         workflows=[
             WorkflowConfig(
+                spending_limit={"cpu_hours": 1000.0},
+                resources={"cpus": 1},
                 name="quick_worker",
                 block=quick_worker,
                 launch_on_start=True,
