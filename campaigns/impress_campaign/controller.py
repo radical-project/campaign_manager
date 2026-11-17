@@ -27,7 +27,7 @@ from src.aucam import (
 logger = logging.getLogger(__name__)
 
 GOAL_N = 4
-SCORE_FLOOR = 0.0          # progress floor to cancel mid-run (0 = keep all)
+SCORE_FLOOR = 0.0  # progress floor to cancel mid-run (0 = keep all)
 BUDGET_WARN_FRACTION = 0.80
 
 
@@ -109,8 +109,7 @@ class ImpressController(CampaignController):
             )
         else:
             logger.info(
-                "[CTRL] impress done (no progress score)  best=[%s]"
-                "  total=%d/%d  spent=%s",
+                "[CTRL] impress done (no progress score)  best=[%s]  total=%d/%d  spent=%s",
                 best_str,
                 n_done,
                 self._goal_n,
@@ -119,8 +118,13 @@ class ImpressController(CampaignController):
 
     # ── Policy-cycle observe hook (live score + budget monitor) ───────────────
 
-    def observe(self, queue_snapshot=None, budget: dict | None = None,  # type: ignore[override]
-                running: dict | None = None, **_kwargs) -> dict:
+    def observe(
+        self,
+        queue_snapshot=None,
+        budget: dict | None = None,  # type: ignore[override]
+        running: dict | None = None,
+        **_kwargs,
+    ) -> dict:
         """Log live budget and score state each policy cycle."""
         budget = budget or {}
         burn = budget.get("burn", {})
@@ -139,7 +143,7 @@ class ImpressController(CampaignController):
                 b = burn.get(dim, {})
                 rate = b.get("rate_per_hour", 0.0)
                 eta = b.get("hours_to_limit")
-                part = f"{dim}: {used:.4f}/{limit:.4f} ({100*frac:.1f}%)"
+                part = f"{dim}: {used:.4f}/{limit:.4f} ({100 * frac:.1f}%)"
                 if rate:
                     part += f" @{rate:.4f}/h"
                 if eta is not None:
@@ -150,11 +154,7 @@ class ImpressController(CampaignController):
 
         # One-time warning when budget is mostly consumed
         if not self._budget_warned and limits:
-            fracs = [
-                spent_map.get(d, 0.0) / limits[d]
-                for d in limits
-                if limits.get(d)
-            ]
+            fracs = [spent_map.get(d, 0.0) / limits[d] for d in limits if limits.get(d)]
             if fracs and max(fracs) >= self._budget_warn_fraction:
                 self._budget_warned = True
                 logger.warning(
@@ -173,8 +173,9 @@ class ImpressController(CampaignController):
                 n_completed,
             )
 
-        return super().observe(queue_snapshot=queue_snapshot, budget=budget,
-                               running=running, **_kwargs)
+        return super().observe(
+            queue_snapshot=queue_snapshot, budget=budget, running=running, **_kwargs
+        )
 
     # ── Summary ───────────────────────────────────────────────────────────────
 

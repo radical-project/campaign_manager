@@ -70,6 +70,7 @@ def build_spec(
     try:
         from impress_a.integrations.aucam import reward_fn as impress_reward_fn
         from impress_a.integrations.aucam import workflow_config as impress_workflow_config
+
         wf_config_kwargs = impress_workflow_config(
             spec_path,
             name="impress",
@@ -86,10 +87,12 @@ def build_spec(
             "Install IMPRESS-A (`pip install -e /path/to/IMPRESS/agent`) for full integration."
         )
         from impress_a.integrations.aucam import make_impress_worker  # will also raise if absent
+
         wf_config = WorkflowConfig(
             name="impress",
-            block=make_impress_worker(spec_path, model=model, guard=guard,
-                                      report_interval_s=report_interval_s),
+            block=make_impress_worker(
+                spec_path, model=model, guard=guard, report_interval_s=report_interval_s
+            ),
             stale_timeout_s=ccfg.workflows.impress.stale_timeout_s,
             launch_on_start=True,
             spending_limit=ccfg.workflows.impress.spending_limit,
@@ -145,9 +148,11 @@ async def run(
 ) -> None:
     if gcfg.engine == "dragon":
         from rhapsody.backends.execution.dragon import DragonExecutionBackend
+
         backend = await DragonExecutionBackend()
     elif gcfg.engine == "concurrent":
         from rhapsody.backends.execution.concurrent import ConcurrentExecutionBackend
+
         backend = await ConcurrentExecutionBackend()
     else:
         backend = None
@@ -197,7 +202,7 @@ def _log_outcome(name: str, outcome, elapsed: float) -> None:
         "",
         f"  workflows run   : {n_run}",
         f"    completed     : {n_ok}",
-        f"    cancelled     : {n_cancel}  (cancel rate {100*cancel_rate:.0f}%)",
+        f"    cancelled     : {n_cancel}  (cancel rate {100 * cancel_rate:.0f}%)",
         f"    failed        : {n_fail}",
         f"    budget_cancels: {outcome.budget_cancels}",
         f"    resource_cancels: {outcome.resource_cancels}",
@@ -243,30 +248,53 @@ def _build_parser(gcfg: GlobalConfig, ccfg: CampaignConfig) -> argparse.Argument
     p.add_argument("--global-config", default=None)
     p.add_argument("--campaign-config", default=None)
     p.add_argument("-v", "--verbose", action="store_true", default=gcfg.verbose)
-    p.add_argument("--engine", choices=["default", "concurrent", "dragon"],
-                   default=gcfg.engine)
-    p.add_argument("--telemetry-dir", default=gcfg.telemetry.dir,
-                   help="enables telemetry JSONL output")
-    p.add_argument("--model", default="D",
-                   help="IMPRESS policy model letter (D, B, …)")
-    p.add_argument("--no-guard", action="store_true", default=False,
-                   help="disable IMPRESS gate guards (for testing)")
-    p.add_argument("--report-interval-s", type=float, default=30.0,
-                   help="how often the IMPRESS workflow reports to AuCaM (seconds)")
+    p.add_argument("--engine", choices=["default", "concurrent", "dragon"], default=gcfg.engine)
+    p.add_argument(
+        "--telemetry-dir", default=gcfg.telemetry.dir, help="enables telemetry JSONL output"
+    )
+    p.add_argument("--model", default="D", help="IMPRESS policy model letter (D, B, …)")
+    p.add_argument(
+        "--no-guard",
+        action="store_true",
+        default=False,
+        help="disable IMPRESS gate guards (for testing)",
+    )
+    p.add_argument(
+        "--report-interval-s",
+        type=float,
+        default=30.0,
+        help="how often the IMPRESS workflow reports to AuCaM (seconds)",
+    )
 
     # Controller
-    p.add_argument("--goal-n", type=int, default=ccfg.controller.goal_n,
-                   help="completions before campaign terminates")
-    p.add_argument("--score-floor", type=float, default=ccfg.workflows.impress.score_floor,
-                   help="cancel mid-run if progress drops below this (0 = disable)")
+    p.add_argument(
+        "--goal-n",
+        type=int,
+        default=ccfg.controller.goal_n,
+        help="completions before campaign terminates",
+    )
+    p.add_argument(
+        "--score-floor",
+        type=float,
+        default=ccfg.workflows.impress.score_floor,
+        help="cancel mid-run if progress drops below this (0 = disable)",
+    )
     p.add_argument("--max-concurrent", type=int, default=ccfg.budget.max_concurrent)
     p.add_argument("--checkpoint-dir", default=ccfg.checkpoint_dir)
 
     # Budget overrides
-    p.add_argument("--spending-cpu-hours", type=float, default=None,
-                   help="campaign-wide CPU-hour spending limit")
-    p.add_argument("--spending-gpu-hours", type=float, default=None,
-                   help="campaign-wide GPU-hour spending limit")
+    p.add_argument(
+        "--spending-cpu-hours",
+        type=float,
+        default=None,
+        help="campaign-wide CPU-hour spending limit",
+    )
+    p.add_argument(
+        "--spending-gpu-hours",
+        type=float,
+        default=None,
+        help="campaign-wide GPU-hour spending limit",
+    )
     return p
 
 

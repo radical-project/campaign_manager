@@ -35,7 +35,7 @@ class GlobalConfig:
 
 @dataclass
 class ControllerCfg:
-    goal_n: int = 4                # completions before campaign terminates
+    goal_n: int = 4  # completions before campaign terminates
     budget_warn_fraction: float = 0.80  # log a warning when this fraction is used
 
 
@@ -53,11 +53,9 @@ class WorkflowCfg:
     spending_limit: dict[str, float] = field(
         default_factory=lambda: {"cpu_hours": 2.0, "gpu_hours": 0.5}
     )
-    resources: dict[str, Any] = field(
-        default_factory=lambda: {"cpus": 4, "gpus": 1}
-    )
+    resources: dict[str, Any] = field(default_factory=lambda: {"cpus": 4, "gpus": 1})
     respect_limit: bool = True
-    score_floor: float = 0.0       # cancel mid-run if progress drops below this (0 = off)
+    score_floor: float = 0.0  # cancel mid-run if progress drops below this (0 = off)
 
 
 @dataclass
