@@ -48,7 +48,6 @@ from src.aucam import (
     WorkflowConfig,
 )
 
-
 # ── Campaign spec ──────────────────────────────────────────────────────────────
 
 
@@ -69,8 +68,8 @@ def build_spec(
     IMPRESS campaign enforces internally), keeping them consistent.
     """
     try:
-        from impress_a.integrations.aucam import workflow_config as impress_workflow_config
         from impress_a.integrations.aucam import reward_fn as impress_reward_fn
+        from impress_a.integrations.aucam import workflow_config as impress_workflow_config
         wf_config_kwargs = impress_workflow_config(
             spec_path,
             name="impress",
