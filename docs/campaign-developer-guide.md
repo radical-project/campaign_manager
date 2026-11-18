@@ -736,6 +736,12 @@ async def main() -> None:
 - `CampaignManager(backend=...)` reuses a backend you started (e.g. Dragon on
   HPC) across campaigns and leaves it running; without one, each campaign starts and
   stops a local backend.
+- `CampaignManager(backend=[compute, local, ...])` gives the engine several named
+  backends: the first is the default route, and a task picks another by name
+  (`flow.function_task(fn, backend="local")`). A Python workflow that declares
+  `flow` gets this engine, so a workflow with its own routes (IMPRESS-A uses
+  `compute` and `local`) runs its tasks in AuCaM's engine instead of building
+  its own. These backends are left running too.
 
 `CampaignOutcome`: `campaign_name`, `exit_reason`, `completed` / `cancelled` /
 `failed` (per type), `elapsed_s`, `goal_reached`, `spent`, `summary`,

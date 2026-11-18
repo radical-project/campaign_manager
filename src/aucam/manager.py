@@ -32,11 +32,19 @@ class CampaignManager:
 
         backend = await DragonExecutionBackend()
         cm = CampaignManager(backend=backend)
+
+    ``backend`` may also be a list of named backends, which become the routes
+    of the one engine AuCaM creates: the first is the default, and a task picks
+    another by name (``flow.function_task(fn, backend="local")``).  A Python
+    workflow that declares ``flow`` gets that engine, so its tasks can use
+    every route; AuCaM does not shut these backends down either::
+
+        cm = CampaignManager(backend=[compute, local])
     """
 
     def __init__(
         self,
-        backend: Any = None,
+        backend: Any | list[Any] = None,
         enable_telemetry: bool = False,
         telemetry_checkpoint_dir: str | None = None,
     ) -> None:
