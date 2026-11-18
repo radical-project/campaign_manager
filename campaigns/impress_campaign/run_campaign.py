@@ -37,9 +37,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from config import CampaignConfig, GlobalConfig, load_campaign, load_global
-from controller import ImpressController
-
 from src.aucam import (
     BanditSchedulingPolicy,
     CampaignBudget,
@@ -47,6 +44,9 @@ from src.aucam import (
     CampaignSpec,
     WorkflowConfig,
 )
+
+from config import CampaignConfig, GlobalConfig, load_campaign, load_global
+from controller import ImpressController
 
 # ── Campaign spec ──────────────────────────────────────────────────────────────
 

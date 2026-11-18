@@ -36,17 +36,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-import workflows as _workflows_mod
-from config import (
-    CampaignConfig,
-    GlobalConfig,
-    load_campaign,
-    load_global,
-)
-from controller import ScoreController
-from scheduler import make_policy, print_policy_summary
-from workflows import analysis_worker, sim_worker, sim_worker_b
-
 from src.aucam import (
     CampaignBudget,
     CampaignManager,
@@ -60,6 +49,16 @@ from src.aucam import (
     WorkflowResult,
 )
 
+import workflows as _workflows_mod
+from config import (
+    CampaignConfig,
+    GlobalConfig,
+    load_campaign,
+    load_global,
+)
+from controller import ScoreController
+from scheduler import make_policy, print_policy_summary
+from workflows import analysis_worker, sim_worker, sim_worker_b
 
 # ── Results writer ─────────────────────────────────────────────────────────────
 

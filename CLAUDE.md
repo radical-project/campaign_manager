@@ -33,9 +33,9 @@ Guidance for Claude Code in this repository.
 - Every workflow runs as one AsyncFlow block (`launch_cmd` = a block with one
   executable task).
 - Terms: CampaignManager (CM), `run(spec)` → `CampaignOutcome`,
-  CampaignBudget, `declared_spending`,
+  CampaignBudget, `spending_limit`,
   CampaignController, PolicyResult, WorkflowQueue, SchedulingPolicy,
-  WorkflowReporter, DataBackend.
+  WorkflowReporter, DataBackend, WorkflowMessage.
 
 ## Traps
 
@@ -46,8 +46,10 @@ Guidance for Claude Code in this repository.
   function declares parameters with exactly these names.
 - `_on_done` (in `_launch`) is a synchronous done-callback: it cannot await.
 - Command-line workflows can report only with the Redis or Dragon backend.
-- The built-in `goal_type`/`goal_n` goal ends a campaign with
-  `controller_terminate`; `goals_satisfied` is for `Goal` objects.
+- A campaign whose controller's goal is reached (`goal_type`/`goal_n`, or
+  `is_goal_reached()`) or whose `Goal` objects are all satisfied ends with
+  `goals_satisfied`; `controller_terminate` is a `terminate=True` with the goal
+  not reached.
 - `max_queue_depth` only warns.
 
 ## Commands

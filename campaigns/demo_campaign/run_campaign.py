@@ -50,8 +50,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from scheduler import make_policy
-
 from src.aucam import (
     BanditSchedulingPolicy,
     CampaignBudget,
@@ -70,6 +68,8 @@ from src.aucam import (
     WorkflowReporter,
     WorkflowResult,
 )
+
+from scheduler import make_policy
 
 # ── Workflows ──────────────────────────────────────────────────────────────────
 #

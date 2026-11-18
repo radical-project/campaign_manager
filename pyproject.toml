@@ -87,6 +87,13 @@ fix = true
 select = ["E", "F", "W", "B", "I", "N", "UP"]
 ignore = ["UP007", "UP045", "E501"]
 
+[tool.ruff.lint.isort]
+# Stated rather than detected: ruff's detection of these changed between
+# versions. `src` is this package; the campaign runners import their sibling
+# modules (config.py, controller.py, ...) by plain name.
+known-first-party = ["src"]
+known-local-folder = ["config", "controller", "reporting", "scheduler", "workflows"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
