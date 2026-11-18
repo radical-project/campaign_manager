@@ -112,6 +112,44 @@ class Goal:
 
 
 @dataclass
+class WorkflowMessage:
+    """A message from the controller to running workflows (``PolicyResult.messages``).
+
+    to      — a workflow id (one running workflow) or a workflow type (every
+              running workflow of that type).
+    name    — what the message is about, e.g. ``"model"``.
+    payload — JSON-serializable data (numbers, strings, lists, dicts), e.g.
+              ``{"path": "/models/v3", "version": 3}``.
+    sticky  — only with a workflow type: AuCaM also keeps this as the type's
+              latest ``name`` value and gives it to every workflow of the type
+              launched later, in ``context["messages"][name]`` (a command-line
+              workflow: ``CM_MESSAGES``, a JSON object).
+
+    A workflow reads messages with ``await reporter.messages()`` (a
+    command-line one with ``aucam-report messages``).
+    """
+
+    to: str
+    name: str
+    payload: Any = None
+    sticky: bool = False
+
+    def __post_init__(self) -> None:
+        import json  # noqa: PLC0415
+
+        if not self.to or not isinstance(self.to, str):
+            raise ValueError("WorkflowMessage.to must be a workflow id or type")
+        if not self.name or not isinstance(self.name, str):
+            raise ValueError("WorkflowMessage.name must be a non-empty string")
+        try:
+            json.dumps(self.payload)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"WorkflowMessage {self.name!r}: payload must be JSON-serializable ({exc})"
+            ) from exc
+
+
+@dataclass
 class PolicyResult:
     """The controller's decision for one policy cycle."""
 
@@ -121,6 +159,8 @@ class PolicyResult:
     cancel_queued: dict[str, int] | None = None
     goals: list[Goal] = field(default_factory=list)
     remove_goals: list[str] = field(default_factory=list)
+    # Messages to running workflows (WorkflowMessage), e.g. a new model.
+    messages: list[WorkflowMessage] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

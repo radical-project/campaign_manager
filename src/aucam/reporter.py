@@ -33,6 +33,35 @@ class WorkflowReport:
     returncode: int | None = None
 
 
+@dataclass(frozen=True)
+class Message:
+    """A message the controller sent to a running workflow (``WorkflowMessage``).
+
+    ``seq`` increases by one per message sent to this workflow; ``payload`` is
+    whatever the controller sent (JSON: numbers, strings, lists, dicts).
+    """
+
+    name: str
+    payload: Any = None
+    seq: int = 0
+    sent_at: float = 0.0
+
+    @classmethod
+    def from_dict(cls, d: dict) -> Message:
+        return cls(
+            name=str(d.get("name", "")),
+            payload=d.get("payload"),
+            seq=int(d.get("seq", 0)),
+            sent_at=float(d.get("sent_at", 0.0)),
+        )
+
+
+def unread(stored: list | None, cursor: int) -> tuple[list[Message], int]:
+    """Messages in ``stored`` (dicts, oldest first) newer than ``cursor``, and the new cursor."""
+    new = [Message.from_dict(m) for m in (stored or []) if int(m.get("seq", 0)) > cursor]
+    return new, max([cursor] + [m.seq for m in new])
+
+
 class WorkflowReporter(ABC):
     """Injected into a block function so it can stream scores and receive signals."""
 
@@ -63,6 +92,15 @@ class WorkflowReporter(ABC):
         """
         ...
 
+    async def messages(self) -> list[Message]:
+        """Messages the controller sent since the last call, oldest first.
+
+        Non-blocking; returns [] when there are none.  Call it where the
+        workflow can act on them, e.g. at the start of each iteration.  A
+        reporter that does not support messages always returns [].
+        """
+        return []
+
     async def wait_for_resume(self) -> CampaignDecision:
         """Block until the CM sends RESUME or CANCEL; return which one.
 
@@ -88,10 +126,12 @@ class LocalDictReporter(WorkflowReporter):
         wf_id: str,
         store: dict[str, WorkflowReport],
         signals: dict[str, Any],
+        messages: dict[str, list] | None = None,
     ) -> None:
         self._wf_id = wf_id
         self._store = store
         self._signals = signals
+        self._messages = messages if messages is not None else {}
 
     async def emit(
         self,
@@ -110,3 +150,7 @@ class LocalDictReporter(WorkflowReporter):
 
     async def poll(self) -> CampaignDecision | None:
         return self._signals.pop(self._wf_id, None)
+
+    async def messages(self) -> list[Message]:
+        # Same process and loop as AuCaM: take the whole list.
+        return [Message.from_dict(m) for m in self._messages.pop(self._wf_id, [])]

@@ -4,6 +4,7 @@
                       [--iteration N]
     aucam-report signal                 # prints PAUSE, RESUME or CANCEL, or nothing
     aucam-report wait-resume [--interval SECONDS]
+    aucam-report messages               # new messages from the controller, one JSON per line
     aucam-report done [--rc N]          # last: finished with exit code N
 
 Values are parsed as JSON when possible (``0.8``, ``true``, ``{"a": 1}``) and
@@ -60,6 +61,7 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("signal", help="print a pending PAUSE/RESUME/CANCEL signal, if any")
     w = sub.add_parser("wait-resume", help="block until RESUME or CANCEL arrives; print which")
     w.add_argument("--interval", type=float, default=1.0)
+    sub.add_parser("messages", help="print new controller messages, one JSON object per line")
     d = sub.add_parser("done", help="send the final report: finished with exit code --rc")
     d.add_argument("--rc", type=int, default=0)
     return p
@@ -77,6 +79,9 @@ def main(argv: list[str] | None = None) -> int:
             rep.emit(score=args.score, metrics=metrics, iteration=args.iteration)
         elif args.cmd == "done":
             rep.done(args.rc)
+        elif args.cmd == "messages":
+            for msg in rep.messages():
+                print(json.dumps(msg))
         elif args.cmd == "signal":
             sig = rep.poll_signal()
             if sig:

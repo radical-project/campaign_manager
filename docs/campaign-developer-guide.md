@@ -232,6 +232,7 @@ the program runs but cannot report). Three options:
    ```bash
    aucam-report emit --score 0.82 --metric cpu_hours=1.5 --iteration 3
    sig=$(aucam-report signal)                 # PAUSE, RESUME, CANCEL or nothing
+   aucam-report messages                      # new controller messages, one JSON per line
    [ "$sig" = CANCEL ] && { save_state; exit 0; }
    [ "$sig" = PAUSE ] && [ "$(aucam-report wait-resume)" = CANCEL ] && { save_state; exit 0; }
    # ... at the very end:
@@ -247,9 +248,34 @@ the program runs but cannot report). Three options:
 2. **Redis directly**, from any language: `SET <CM_WORKFLOW_ID>` to a JSON
    object `{"wf_id", "score", "metrics", "iteration", "emitted_at"}`
    (`emitted_at` = Unix time, used for stale detection); read signals with
-   `GET` then `DEL` of `<CM_WORKFLOW_ID>:signal`.
+   `GET` then `DEL` of `<CM_WORKFLOW_ID>:signal`; messages: see below.
 3. **Python:** `from src.aucam_client import Reporter` (`emit()`,
-   `poll_signal()`, `wait_for_resume()`); it needs only `redis` / `radex`.
+   `poll_signal()`, `wait_for_resume()`, `messages()`); it needs only `redis` / `radex`.
+
+### Messages from the controller
+
+The controller can send running workflows data — a new model, a new parameter —
+with `PolicyResult.messages` (§5). A workflow reads what arrived since its last
+call; nothing is sent to a workflow that never asks:
+
+```python
+async def my_worker(reporter, context) -> None:
+    model = (context.get("messages") or {}).get("model")  # sticky value at launch
+    for step in range(n_steps):
+        for msg in await reporter.messages():  # [] when there is nothing new
+            if msg.name == "model":
+                model = load(msg.payload["path"])
+        ...
+```
+
+Each `Message` has `name`, `payload`, `seq` (1, 2, … per workflow) and
+`sent_at`. A command-line program runs `aucam-report messages` (one JSON object
+per line, nothing when there is nothing new) and finds sticky values at launch
+in `CM_MESSAGES` (a JSON object `{name: payload}`). From any language with a
+Redis client: the messages not yet read are a JSON array at
+`<CM_WORKFLOW_ID>:messages`, written by AuCaM; read those with `seq` above
+`<CM_WORKFLOW_ID>:messages_read` (0 if absent), then set that key to the highest
+`seq` read.
 
 ### Data backends
 
@@ -340,9 +366,23 @@ PolicyResult(
     cancel_queued={"sim_worker": 2},  # drop up to 2 queued requests of a type
     goals=[Goal("best", metric="best_energy", threshold=-8.0, direction="minimize")],
     remove_goals=["old_goal"],
+    messages=[WorkflowMessage(to="sim_worker", name="model", payload={"path": p}, sticky=True)],
     terminate=False,  # True ends the campaign
 )
 ```
+
+`messages` sends data to running workflows (§4, "Messages from the
+controller"). `to` is a workflow id (one workflow) or a workflow type (every
+running workflow of it); `payload` must be JSON (numbers, strings, lists,
+dicts). With `sticky=True` and a type, AuCaM also keeps it as the type's
+latest value for that `name` and gives it to every workflow of the type
+launched later, in `context["messages"]` — so "use model v3 from now on" reaches
+both the running workflows and the ones not started yet. Sticky values are
+kept in the checkpoint. A message to an unknown id or type is logged and
+dropped. `CampaignOutcome.messages_sent` counts deliveries; each send is logged
+as `[MSG] <name> -> <to>: N running workflow(s)`. AuCaM does not confirm that a
+workflow acted on a message; a workflow can report what it uses in its metrics
+(e.g. `model_version`).
 
 When scaling a type down, cancel running workflows **and** drop queued
 requests (`cancel_queued`), or the freed slots are refilled from the queue.
@@ -819,6 +859,7 @@ Planned features and known problems: [known gaps](known-gaps.md).
 Everything is in `src.aucam`: `CampaignManager`, `CampaignSpec`,
 `CampaignBudget`, `WorkflowConfig`, `WorkflowDependency`,
 `CampaignController`, `CancelRule`, `CostCancelRule`, `LaunchRule`, `Goal`, `PolicyResult`,
+`WorkflowMessage`, `Message`,
 `CampaignDecision`, `LaunchRequest`, `LaunchPriority`, `WorkflowReporter`,
 `WorkflowReport`, `WorkflowResult`, `CampaignOutcome`,
 `BanditSchedulingPolicy`, `FIFOSchedulingPolicy`, `SchedulingPolicy`,

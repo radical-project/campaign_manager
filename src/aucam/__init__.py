@@ -10,6 +10,7 @@ from .controller import (
     Goal,
     LaunchRule,
     PolicyResult,
+    WorkflowMessage,
 )
 from .data_backend import (
     DataBackend,
@@ -21,7 +22,7 @@ from .data_backend import (
 from .manager import CampaignManager
 from .profiler import BlockProfiler, TaskProfiler
 from .queue import WorkflowQueue
-from .reporter import WorkflowReport, WorkflowReporter
+from .reporter import Message, WorkflowReport, WorkflowReporter
 from .scheduler import (
     BanditSchedulingPolicy,
     FIFOSchedulingPolicy,
@@ -95,6 +96,8 @@ __all__ = [
     "WorkflowQueue",
     "WorkflowReport",
     "WorkflowReporter",
+    "WorkflowMessage",
+    "Message",
     "WorkflowResult",
     "WorkflowStatus",
 ]

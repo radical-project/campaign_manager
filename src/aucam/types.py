@@ -242,6 +242,8 @@ class CampaignOutcome:
     # Policy cycles that raised outside the controller's decide() / observe()
     # (AuCaM skipped the rest of that cycle and went on).
     cycle_errors: int = 0
+    # Messages delivered to running workflows (PolicyResult.messages).
+    messages_sent: int = 0
     # Model usage reported by the scheduling policy and controller
     # (take_usage()), e.g. {"llm_tokens": 5400}; charged to `spent` only if
     # the campaign limits that dimension or the object sets charge_usage.

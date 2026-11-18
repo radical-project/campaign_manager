@@ -421,6 +421,13 @@ class _CampaignInstance:
         self._last_obs: dict = {}
         self._model_usage: dict[str, float] = {}
         self._policy_cancels = 0  # CANCEL from controller (not auto-cancel)
+        # Messages to running workflows (PolicyResult.messages): how many were
+        # delivered, the last seq per workflow, and each type's sticky values
+        # ({type: {name: payload}}), given to workflows launched later.
+        self._messages_sent = 0
+        self._msg_seq: dict[str, int] = {}
+        self._sticky: dict[str, dict[str, Any]] = {}
+        self._msg_unsupported_logged = False
         self._auto_cancelled: set[str] = set()  # wf_ids auto-cancelled this policy cycle
         self._policy_cycles = 0
         self._exit_reason = "unknown"
@@ -843,6 +850,8 @@ class _CampaignInstance:
                     ctx["spending_limit"] = dict(spending_limit)
                 if resources:
                     ctx["resources"] = dict(resources)
+                if self._sticky.get(wfc.name):
+                    ctx["messages"] = dict(self._sticky[wfc.name])
                 call_kwargs["context"] = ctx
 
             async def _body(*a, **kw):
@@ -900,6 +909,9 @@ class _CampaignInstance:
         # The resources it may use at once, one variable per key.
         for k, v in (resources or {}).items():
             env[f"CM_RESOURCES_{k.upper()}"] = repr(float(v))
+        # The type's sticky message values ({name: payload}, JSON).
+        if self._sticky.get(wfc.name):
+            env["CM_MESSAGES"] = json.dumps(self._sticky[wfc.name])
         ep = self.spec.data_backend.endpoint() if self.spec.data_backend is not None else None
         if ep is not None:
             env["CM_DATA_ENDPOINT"] = ep
@@ -1585,6 +1597,7 @@ class _CampaignInstance:
             allocations=[dataclasses.asdict(r) for r in self._allocations],
             pending_credit=dict(self._pending_credit),
             goals=[dataclasses.asdict(g) for g in self._goals],
+            sticky_messages={t: dict(v) for t, v in self._sticky.items()},
             policy_state=_jsonable(self._policy.state(), "scheduling policy"),
             controller_state=_jsonable(
                 getattr(self.spec.controller, "state", lambda: None)(), "controller"
@@ -1666,6 +1679,8 @@ class _CampaignInstance:
         # scheduling policy and the controller learned (R1).
         if ckpt.goals is not None:
             self._goals = [Goal(**g) for g in ckpt.goals]
+        # Sticky message values, so workflows launched after the restart get them.
+        self._sticky = {t: dict(v) for t, v in (ckpt.sticky_messages or {}).items()}
         for what, obj, state in (
             ("scheduling policy", self._policy, ckpt.policy_state),
             ("controller", self.spec.controller, ckpt.controller_state),
@@ -2697,6 +2712,9 @@ class _CampaignInstance:
                     if decision == CampaignDecision.PAUSE and wfc.pause_timeout_s is not None:
                         asyncio.ensure_future(self._check_pause_ack(inst, wfc.pause_timeout_s))
 
+        if result.messages:
+            await self._send_messages(result.messages)
+
         if result.cancel_queued:
             for wf_type, count in result.cancel_queued.items():
                 removed = self._queue.remove_by_type(wf_type, count)
@@ -2756,6 +2774,74 @@ class _CampaignInstance:
         if self._goals and self._check_goals(obs):
             logger.info(f"[CM] {self.name}: all goals satisfied")
             await self._shutdown(reason="goals_satisfied")
+
+    # ── Messages to running workflows ────────────────────────────────────────
+
+    async def _send_messages(self, messages: list) -> None:
+        """Deliver PolicyResult.messages: to one workflow id, or to every running
+        workflow of a type; keep sticky values for the type's later launches."""
+        types = {w.name for w in self.spec.workflows}
+        backend = self.spec.data_backend
+        for msg in messages:
+            if msg.to in self._active:
+                targets = [self._active[msg.to]]
+                if msg.sticky:
+                    logger.warning(
+                        "[MSG] %s to %s: sticky needs a workflow type, not an id - sent once",
+                        msg.name,
+                        msg.to,
+                    )
+            elif msg.to in types:
+                targets = [i for i in self._active.values() if i.workflow_type == msg.to]
+                if msg.sticky:
+                    self._sticky.setdefault(msg.to, {})[msg.name] = msg.payload
+            else:
+                logger.warning(
+                    "[MSG] %s: %r is neither a running workflow nor a workflow type - dropped",
+                    msg.name,
+                    msg.to,
+                )
+                continue
+            targets = [i for i in targets if not i.future.done()]
+            if targets and not hasattr(backend, "send_message"):
+                if not self._msg_unsupported_logged:
+                    logger.warning(
+                        "[MSG] %s has no send_message(); messages reach only "
+                        "workflows launched later (sticky values)",
+                        type(backend).__name__,
+                    )
+                    self._msg_unsupported_logged = True
+                continue
+            for inst in targets:
+                seq = self._msg_seq.get(inst.wf_id, 0) + 1
+                try:
+                    await backend.send_message(
+                        inst.wf_id,
+                        {
+                            "seq": seq,
+                            "name": msg.name,
+                            "payload": msg.payload,
+                            "sent_at": time.time(),
+                        },
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[MSG] %s to %s failed: %s: %s",
+                        msg.name,
+                        inst.wf_id,
+                        type(exc).__name__,
+                        exc,
+                    )
+                    continue
+                self._msg_seq[inst.wf_id] = seq
+                self._messages_sent += 1
+            logger.info(
+                "[MSG] %s -> %s: %d running workflow(s)%s",
+                msg.name,
+                msg.to,
+                len(targets),
+                " (sticky)" if msg.sticky and msg.to in types else "",
+            )
 
     # ── L1: load-aware launching ─────────────────────────────────────────────
 
@@ -2981,6 +3067,7 @@ class _CampaignInstance:
             f"cycles={self._policy_cycles} "
             f"controller_errors={self._controller_errors} "
             f"cycle_errors={self._cycle_errors} "
+            f"messages={self._messages_sent} "
             f"spent={self._allocator.spent(self.name)}"
         )
 
@@ -3053,6 +3140,11 @@ class _CampaignInstance:
     def resource_cancels(self) -> int:
         """Runs AuCaM cancelled for using more resources at once than they were given."""
         return self._resource_cancels
+
+    @property
+    def messages_sent(self) -> int:
+        """Messages delivered to running workflows (PolicyResult.messages)."""
+        return self._messages_sent
 
     @property
     def cycle_errors(self) -> int:

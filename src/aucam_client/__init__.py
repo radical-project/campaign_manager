@@ -17,6 +17,14 @@ protocol:
   is sent only to workflow types with a grace period (``cancel_grace_s``): the
   program should save what it needs and exit; when the grace period ends, or
   without one, CM stops the task through AsyncFlow.
+* **Messages** — key ``<CM_WORKFLOW_ID>:messages``, written by CM: the messages
+  the controller sent and the program has not read, oldest first, each
+  ``{"seq": <int>, "name": "...", "payload": <any JSON>, "sent_at": <float>}``
+  (Redis: a UTF-8 JSON array; Dragon: a list).  The program reads the ones
+  with ``seq`` above the value of ``<CM_WORKFLOW_ID>:messages_read`` (0 if
+  absent) and then sets that key to the highest ``seq`` it read; it never
+  writes the messages key.  A workflow type's sticky values at launch are in
+  ``CM_MESSAGES`` (a JSON object ``{name: payload}``).
 
 CM exports ``CM_WORKFLOW_ID``, ``CM_DATA_ENDPOINT`` (``host:port`` for Redis,
 the serialized DDict descriptor for Dragon) and ``CM_DATA_BACKEND``
@@ -27,7 +35,8 @@ Three ways to use it:
 * any language with a Redis client — follow the protocol above directly;
 * any language, Redis or Dragon — call the ``aucam-report`` command
   (``aucam-report emit --score 0.8 --metric cpu_hours=1.5``,
-  ``aucam-report signal``, ``aucam-report wait-resume``, ``aucam-report done``);
+  ``aucam-report signal``, ``aucam-report wait-resume``, ``aucam-report messages``,
+  ``aucam-report done``);
 * Python — ``from src.aucam_client import Reporter``.
 
 This package imports only the standard library plus ``redis`` or ``radex``
@@ -44,6 +53,8 @@ from typing import Any
 __all__ = ["Reporter", "ReporterConfigError", "SIGNAL_SUFFIX", "encode_report"]
 
 SIGNAL_SUFFIX = ":signal"
+MESSAGES_SUFFIX = ":messages"
+MESSAGES_READ_SUFFIX = ":messages_read"
 _SIGNALS = ("PAUSE", "RESUME", "CANCEL")
 
 
@@ -199,6 +210,30 @@ class Reporter:
             client.put_picklable(key, None)
         sig = str(sig).strip().upper()
         return sig if sig in _SIGNALS else None
+
+    def messages(self) -> list[dict]:
+        """Messages the controller sent since the last call, oldest first (each a dict
+        with ``seq``, ``name``, ``payload``, ``sent_at``); [] if none."""
+        key, read_key = self.wf_id + MESSAGES_SUFFIX, self.wf_id + MESSAGES_READ_SUFFIX
+        if self.backend == "redis":
+            r = self._redis()
+            raw, read = r.get(key), r.get(read_key)
+            stored = (
+                json.loads(raw.decode("utf-8") if isinstance(raw, bytes) else raw) if raw else []
+            )
+        else:
+            client = self._dragon()
+            stored = client.get_picklable(key) if client.contains(key) else None
+            read = client.get_picklable(read_key) if client.contains(read_key) else 0
+        cursor = int(read or 0)
+        new = [m for m in (stored or []) if int(m.get("seq", 0)) > cursor]
+        if new:
+            last = max(int(m["seq"]) for m in new)
+            if self.backend == "redis":
+                self._redis().set(read_key, last)
+            else:
+                self._dragon().put_picklable(read_key, last)
+        return new
 
     def wait_for_resume(self, interval: float = 1.0) -> str:
         """Block until RESUME or CANCEL arrives; return which (call after PAUSE).

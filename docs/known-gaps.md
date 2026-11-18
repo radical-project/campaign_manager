@@ -41,7 +41,8 @@ the type's starting values and what AuCaM learned, passed to the workflow and en
   launch. Plan: a controller decision, e.g.
   `PolicyResult.extend_allocations={wf_id: {"cpu_hours": 2.0}}`, that raises
   (or lowers) a running workflow's limit, with the in-flight amount updated in the
-  ledger and the new limit sent to the workflow through the DataBackend.
+  ledger and the new limit sent to the workflow as a message
+  (`PolicyResult.messages` / `reporter.messages()`, which exist now).
   Enables "start small, give more to the promising" (successive halving).
   Unlike U7, which sizes a workflow at launch, U1 changes it after launch;
   both need workflows that read their limit and adapt.

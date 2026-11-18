@@ -4,8 +4,20 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-from .reporter import LocalDictReporter, WorkflowReport, WorkflowReporter
+from .reporter import LocalDictReporter, Message, WorkflowReport, WorkflowReporter, unread
 from .types import CampaignDecision
+
+# Message channel (CM → workflow), same keys on every remote backend:
+#   <wf_id>:messages       — the messages not yet read, oldest first (CM writes)
+#   <wf_id>:messages_read  — seq of the last message the workflow read (the workflow writes)
+# Each side writes only its own key, so no lock is needed across processes.
+MESSAGES_SUFFIX = ":messages"
+MESSAGES_READ_SUFFIX = ":messages_read"
+
+
+def _append(stored: list | None, read: int, message: dict) -> list:
+    """The stored list without messages already read, plus ``message``."""
+    return [m for m in (stored or []) if int(m.get("seq", 0)) > read] + [message]
 
 
 def _decode_report(raw: bytes | None) -> dict | None:
@@ -43,6 +55,10 @@ class DataBackend(Protocol):
         """Remove the pending signal (called by the reporter after consumption)."""
         ...
 
+    async def send_message(self, wf_id: str, message: dict) -> None:
+        """Queue a message for the workflow: ``{"seq", "name", "payload", "sent_at"}``."""
+        ...
+
     # ── Workflow → CM report channel ──────────────────────────────────────────
 
     def make_reporter(self, wf_id: str) -> WorkflowReporter:
@@ -75,6 +91,7 @@ class LocalDictBackend:
     def __init__(self) -> None:
         self._store: dict[str, WorkflowReport] = {}
         self._signals: dict[str, CampaignDecision] = {}
+        self._messages: dict[str, list] = {}
 
     def endpoint(self) -> None:
         return None
@@ -90,10 +107,15 @@ class LocalDictBackend:
     async def clear_signal(self, wf_id: str) -> None:
         self._signals.pop(wf_id, None)
 
+    async def send_message(self, wf_id: str, message: dict) -> None:
+        self._messages.setdefault(wf_id, []).append(dict(message))
+
     # ── Report channel ────────────────────────────────────────────────────────
 
     def make_reporter(self, wf_id: str) -> WorkflowReporter:
-        return LocalDictReporter(wf_id=wf_id, store=self._store, signals=self._signals)
+        return LocalDictReporter(
+            wf_id=wf_id, store=self._store, signals=self._signals, messages=self._messages
+        )
 
     def sync_get_report(self, wf_id: str) -> WorkflowReport | None:
         """Synchronous read for use in done-callbacks (in-process only)."""
@@ -104,6 +126,7 @@ class LocalDictBackend:
 
     async def delete_report(self, wf_id: str) -> None:
         self._store.pop(wf_id, None)
+        self._messages.pop(wf_id, None)
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +216,21 @@ class RadexDragonBackend:
 
         await asyncio.to_thread(_clear)
 
+    async def send_message(self, wf_id: str, message: dict) -> None:
+        import asyncio  # noqa: PLC0415
+
+        lock = self._lock
+        key, read_key = wf_id + MESSAGES_SUFFIX, wf_id + MESSAGES_READ_SUFFIX
+
+        def _send() -> None:
+            with lock:
+                client = self._get_client()
+                stored = client.get_picklable(key) if client.contains(key) else None
+                read = client.get_picklable(read_key) if client.contains(read_key) else 0
+                client.put_picklable(key, _append(stored, int(read or 0), dict(message)))
+
+        await asyncio.to_thread(_send)
+
     # ── Report channel (workflow → CM) ────────────────────────────────────────
 
     def make_reporter(self, wf_id: str) -> RadexDragonReporter:
@@ -219,6 +257,7 @@ class RadexDragonBackend:
         import asyncio  # noqa: PLC0415
 
         lock, sig_key = self._lock, f"{wf_id}:signal"
+        msg_keys = (wf_id + MESSAGES_SUFFIX, wf_id + MESSAGES_READ_SUFFIX)
 
         def _del() -> None:
             with lock:
@@ -227,6 +266,9 @@ class RadexDragonBackend:
                     client.put_picklable(wf_id, None)
                 if client.contains(sig_key):
                     client.put_picklable(sig_key, None)
+                for key in msg_keys:
+                    if client.contains(key):
+                        client.put_picklable(key, None)
 
         await asyncio.to_thread(_del)
 
@@ -274,6 +316,18 @@ class RadexDragonReporter(WorkflowReporter):
             return None
         client.put_picklable(key, None)
         return CampaignDecision(val)
+
+    async def messages(self) -> list[Message]:
+        from radex.clients.core import DragonClient  # noqa: PLC0415
+
+        key, read_key = self._wf_id + MESSAGES_SUFFIX, self._wf_id + MESSAGES_READ_SUFFIX
+        client = DragonClient(self._descriptor, 1)
+        stored = client.get_picklable(key) if client.contains(key) else None
+        read = client.get_picklable(read_key) if client.contains(read_key) else 0
+        new, cursor = unread(stored, int(read or 0))
+        if new:
+            client.put_picklable(read_key, cursor)
+        return new
 
 
 class RhapsodyRedisBackend:
@@ -334,6 +388,23 @@ class RhapsodyRedisBackend:
 
         await asyncio.to_thread(_del)
 
+    async def send_message(self, wf_id: str, message: dict) -> None:
+        import asyncio  # noqa: PLC0415
+        import json  # noqa: PLC0415
+
+        host, port = self._host, self._port
+        key, read_key = wf_id + MESSAGES_SUFFIX, wf_id + MESSAGES_READ_SUFFIX
+
+        def _send() -> None:
+            import redis  # noqa: PLC0415
+
+            r = redis.Redis(host=host, port=port, protocol=2)
+            raw, read = r.get(key), r.get(read_key)
+            stored = json.loads(raw) if raw else None
+            r.set(key, json.dumps(_append(stored, int(read or 0), dict(message))))
+
+        await asyncio.to_thread(_send)
+
     # ── Report channel ────────────────────────────────────────────────────────
 
     def make_reporter(self, wf_id: str) -> RhapsodyRedisReporter:
@@ -366,6 +437,7 @@ class RhapsodyRedisBackend:
             r = redis.Redis(host=host, port=port, protocol=2)
             r.delete(wf_id)
             r.delete(f"{wf_id}:signal")
+            r.delete(wf_id + MESSAGES_SUFFIX, wf_id + MESSAGES_READ_SUFFIX)
 
         await asyncio.to_thread(_del)
 
@@ -422,3 +494,22 @@ class RhapsodyRedisReporter(WorkflowReporter):
 
         raw = await asyncio.to_thread(_pop)
         return CampaignDecision(raw) if raw else None
+
+    async def messages(self) -> list[Message]:
+        import asyncio  # noqa: PLC0415
+        import json  # noqa: PLC0415
+
+        host, port = self._host, self._port
+        key, read_key = self._wf_id + MESSAGES_SUFFIX, self._wf_id + MESSAGES_READ_SUFFIX
+
+        def _take() -> list[Message]:
+            import redis  # noqa: PLC0415
+
+            r = redis.Redis(host=host, port=port, protocol=2)
+            raw, read = r.get(key), r.get(read_key)
+            new, cursor = unread(json.loads(raw) if raw else None, int(read or 0))
+            if new:
+                r.set(read_key, cursor)
+            return new
+
+        return await asyncio.to_thread(_take)

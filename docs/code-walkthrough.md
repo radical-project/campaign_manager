@@ -20,7 +20,7 @@ planned work in [known gaps](known-gaps.md), and budget internals in
 | `src/aucam/budget.py` | `BudgetAllocator`: the campaign's spending ledger |
 | `src/aucam/spec.py` | `CampaignSpec`, `CampaignBudget`, `WorkflowConfig`, `WorkflowDependency` |
 | `src/aucam/types.py` | `WorkflowResult`, `LaunchRequest`, `Allocation`, `AllocationRecord`, `CampaignOutcome`, snapshots and enums |
-| `src/aucam/reporter.py` | `WorkflowReport`, `WorkflowReporter` (interface), `LocalDictReporter` |
+| `src/aucam/reporter.py` | `WorkflowReport`, `WorkflowReporter` (interface), `LocalDictReporter`, `Message` |
 | `src/aucam/data_backend.py` | `DataBackend` protocol; `LocalDictBackend`, `RadexDragonBackend`, `RhapsodyRedisBackend` and their reporters |
 | `src/aucam/checkpoint.py` | `CampaignCheckpoint` and its JSON read/write |
 | `src/aucam/profiler.py` | `BlockProfiler`, `TaskProfiler`: optional CPU/memory sampling inside workflows |
@@ -122,6 +122,12 @@ command-line workflows use `aucam_client` with Redis or Dragon. Each policy
 cycle `_collect_live_reports()` reads `get_report()` for every running workflow;
 PAUSE / RESUME, and CANCEL for a graceful cancel (`_cancel()`, with a timer that
 cancels the block when the grace period ends), go out with `write_signal()`.
+`PolicyResult.messages` go out with `send_message()` (`_send_messages()`): one
+`<wf_id>:messages` list per workflow, written only by AuCaM, and a
+`<wf_id>:messages_read` cursor written only by the workflow, so neither side
+needs a lock; AuCaM drops read messages on its next send. Sticky values
+(`_sticky`, per type) go into `context["messages"]` / `CM_MESSAGES` at launch
+(`_make_future()`, `_cmd_env()`) and into the checkpoint.
 
 ---
 
