@@ -64,7 +64,8 @@ its tasks, and what those tasks cost is charged to the workflow.
     are met.
   - **ADR** (`ADRController`) — an ADR policy makes these decisions instead.
   - **Fallback** — if custom or ADR decision logic fails or is too slow
-    (`decide_timeout_s`), the built-in rules decide that cycle.
+    (`decide_timeout_s`), the built-in rules decide that cycle; after several
+    failed cycles in a row the campaign ends (`controller_failed`).
 
   A campaign can extend or replace this with its own logic, including one
   that calls an LLM. AuCaM itself cancels a workflow only when it stops
@@ -175,6 +176,7 @@ limited.
 | `controller_terminate` | The controller ended the campaign before its goal was reached, e.g. because the goal looks unreachable. |
 | `spending_limit` | The spending limit is reached and no workflows are running, or actual spending went past it and AuCaM cancelled the running workflows |
 | `campaign_idle` | Nothing queued or running for a while (`idle_exit_s`). On by default — *why:* a campaign without goals would otherwise wait forever and hold the allocation; set `idle_exit_s=None` for a controller that waits on purpose. |
+| `controller_failed` | Several policy cycles in a row failed (`max_consecutive_errors`, default 5): the decision logic, or the cycle itself, raised every time |
 | `signal` | AuCaM receives SIGTERM or SIGINT, e.g. before a SLURM job's time limit, or the caller calls `cm.stop()` |
 
 In each case the queue is cleared, running workflows are cancelled (with

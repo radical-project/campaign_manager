@@ -361,6 +361,14 @@ controller whose decision is async (it awaits a model or ADR) overrides
 `decide_async(obs)` instead; AuCaM awaits it with the same timeout and
 fallback, without a thread. `ADRController` (§8, "AI policies") is one.
 
+A policy cycle that raises anywhere else (for example a data backend error
+while sending a signal) is logged and skipped; the next cycle runs as usual,
+and `CampaignOutcome.cycle_errors` counts them. After
+`max_consecutive_errors` (default 5) cycles in a row in which `decide()` or
+`observe()` raised, or the cycle itself did, AuCaM ends the campaign with
+`controller_failed`. A `decide()` that only timed out does not count: a slow
+controller is not a broken one. `max_consecutive_errors=None` never ends it.
+
 Example — a controller that tracks the best score and stops on a target:
 
 ```python
@@ -395,6 +403,7 @@ class BestScore(CampaignController):
 | `controller_terminate` | `decide()` returned `terminate=True` with the goal not reached |
 | `spending_limit` | The campaign's spending limit is reached and nothing is running, or actual spending went past it and the running workflows were cancelled (`on_limit="cancel"`, §9) |
 | `campaign_idle` | Idle for `idle_exit_s`: queue empty, nothing running or paused, no requests held by dependencies |
+| `controller_failed` | `max_consecutive_errors` policy cycles in a row failed (§5) |
 | `signal` | AuCaM received SIGTERM or SIGINT, or `cm.stop()` was called |
 
 Then AuCaM clears the queue, cancels running workflows (gracefully where
@@ -733,7 +742,8 @@ async def main() -> None:
 `budget_cancels` / `resource_cancels` (workflows cancelled for exceeding their own
 spending limit or resources), `unfit_dropped` (requests that did not fit the
 remaining budget), `controller_errors` (policy cycles where `decide()` or
-`observe()` failed or timed out, §5), `model_usage` (tokens and other model use
+`observe()` failed or timed out, §5), `cycle_errors` (policy cycles that
+raised elsewhere and were skipped, §5), `model_usage` (tokens and other model use
 reported by the policy and controller, §8). `goals`: the goals when it ended,
 including the controller's changes.
 
@@ -774,6 +784,7 @@ Planned features and known problems: [known gaps](known-gaps.md).
 | `policy_interval_s` | 60.0 | Seconds between policy cycles (also runs on every completion) |
 | `shutdown_timeout_s` | 120.0 | Grace period for running workflows at shutdown |
 | `decide_timeout_s` | `None` | Longest `decide()` may take; slower cycles use the built-in rules (§5) |
+| `max_consecutive_errors` | 5 | Failed policy cycles in a row before the campaign ends with `controller_failed`; `None`: never (§5) |
 | `cancel_grace_s` | 0.0 | Default grace period for a graceful cancel (§6) |
 | `min_cost_samples` | 3 | Successful workflows of a type before its learned cost and resource use are used (§8) |
 | `idle_exit_s` | `"auto"` | §6 |

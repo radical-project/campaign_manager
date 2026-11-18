@@ -280,6 +280,11 @@ class CampaignSpec(BaseModel):
     # a cycle where it does not finish in time uses the built-in rules instead
     # (CampaignController.decide()), as does a cycle where decide() raises.
     decide_timeout_s: float | None = None
+    # End the campaign (exit reason "controller_failed") after this many policy
+    # cycles in a row failed: the controller's decide() or observe() raised, or
+    # the cycle itself raised.  A decide() that only timed out does not count.
+    # None: never end it for this.
+    max_consecutive_errors: int | None = 5
     # Optional live-telemetry channel; defaults to LocalDictBackend when None.
     data_backend: Any | None = None  # DataBackend
     # Directory to write/read checkpoint files.  None = no checkpointing.
@@ -297,6 +302,13 @@ class CampaignSpec(BaseModel):
     idle_exit_s: float | Literal["auto"] | None = "auto"
 
     model_config = {"arbitrary_types_allowed": True}
+
+    @field_validator("max_consecutive_errors")
+    @classmethod
+    def _check_max_consecutive_errors(cls, v):
+        if v is not None and v < 1:
+            raise ValueError("max_consecutive_errors must be >= 1 (or None)")
+        return v
 
     @field_validator("min_cost_samples")
     @classmethod

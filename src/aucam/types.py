@@ -239,6 +239,9 @@ class CampaignOutcome:
     # Policy cycles where the controller's decide() or observe() failed or
     # timed out; AuCaM used its built-in rules for those cycles.
     controller_errors: int = 0
+    # Policy cycles that raised outside the controller's decide() / observe()
+    # (AuCaM skipped the rest of that cycle and went on).
+    cycle_errors: int = 0
     # Model usage reported by the scheduling policy and controller
     # (take_usage()), e.g. {"llm_tokens": 5400}; charged to `spent` only if
     # the campaign limits that dimension or the object sets charge_usage.

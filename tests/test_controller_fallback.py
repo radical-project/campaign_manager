@@ -132,3 +132,103 @@ def test_observe_raising_uses_base_observe(caplog):
     assert out.goal_reached
     assert out.controller_errors == 2
     assert "observe() raised ValueError: observe bug" in caplog.text
+
+
+# ── Failed policy cycles: guarded, and a run of them ends the campaign ────────
+
+
+class AlwaysRaises(CampaignController):
+    def __init__(self, goal_n: int = 1000) -> None:
+        super().__init__(launch=["quick"], goal_type="quick", goal_n=goal_n)
+
+    def decide(self, obs: dict) -> PolicyResult:
+        raise RuntimeError("controller bug")
+
+
+def _spec_with(ctl, **kw):
+    return CampaignSpec(
+        name="fallback",
+        budget=CampaignBudget(
+            capacity=CAPACITY, max_concurrent_workflows=1, max_concurrency_per_workflow=1
+        ),
+        controller=ctl,
+        workflows=[
+            WorkflowConfig(
+                name="quick", block=quick, spending_limit={"cpu_hours": 1.0}, resources={"cpus": 1}
+            )
+        ],
+        policy_interval_s=0.05,
+        shutdown_timeout_s=5.0,
+        **kw,
+    )
+
+
+def _go(spec):
+    return asyncio.run(asyncio.wait_for(CampaignManager().run(spec), timeout=30.0))
+
+
+def test_a_cycle_that_raises_is_skipped_and_the_campaign_goes_on(monkeypatch, caplog):
+    from src.aucam import campaign as campaign_mod
+
+    orig = campaign_mod._CampaignInstance._collect_telemetry
+    calls = {"n": 0}
+
+    def flaky(self):
+        calls["n"] += 1
+        if calls["n"] in (2, 3):
+            raise ConnectionError("backend hiccup")
+        return orig(self)
+
+    monkeypatch.setattr(campaign_mod._CampaignInstance, "_collect_telemetry", flaky)
+    with caplog.at_level(logging.INFO, logger="src.aucam"):
+        out = _go(_spec_with(CampaignController(launch=["quick"], goal_type="quick", goal_n=5)))
+    assert out.goal_reached
+    assert out.cycle_errors == 2
+    assert "policy cycle raised ConnectionError: backend hiccup" in caplog.text
+    assert "cycle_errors=2" in caplog.text  # SUMMARY line
+
+
+def test_consecutive_failures_end_the_campaign(caplog):
+    with caplog.at_level(logging.INFO, logger="src.aucam"):
+        out = _go(_spec_with(AlwaysRaises(), max_consecutive_errors=3))
+    assert out.exit_reason == "controller_failed"
+    assert out.controller_errors == 3 and not out.goal_reached
+    assert "3 policy cycles in a row failed" in caplog.text
+
+
+def test_a_good_cycle_resets_the_count():
+    class Alternating(CampaignController):
+        def __init__(self) -> None:
+            super().__init__(launch=["quick"], goal_type="quick", goal_n=6)
+            self.calls = 0
+
+        def decide(self, obs: dict) -> PolicyResult:
+            self.calls += 1
+            if self.calls % 2:
+                raise RuntimeError("every other cycle")
+            return super().decide(obs)
+
+    out = _go(_spec_with(Alternating(), max_consecutive_errors=2))
+    assert out.goal_reached and out.exit_reason == "goals_satisfied"
+    assert out.controller_errors >= 2
+
+
+def test_timeouts_do_not_count_toward_the_limit():
+    ctl = Faulty({i: "slow" for i in range(1, 30)}, slow_s=0.15, goal_n=4)
+    out = _go(_spec_with(ctl, decide_timeout_s=0.05, max_consecutive_errors=2))
+    assert out.exit_reason != "controller_failed"
+    assert out.goal_reached
+
+
+def test_max_consecutive_errors_none_never_ends_the_campaign():
+    ctl = AlwaysRaises(goal_n=5)
+    out = _go(_spec_with(ctl, max_consecutive_errors=None))
+    assert out.goal_reached  # the built-in rules did the work
+    assert out.controller_errors >= 5
+
+
+def test_max_consecutive_errors_is_checked():
+    import pytest
+
+    with pytest.raises(ValueError):
+        _spec_with(CampaignController(), max_consecutive_errors=0)

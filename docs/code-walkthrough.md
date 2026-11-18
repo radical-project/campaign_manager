@@ -56,7 +56,9 @@ run()
 ```
 
 - **`_policy_loop()`** wakes every `policy_interval_s` or when a workflow
-  finishes and calls `_run_policy_cycle()`:
+  finishes and calls `_run_policy_cycle()` (an exception there is logged and
+  the cycle skipped; `max_consecutive_errors` failed cycles in a row end the
+  campaign with `controller_failed`):
   `_collect_live_reports()` → `_collect_telemetry()` → `controller.observe()`
   → `_decide()` (the controller's `decide()` or awaited `decide_async()`, or
   the built-in rules if it raises or exceeds `decide_timeout_s`) → `_apply_auto_cancels()` (stale

@@ -397,6 +397,11 @@ class _CampaignInstance:
         self._unfit_dropped = 0  # requests dropped: their allocation did not fit
         self._unfit_logged: set[int] = set()  # id() of queued requests logged as not fitting
         self._controller_errors = 0  # cycles where decide()/observe() failed or timed out
+        self._cycle_errors = 0  # cycles that raised outside decide()/observe()
+        # Policy cycles failed in a row (CampaignSpec.max_consecutive_errors);
+        # _cycle_failed marks the current one (decide/observe raised).
+        self._consecutive_errors = 0
+        self._cycle_failed = False
         self._slow_decide: asyncio.Future | None = None  # decide() still running past its timeout
         # Checkpoints: sequence of the latest one built and written (see _write_ckpt).
         self._ckpt_seq = 0
@@ -1971,7 +1976,34 @@ class _CampaignInstance:
                 pass
             if self._done:
                 break
-            await self._run_policy_cycle()
+            self._cycle_failed = False
+            try:
+                await self._run_policy_cycle()
+            except Exception as exc:
+                # One failed cycle must not end a long campaign: log it, skip the
+                # rest of this cycle, and try again at the next one.
+                self._cycle_errors += 1
+                self._cycle_failed = True
+                logger.error(
+                    "[POLICY-%s] policy cycle raised %s: %s — skipping the rest of this cycle",
+                    self.name,
+                    type(exc).__name__,
+                    exc,
+                    exc_info=self._consecutive_errors == 0,  # traceback once per streak
+                )
+            if self._done:
+                break
+            self._consecutive_errors = self._consecutive_errors + 1 if self._cycle_failed else 0
+            limit = self.spec.max_consecutive_errors
+            if limit is not None and self._consecutive_errors >= limit:
+                logger.error(
+                    "[POLICY-%s] %d policy cycles in a row failed (max_consecutive_errors)"
+                    " — ending the campaign",
+                    self.name,
+                    self._consecutive_errors,
+                )
+                await self._shutdown(reason="controller_failed")
+                break
 
     async def _collect_live_reports(self) -> dict:
         reports = {}
@@ -2462,6 +2494,7 @@ class _CampaignInstance:
             return ctrl.observe(**kwargs)
         except Exception as exc:
             self._controller_errors += 1
+            self._cycle_failed = True
             logger.warning(
                 "[POLICY-%s] observe() raised %s: %s — using the built-in observe this cycle",
                 self.name,
@@ -2530,6 +2563,7 @@ class _CampaignInstance:
             except Exception as exc:
                 why = "error"
                 self._controller_errors += 1
+                self._cycle_failed = True
                 logger.warning(
                     "[POLICY-%s] decide() raised %s: %s — using the built-in rules this cycle",
                     self.name,
@@ -2946,6 +2980,7 @@ class _CampaignInstance:
             f"failed={self._failed} "
             f"cycles={self._policy_cycles} "
             f"controller_errors={self._controller_errors} "
+            f"cycle_errors={self._cycle_errors} "
             f"spent={self._allocator.spent(self.name)}"
         )
 
@@ -3018,6 +3053,11 @@ class _CampaignInstance:
     def resource_cancels(self) -> int:
         """Runs AuCaM cancelled for using more resources at once than they were given."""
         return self._resource_cancels
+
+    @property
+    def cycle_errors(self) -> int:
+        """Policy cycles that raised outside the controller's decide() / observe()."""
+        return self._cycle_errors
 
     @property
     def controller_errors(self) -> int:
