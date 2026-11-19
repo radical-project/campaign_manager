@@ -1,12 +1,18 @@
 # ASD prototype — AuCaM side.  The science lives in the two IMPRESS-A YAMLs
 # passed with --design-spec / --label-spec; this file is the supervision.
 
-# The allocation AuCaM schedules against (one Delta GPU node by default).
-capacity: {cpus: 64, gpus: 4}
+# The allocation AuCaM schedules against, and the budget that follows from it.
+# These are the sbatch directives: --cpus-per-task, --gpus-per-node and --time.
+# delta_sbatch.sh passes the job's real values (--cpus/--gpus/--wall-hours), so
+# these are the defaults for a run started by hand.
+capacity: {cpus: 16, gpus: 4}
 max_concurrent_workflows: 4
 max_concurrency_per_workflow: 1
-# The campaign's own budget: what every workflow together may spend.
-spending: {gpu_hours: 40.0, cpu_hours: 200.0}
+# wall_hours IS the campaign's budget: AuCaM turns capacity x wall_hours into a
+# limit per dimension (16 CPUs and 4 GPUs for 4 h -> 64 cpu_hours, 16 gpu_hours),
+# so the budget cannot drift from what the job holds.  Name a dimension here as
+# well to cap that one tighter, e.g. {wall_hours: 4.0, gpu_hours: 8.0}.
+spending: {wall_hours: 4.0}
 policy_interval_s: 5.0
 shutdown_timeout_s: 300.0
 # How often a workflow reports.  A caller's staleness bound is a multiple of it.

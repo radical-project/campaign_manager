@@ -94,6 +94,24 @@ ROME is installed with `--no-deps`: the DummyTrainer needs only numpy, asyncflow
 and Dragon, while ROME's declared dependencies pull torch, transformers, trl and
 peft. Export `ROME_FULL=1` when switching to a real trainer.
 
+## The budget is the allocation
+
+`campaign.yaml` states the job's shape, not a spending figure worked out by
+hand:
+
+```yaml
+capacity: {cpus: 16, gpus: 4}     # --cpus-per-task, --gpus-per-node
+spending: {wall_hours: 4.0}       # --time=04:00:00
+```
+
+AuCaM turns that into `cpu_hours: 64, gpu_hours: 16` — what the job actually
+buys. `delta_sbatch.sh` goes further and reads the running job's own allocation
+from Slurm (`SLURM_CPUS_PER_TASK`, `SLURM_GPUS_ON_NODE`, and the time limit from
+`squeue`), passing them as `--cpus/--gpus/--wall-hours`, so changing a `#SBATCH`
+line cannot leave the campaign budgeting for the old allocation. Name a
+dimension in `spending` to cap that one tighter; above the allocation it is kept
+and logged.
+
 ## One engine (CON-1)
 
 `run_campaign.py` builds AuCaM's engine over `impress_backends(design_spec)` —

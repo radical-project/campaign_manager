@@ -50,6 +50,26 @@ def load_config(path: str | Path) -> dict[str, Any]:
         return yaml.safe_load(fh) or {}
 
 
+def allocation(cfg: dict[str, Any], args: argparse.Namespace) -> tuple[dict, float | None]:
+    """The capacity and wall time the campaign budgets against.
+
+    The job knows its own allocation and the config does not, so `--cpus`,
+    `--gpus` and `--wall-hours` (which `delta_sbatch.sh` fills from Slurm) win
+    over the file.  AuCaM turns capacity x wall_hours into the spending limit,
+    so the budget cannot drift from what the job actually holds.
+    """
+    capacity = dict(cfg.get("capacity") or {"cpus": 8, "gpus": 1})
+    if args.cpus is not None:
+        capacity["cpus"] = args.cpus
+    if args.gpus is not None:
+        capacity["gpus"] = args.gpus
+    spending = dict(cfg.get("spending") or {})
+    wall_hours = (
+        args.wall_hours if args.wall_hours is not None else spending.pop("wall_hours", None)
+    )
+    return capacity, (float(wall_hours) if wall_hours else None)
+
+
 def build_spec(cfg: dict[str, Any], args: argparse.Namespace) -> CampaignSpec:
     wf = cfg.get("workflows") or {}
     interval = float(cfg.get("report_interval_s", 30.0))
@@ -108,13 +128,18 @@ def build_spec(cfg: dict[str, Any], args: argparse.Namespace) -> CampaignSpec:
         gpus=int(rome_cfg.get("gpus", 1)),
     )
 
+    capacity, wall_hours = allocation(cfg, args)
+    spending = {k: v for k, v in (cfg.get("spending") or {}).items() if k != "wall_hours"}
+    log.info("budget: capacity=%s wall_hours=%s stated=%s", capacity, wall_hours, spending)
     return CampaignSpec(
         name=args.name,
         budget=CampaignBudget(
-            capacity=cfg.get("capacity") or {"cpus": 8, "gpus": 1},
+            capacity=capacity,
             max_concurrent_workflows=int(cfg.get("max_concurrent_workflows", 4)),
             max_concurrency_per_workflow=int(cfg.get("max_concurrency_per_workflow", 1)),
-            spending=cfg.get("spending") or {},
+            # capacity x wall_hours per dimension, with anything stated kept.
+            spending=spending,
+            wall_hours=wall_hours,
         ),
         controller=AsdController(AsdPolicy(**(cfg.get("policy") or {}))),
         workflows=[workflow("design", design), workflow("label", label), workflow("train", train)],
@@ -164,6 +189,14 @@ async def main(argv: list[str] | None = None) -> int:
         default="rome",
         help="'fake' writes a checkpoint without importing ROME (no Dragon)",
     )
+    ap.add_argument(
+        "--wall-hours",
+        type=float,
+        default=None,
+        help="the allocation's wall time; with capacity it IS the budget",
+    )
+    ap.add_argument("--cpus", type=float, default=None, help="capacity override")
+    ap.add_argument("--gpus", type=float, default=None, help="capacity override")
     ap.add_argument("--model", default="D", help="IMPRESS-A control model")
     ap.add_argument("--no-guard", action="store_true")
     ap.add_argument("-v", "--verbose", action="store_true")

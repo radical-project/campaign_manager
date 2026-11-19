@@ -696,11 +696,28 @@ CampaignBudget(
     max_concurrency_per_workflow=2,  # running at once per workflow type
     capacity={"cpus": 256, "gpus": 8},  # the allocation's resources (required)
     spending={"gpu_hours": 10.0},  # lifetime limit per dimension (optional)
+    wall_hours=None,  # or: state the allocation's wall time and have it worked out
     # Load-aware launching, with telemetry (defaults shown):
     target_utilization=0.85,  # one more workflow per cycle while nodes are below this
     max_waiting_tasks=None,  # fewer above this many waiting tasks; None: 2 × max_concurrent
     overcommit=1.0,  # with room, give out up to this × capacity
 )
+```
+
+**The allocation as the budget.** `wall_hours` is a way of saying the spending
+limit instead of working it out: each resource in `capacity` becomes its own
+dimension at capacity × wall_hours. With `capacity={"cpus": 64, "gpus": 4}`,
+`wall_hours=4.0` is `{"cpu_hours": 256.0, "gpu_hours": 16.0}` — what a
+`#SBATCH --time=04:00:00` on those resources actually buys, so the campaign's
+budget and the job's allocation cannot drift apart. A dimension given in
+`spending` is kept as given, so one can be capped tighter than the allocation
+while the rest follow it. From YAML, where the budget is one block, it can also
+be written inside the spending map:
+
+```yaml
+budget:
+  capacity: {cpus: 64, gpus: 4}
+  spending: {wall_hours: 4.0}        # -> cpu_hours 256, gpu_hours 16
 ```
 
 `capacity` is the total CPUs / GPUs of the allocation the campaign runs on. A

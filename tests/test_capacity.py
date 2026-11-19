@@ -5,6 +5,7 @@ free."""
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import pytest
 
@@ -109,3 +110,57 @@ def test_gpus_not_in_capacity_count_as_zero():
     )
     out = _run(ctl, {"cpus": 4}, wfc)
     assert ctl.results == [] and out.unfit_dropped == 1
+
+
+# ── The allocation as the budget (capacity × wall time) ──────────────────────
+
+
+def _budget(**kw):
+    return CampaignBudget(
+        max_concurrent_workflows=1,
+        max_concurrency_per_workflow=1,
+        capacity={"cpus": 64, "gpus": 4},
+        **kw,
+    )
+
+
+def test_wall_hours_turns_the_allocation_into_the_spending_limit():
+    """What `#SBATCH --time=04:00:00` on 64 CPUs and 4 GPUs actually buys."""
+    assert _budget(wall_hours=4.0).spending == {"cpu_hours": 256.0, "gpu_hours": 16.0}
+    # A resource the capacity does not name gets no dimension.
+    cpu_only = CampaignBudget(
+        max_concurrent_workflows=1,
+        max_concurrency_per_workflow=1,
+        capacity={"cpus": 8},
+        wall_hours=2.0,
+    )
+    assert cpu_only.spending == {"cpu_hours": 16.0}
+
+
+def test_wall_hours_can_be_given_inside_spending():
+    """YAML keeps the budget in one block, so it is accepted there too."""
+    budget = _budget(spending={"wall_hours": 4.0})
+    assert budget.wall_hours == 4.0
+    assert budget.spending == {"cpu_hours": 256.0, "gpu_hours": 16.0}
+    assert "wall_hours" not in budget.spending  # a limit, not a dimension to charge
+
+
+def test_a_stated_dimension_is_kept_as_stated():
+    """The derived figure is a default: one dimension can be capped tighter."""
+    budget = _budget(wall_hours=4.0, spending={"gpu_hours": 10.0})
+    assert budget.spending == {"cpu_hours": 256.0, "gpu_hours": 10.0}
+
+
+def test_wall_hours_must_be_positive():
+    for bad in (0, -1.0):
+        with pytest.raises(ValueError, match="wall_hours"):
+            _budget(wall_hours=bad)
+
+
+def test_a_stated_dimension_above_the_allocation_is_kept_but_logged(caplog):
+    """Legal — a campaign may be charged for work outside this allocation — but
+    the usual cause is a figure left behind when the allocation changed."""
+    with caplog.at_level(logging.WARNING, logger="src.aucam"):
+        budget = _budget(wall_hours=1.0, spending={"cpu_hours": 999.0})
+    assert budget.spending["cpu_hours"] == 999.0
+    assert "above the allocation" in caplog.text

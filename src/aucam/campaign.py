@@ -37,6 +37,7 @@ from .scheduler import (
 )
 from .spec import CampaignSpec, WorkflowConfig
 from .types import (
+    RESOURCE_HOURS,
     RESOURCE_KEYS,
     Allocation,
     AllocationRecord,
@@ -59,7 +60,7 @@ class _DecideTimeoutError(Exception):
 def _charge_rate(resources: dict[str, float]) -> dict[str, float]:
     """What holding these resources costs per hour: cpus → cpu_hours, gpus → gpu_hours."""
     rate = {}
-    for res, dim in (("cpus", "cpu_hours"), ("gpus", "gpu_hours")):
+    for res, dim in RESOURCE_HOURS.items():
         if float(resources.get(res, 0) or 0) > 0:
             rate[dim] = float(resources[res])
     return rate

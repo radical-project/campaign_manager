@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
@@ -12,6 +13,8 @@ from .types import WorkflowResult
 
 if TYPE_CHECKING:
     pass
+
+logger = logging.getLogger(__name__)
 
 
 def resources_from_task_description(td: dict[str, Any] | None) -> dict[str, float]:
@@ -208,12 +211,23 @@ class CampaignBudget:
     spending — lifetime spending limit per dimension
                (e.g. {"gpu_hours": 100.0} = stop launching after 100 GPU·h).
                Tracked in the BudgetAllocator ledger; checked by the scheduler.
+    wall_hours — the allocation's wall time, as a way of SAYING the spending
+               limit rather than working it out: each resource in `capacity` is
+               turned into its own dimension at capacity x wall_hours, so
+               capacity={"cpus": 64, "gpus": 4} with wall_hours=4 is
+               {"cpu_hours": 256.0, "gpu_hours": 16.0} — the allocation a
+               `#SBATCH --time=04:00:00` on those resources actually buys.
+               A dimension given in `spending` is kept as given, so one can be
+               tightened without dropping the rest.  It may also be written as
+               `spending={"wall_hours": 4.0}`, which is the same thing: handy
+               from YAML, where the budget is one block.
     """
 
     max_concurrent_workflows: int
     max_concurrency_per_workflow: int
     capacity: dict[str, float]
     spending: dict[str, float] = field(default_factory=dict)
+    wall_hours: float | None = None
     # What happens when actual spending (charged + what running workflows have
     # used so far) goes past the spending limit (B6): "cancel" — cancel the
     # running workflows (gracefully, if their type has a cancel_grace_s),
@@ -245,7 +259,7 @@ class CampaignBudget:
             raise ValueError("max_waiting_tasks must be >= 0, or None")
         if self.overcommit < 1:
             raise ValueError("overcommit must be >= 1.0")
-        from .types import RESOURCE_KEYS  # noqa: PLC0415
+        from .types import RESOURCE_HOURS, RESOURCE_KEYS  # noqa: PLC0415
 
         if not isinstance(self.capacity, dict) or not self.capacity:
             raise ValueError('capacity is required, e.g. capacity={"cpus": 64}')
@@ -254,6 +268,36 @@ class CampaignBudget:
                 raise ValueError(f"capacity: unknown resource {key!r}; use {RESOURCE_KEYS}")
             if value is None or float(value) < 0:
                 raise ValueError(f"capacity[{key!r}] must be >= 0")
+
+        # The allocation as the budget: capacity x wall time, per dimension.
+        self.spending = dict(self.spending or {})
+        in_spending = self.spending.pop("wall_hours", None)
+        if in_spending is not None and self.wall_hours is None:
+            self.wall_hours = float(in_spending)
+        if self.wall_hours is not None:
+            if float(self.wall_hours) <= 0:
+                raise ValueError("wall_hours must be > 0")
+            self.wall_hours = float(self.wall_hours)
+            derived = {
+                RESOURCE_HOURS[key]: float(value) * self.wall_hours
+                for key, value in self.capacity.items()
+                if key in RESOURCE_HOURS and float(value) > 0
+            }
+            # What the caller stated wins: the derived figure is a default, so a
+            # campaign can cap one dimension tighter than the allocation.  Over
+            # it is legal — a campaign may be charged for work outside this
+            # allocation — but it is worth saying, because the usual cause is a
+            # figure left behind when the allocation changed.
+            for dim, limit in self.spending.items():
+                if dim in derived and float(limit) > derived[dim]:
+                    logger.warning(
+                        "[BUDGET] spending[%r]=%s is above the allocation "
+                        "(capacity x wall_hours = %s); keeping the stated figure",
+                        dim,
+                        limit,
+                        derived[dim],
+                    )
+            self.spending = {**derived, **self.spending}
 
 
 class CampaignSpec(BaseModel):

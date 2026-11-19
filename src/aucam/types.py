@@ -106,6 +106,8 @@ class LaunchRequest:
 # Resource keys (amounts in use at once); every other key in an allocation is a
 # spending dimension (cpu_hours, gpu_hours, ...).
 RESOURCE_KEYS = ("cpus", "gpus")
+#: The spending dimension an hour of each resource is charged to.
+RESOURCE_HOURS = {"cpus": "cpu_hours", "gpus": "gpu_hours"}
 
 
 @dataclass

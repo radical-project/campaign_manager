@@ -81,6 +81,24 @@ AUCAM_CKPT="${ASD_ROOT}/aucam_ckpt"
 CONFIG="${CONFIG:-campaign_configs/campaign.yaml}"
 mkdir -p "${RUN_ROOT}" "${CORPUS}" "${CHECKPOINTS}" "${AUCAM_CKPT}"
 
+# ── The allocation is the budget ──────────────────────────────────────────────
+# Read from Slurm rather than the config, so the campaign's spending limit is
+# capacity x wall time of the job actually running: AuCaM works out cpu_hours
+# and gpu_hours from them.  Anything not readable falls back to the config.
+CAP_CPUS="${CAP_CPUS:-${SLURM_CPUS_PER_TASK:-}}"
+CAP_GPUS="${CAP_GPUS:-${SLURM_GPUS_ON_NODE:-}}"
+if [ -z "${WALL_HOURS:-}" ] && [ -n "${SLURM_JOB_ID:-}" ]; then
+    # Slurm's D-HH:MM:SS / HH:MM:SS / MM:SS time limit, in hours.
+    WALL_HOURS="$(squeue -h -j "${SLURM_JOB_ID}" -o '%l' 2>/dev/null | tr -d ' ' | awk -F'[-:]' '
+        NF==4 {printf "%.4f", $1*24 + $2 + $3/60 + $4/3600; exit}
+        NF==3 {printf "%.4f", $1 + $2/60 + $3/3600; exit}
+        NF==2 {printf "%.4f", $1/60 + $2/3600; exit}')"
+fi
+ALLOC_ARGS=()
+[ -n "${CAP_CPUS}" ] && ALLOC_ARGS+=(--cpus "${CAP_CPUS}")
+[ -n "${CAP_GPUS}" ] && ALLOC_ARGS+=(--gpus "${CAP_GPUS}")
+[ -n "${WALL_HOURS:-}" ] && ALLOC_ARGS+=(--wall-hours "${WALL_HOURS}")
+
 # ── System libraries ──────────────────────────────────────────────────────────
 export CUDA_HOME=/opt/nvidia/hpc_sdk/Linux_x86_64/25.3/cuda/12.8
 export MPI_LIB=/opt/cray/pe/mpich/8.1.32/ofi/gnu/11.2/lib-abi-mpich
@@ -109,6 +127,7 @@ echo "DESIGN_SPEC : ${ASD_DESIGN_SPEC}"
 echo "LABEL_SPEC  : ${ASD_LABEL_SPEC}"
 echo "CONFIG      : ${CONFIG}"
 echo "ASD_ROOT    : ${ASD_ROOT}"
+echo "ALLOCATION  : cpus=${CAP_CPUS:-<config>} gpus=${CAP_GPUS:-<config>} wall_hours=${WALL_HOURS:-<config>}"
 echo "CORPUS      : ${CORPUS}  ($(ls "${CORPUS}"/records.jsonl 2>/dev/null | wc -l) existing record file(s))"
 echo ""
 
@@ -127,6 +146,7 @@ ARGS=(
     --train-impl     "${TRAIN_IMPL}"
     --name           "asd-${SLURM_JOB_ID:-local}"
     --verbose
+    "${ALLOC_ARGS[@]+"${ALLOC_ARGS[@]}"}"
 )
 
 # `|| true`: the summary below is worth printing even when the campaign ends badly.
