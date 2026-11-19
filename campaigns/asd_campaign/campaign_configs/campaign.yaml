@@ -1,0 +1,60 @@
+# ASD prototype — AuCaM side.  The science lives in the two IMPRESS-A YAMLs
+# passed with --design-spec / --label-spec; this file is the supervision.
+
+# The allocation AuCaM schedules against (one Delta GPU node by default).
+capacity: {cpus: 64, gpus: 4}
+max_concurrent_workflows: 4
+max_concurrency_per_workflow: 1
+# The campaign's own budget: what every workflow together may spend.
+spending: {gpu_hours: 40.0, cpu_hours: 200.0}
+policy_interval_s: 5.0
+shutdown_timeout_s: 300.0
+# How often a workflow reports.  A caller's staleness bound is a multiple of it.
+report_interval_s: 30.0
+
+# Per workflow type.  `spending_limit` is the limit AuCaM gives one launch and
+# holds against the campaign; it is also the backstop on a training round that
+# is chasing a score target.  `learn` is off (see run_campaign.py), so this is
+# what every launch gets.  `budget_floor` is deliberately unset: AuCaM drops a
+# launch sized below it, which on cheap runs makes every request disappear.
+workflows:
+  design:
+    spending_limit: {gpu_hours: 2.0, cpu_hours: 8.0}
+    resources: {cpus: 8, gpus: 1}
+    max_wall_time_s: 7200
+  label:
+    spending_limit: {gpu_hours: 0.5, cpu_hours: 4.0}
+    resources: {cpus: 8, gpus: 1}
+    max_wall_time_s: 3600
+  train:
+    spending_limit: {gpu_hours: 2.0, cpu_hours: 4.0}
+    resources: {cpus: 8, gpus: 1}
+    max_wall_time_s: 7200
+    # A round reports at its start and its end and nothing in between, so its
+    # staleness bound is the round's own length, not the report interval.
+    stale_timeout_s: 1800
+
+# Which param of the label YAML receives the design's output directory,
+# "<stage>.<key>".  Named here because only the label spec knows its own chain.
+label_input_param: "score_designs.input_dir"
+# The objective in the label YAML whose best value is the design's score, or
+# "progress" for the digest's own scalar.  A label whose chain measured neither
+# writes no record rather than a zero.
+score_key: complex_plddt
+
+# The controller (controller.AsdPolicy).
+policy:
+  design_in_flight: 3
+  min_records: 8
+  trial_n: 3
+  # null: a candidate has to beat the current model's own mean by promote_margin.
+  # A number: it has to clear that absolute score.
+  target_score: null
+  promote_margin: 0.0
+  goal_promotions: 1
+  max_train_launches: 4
+
+# ROME's DummyTrainer stands in for the real fine-tune for now.
+rome:
+  train_seconds: 5.0
+  gpus: 1

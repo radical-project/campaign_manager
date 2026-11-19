@@ -1,0 +1,30 @@
+# Smoke config: the same control flow, nothing real.  IMPRESS's mock chain for
+# both design and label, a fake training round, no GPU and no Dragon.
+#
+#   ENGINE=concurrent TRAIN_IMPL=fake CONFIG=campaign_configs/campaign_smoke.yaml
+#
+# `score_key: progress` and an empty `label_input_param` are what make it run
+# without the label campaign that does not exist yet: the "label" is the design
+# chain a second time, and its score is the digest's own scalar.
+capacity: {cpus: 8}
+max_concurrent_workflows: 3
+max_concurrency_per_workflow: 1
+spending: {cpu_hours: 10.0}
+policy_interval_s: 0.2
+shutdown_timeout_s: 20.0
+report_interval_s: 1.0
+workflows:
+  design: {spending_limit: {cpu_hours: 1.0}, resources: {cpus: 1}}
+  label: {spending_limit: {cpu_hours: 1.0}, resources: {cpus: 1}}
+  train: {spending_limit: {cpu_hours: 1.0}, resources: {cpus: 1}, stale_timeout_s: 120}
+label_input_param: ""
+score_key: progress
+policy:
+  design_in_flight: 2
+  min_records: 2
+  trial_n: 1
+  target_score: null
+  promote_margin: 0.0
+  goal_promotions: 1
+  max_train_launches: 2
+rome: {train_seconds: 0.0, gpus: 0}

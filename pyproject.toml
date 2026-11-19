@@ -92,7 +92,8 @@ ignore = ["UP007", "UP045", "E501"]
 # versions. `src` is this package; the campaign runners import their sibling
 # modules (config.py, controller.py, ...) by plain name.
 known-first-party = ["src"]
-known-local-folder = ["config", "controller", "reporting", "scheduler", "workflows"]
+known-local-folder = ["config", "controller", "records", "reporting", "scheduler",
+                      "workflows"]
 
 [tool.ruff.format]
 quote-style = "double"
