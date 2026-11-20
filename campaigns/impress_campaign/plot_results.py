@@ -1,377 +1,456 @@
 #!/usr/bin/env python3
 """
-Plot multi-arm AuCaM campaign results from the telemetry JSON written by
-MultiArmController.
+Figures for the IMPRESS AuCaM campaign: what AuCaM contributed.
 
-Usage
------
-    python plot_results.py --telemetry results.jsonl --out plots/
+Each figure answers a question a reader would ask about the campaign manager
+itself, and answers it from one run's telemetry rather than from an assertion:
 
-Produces three narrative figures:
-    01_execution_timeline.png  — swim-lane Gantt of every workflow instance
-    02_completion_race.png     — cumulative completions vs wall time
-    03_roi.png                 — completions-per-gpu_hour by arm (efficiency)
+    01_steering_vs_baseline.png  — did steering cost less than not steering?
+    02_bandit_learning.png       — did it learn, and does it stop exploring?
+    03_cancellation_savings.png  — what did cancelling in flight save?
 
-Requires: matplotlib, numpy  (pip install matplotlib numpy)
+Figure 1 needs TWO runs, because "AuCaM helped" is a claim about a baseline:
+the same campaign, same goal, steered and unsteered.
+
+    python run_campaign.py --multi-arm --goal-n 20 --max-concurrent 2 \\
+                           --cost-cancel 0.008 --telemetry-out runs/bandit.jsonl
+    python run_campaign.py --multi-arm --goal-n 20 --max-concurrent 2 \\
+                           --policy even --telemetry-out runs/even.jsonl
+    python plot_results.py --telemetry runs/bandit.jsonl \\
+                           --baseline runs/even.jsonl --out figures/
+
+Without `--baseline` the other two figures are still written, and figure 1 is
+skipped with a line saying why — a one-run comparison against a number this
+script made up would be worse than no figure.
+
+Requires: matplotlib, numpy  (`pip install -e ".[plotting]"`).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-from collections import defaultdict
+import math
+import time
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 import numpy as np
+from matplotlib.ticker import MaxNLocator
 
 # ── Palette / style ───────────────────────────────────────────────────────────
 
-ARM_COLOR = {
-    "binding_easy":   "#27ae60",
-    "binding_medium": "#e67e22",
-    "binding_hard":   "#c0392b",
+TYPE_COLOR = {
+    "binding_tractable": "#27ae60",
+    "binding_borderline": "#e67e22",
+    "binding_refractory": "#c0392b",
 }
-ARM_SHORT = {
-    "binding_easy":   "Easy",
-    "binding_medium": "Medium",
-    "binding_hard":   "Hard",
+TYPE_SHORT = {
+    "binding_tractable": "Tractable",
+    "binding_borderline": "Borderline",
+    "binding_refractory": "Refractory",
 }
-ARMS = list(ARM_COLOR)
+TYPES = list(TYPE_COLOR)
+STEERED_C, BASELINE_C = "#2d6a9f", "#95a5a6"
+SAVED_C = "#d0d7de"
 
-plt.rcParams.update({
-    "font.family":        "DejaVu Sans",
-    "font.size":          10,
-    "axes.spines.top":    False,
-    "axes.spines.right":  False,
-    "axes.grid":          True,
-    "grid.alpha":         0.25,
-    "grid.linestyle":     "--",
-})
+#: What AuCaM charges these types in. The campaign's budget is GPU-hours: CPU time
+#: is the agent process rather than the science, and the adapter does not bill it.
+DIM = "gpu_hours"
 
 
-# ── Load ──────────────────────────────────────────────────────────────────────
-
-def load(path: str) -> tuple[list[dict], list[dict]]:
-    cycles, completions = [], []
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            ev = json.loads(line)
-            if ev["event"] == "cycle":
-                cycles.append(ev)
-            elif ev["event"] == "complete":
-                completions.append(ev)
-    return cycles, completions
+def load(path: str) -> list[dict]:
+    """Every telemetry event, in the order the campaign wrote it."""
+    with open(path) as fh:
+        return [json.loads(line) for line in fh if line.strip()]
 
 
-def _reconstruct_gantt(completions: list[dict], max_lanes: int = 2) -> list[dict]:
+# ── Derived quantities ────────────────────────────────────────────────────────
+
+
+def wf_type(event: dict) -> str:
+    """Which workflow type an event belongs to.
+
+    `arm` is the key telemetry used before the campaign settled on calling these
+    workflow TYPES (the scheduler's word for one is an arm), and the saved
+    snapshots are worth keeping readable, so both spellings are accepted.
     """
-    Reconstruct (start, end, arm, lane, rc, progress) for each workflow instance.
+    return event.get("wf_type") or event.get("arm") or "?"
 
-    Strategy:
-    - Sort completions by end time per arm.
-    - Assign to lanes greedily: each completion starts immediately after the
-      previous completion in that lane (sequential within a lane).
-    - First completion in each arm starts at t=0 (campaign start).
+
+def completions(events: list[dict]) -> list[dict]:
+    return [e for e in events if e.get("event") == "complete"]
+
+
+def spent(event: dict) -> float:
+    return float((event.get("spent") or {}).get(DIM, 0.0))
+
+
+def was_cancelled(event: dict) -> bool:
+    """A run AuCaM stopped, rather than one that ran itself out.
+
+    The controller writes `rc` from `WorkflowResult.returncode`, which is negative
+    for a cancellation and 0 for a run that ended on its own terms.
     """
-    t0 = 0.0  # campaign start (all arms launch at t=0)
-    rows = []
-    for arm in ARMS:
-        evs = sorted([e for e in completions if e.get("arm") == arm], key=lambda e: e["t"])
-        # Distribute evs across up to max_lanes lanes
-        lane_end: list[float] = [t0] * max_lanes
-        for ev in evs:
-            # pick the lane whose end time is earliest
-            lane_idx = int(np.argmin(lane_end))
-            start = lane_end[lane_idx]
-            end   = ev["t"]
-            rows.append({
-                "arm":      arm,
-                "lane":     lane_idx,
-                "start":    start,
-                "end":      end,
-                "rc":       ev.get("rc", 0),
-                "progress": ev.get("progress", 0.0),
-            })
-            lane_end[lane_idx] = end
-    return rows
+    return int(event.get("rc", 0)) < 0
 
 
-# ── Plot 1: Swim-lane execution Gantt ─────────────────────────────────────────
+def produced_result(event: dict) -> bool:
+    """A run that reached the front. `progress` is 0.0 for one that did not."""
+    return float(event.get("progress") or 0.0) > 0.0
 
-def plot_execution_timeline(completions: list[dict], out: Path, max_lanes: int = 2) -> None:
-    rows = _reconstruct_gantt(completions, max_lanes)
-    t_goal = max(e["t"] for e in completions)
 
-    # Build y-axis: one row per (arm, lane), arms ordered easy → medium → hard
-    lane_order: list[tuple[str, int]] = []
-    for arm in reversed(ARMS):                   # easy at bottom, hard at top for readability
-        lanes_used = sorted(set(r["lane"] for r in rows if r["arm"] == arm))
-        for lane in reversed(lanes_used):
-            lane_order.append((arm, lane))
+def summarise(events: list[dict]) -> dict:
+    """The handful of numbers figure 1 compares between two runs."""
+    done = completions(events)
+    results = [e for e in done if produced_result(e)]
+    total = sum(spent(e) for e in done)
+    wasted = sum(spent(e) for e in done if not produced_result(e))
+    return {
+        "runs": len(done),
+        "results": len(results),
+        "spent": total,
+        "wasted": wasted,
+        "per_result": total / len(results) if results else math.inf,
+        "t_last_result": max((e["t"] for e in results), default=0.0),
+        "by_arm": {a: sum(spent(e) for e in done if wf_type(e) == a) for a in TYPES},
+    }
 
-    y_map = {key: i for i, key in enumerate(lane_order)}
-    total_rows = len(lane_order)
 
-    fig, ax = plt.subplots(figsize=(13, max(4.0, 0.42 * total_rows + 2.0)))
-    ax.set_axisbelow(True)
+def full_cost_estimate(events: list[dict], wtype: str) -> float | None:
+    """What a run of `wtype` costs when nothing stops it.
 
-    for r in rows:
-        y    = y_map[(r["arm"], r["lane"])]
-        col  = ARM_COLOR[r["arm"]]
-        dur  = r["end"] - r["start"]
-        cancelled = r["rc"] != 0
-        no_result = r["progress"] == 0.0 and not cancelled
-
-        ax.barh(y, dur, left=r["start"], height=0.60,
-                color=col, alpha=0.80, linewidth=0.4, edgecolor="white")
-
-        if cancelled:
-            ax.barh(y, dur, left=r["start"], height=0.60,
-                    color="none", hatch="////", linewidth=0.3, edgecolor=col, alpha=0.45)
-            ax.plot(r["end"], y, "x", color="#7f8c8d", markersize=7, markeredgewidth=2.0)
-        elif no_result:
-            # stagnated without results — hatched differently
-            ax.barh(y, dur, left=r["start"], height=0.60,
-                    color="none", hatch="....", linewidth=0.3, edgecolor="#7f8c8d", alpha=0.5)
-            ax.plot(r["end"], y, "o", color="#7f8c8d", markersize=5,
-                    markerfacecolor="none", markeredgewidth=1.5)
-        else:
-            ax.plot(r["end"], y, "|", color="white", markersize=7, markeredgewidth=1.8)
-
-        # Duration text
-        if dur > 0.6:
-            txt = f"{dur:.1f}s"
-            ax.text(r["start"] + dur / 2, y, txt,
-                    va="center", ha="center", fontsize=7, color="white", fontweight="bold")
-
-    # Goal-reached line
-    ax.axvline(t_goal, color="#8e44ad", linestyle="--", linewidth=1.5, zorder=5, label=f"Goal reached  t={t_goal:.0f}s")
-
-    # Y-axis labels
-    ytick_labels = []
-    for arm, lane in lane_order:
-        n_ok = sum(1 for r in rows if r["arm"] == arm and r["lane"] == lane and r["rc"] == 0 and r["progress"] > 0)
-        n_tot = sum(1 for r in rows if r["arm"] == arm and r["lane"] == lane)
-        ytick_labels.append(f"{ARM_SHORT[arm]} lane {lane+1}  ({n_ok}/{n_tot} yielded results)")
-
-    ax.set_yticks(range(total_rows))
-    ax.set_yticklabels(ytick_labels, fontsize=8)
-    ax.set_xlabel("Wall-clock time (s)")
-    ax.set_title("Execution timeline — AuCaM routes compute to the winning arm", fontweight="bold", fontsize=11)
-    ax.set_xlim(left=-0.2)
-
-    legend_handles = [
-        mpatches.Patch(color=ARM_COLOR[a], label=ARM_SHORT[a]) for a in ARMS
-    ] + [
-        mpatches.Patch(facecolor="lightgrey", hatch="////", edgecolor="grey", label="Cancelled (goal met)"),
-        mpatches.Patch(facecolor="lightgrey", hatch="....", edgecolor="grey", label="Stagnated — 0 results"),
-        mpatches.Patch(color="#8e44ad", label=f"Goal reached  t={t_goal:.0f}s"),
+    Measured from this run's own completed instances of that type, so figure 3
+    compares against observed behaviour rather than against the declared
+    spending limit, which is a ceiling nobody reaches. None when the type has no
+    completed run of its own to compare against.
+    """
+    finished = [
+        spent(e) for e in completions(events) if wf_type(e) == wtype and not was_cancelled(e)
     ]
-    ax.legend(handles=legend_handles, loc="lower right", fontsize=8, framealpha=0.9)
+    return max(finished) if finished else None
+
+
+# ── 1. Steering vs no steering ────────────────────────────────────────────────
+
+
+def plot_steering(steered: list[dict], baseline: list[dict], out: Path) -> None:
+    """The headline: the same campaign, steered and not.
+
+    Two panels, because "cheaper" and "sooner" are different claims and a campaign
+    can buy one with the other: left is what the goal cost, right is how the spend
+    accumulated on the way there.
+
+    STEERING IS TWO MECHANISMS, and the labels say so because the gap belongs to
+    both.  The scheduler's `BanditSchedulingPolicy` steers by CHOOSING — when the
+    queue is contended it stops picking the arm that does not pay — and the
+    controller's `CancelRule` / `CostCancelRule` steer by STOPPING, killing a run
+    that is already going nowhere.  They are substitutes on this campaign: each
+    alone recovers most of the waste (measured 1.8x and 1.5x against neither),
+    and together only a little more, because both are aimed at the same
+    refractory runs.  Naming only the bandit would credit it with the rules' half.
+    """
+    a, b = summarise(steered), summarise(baseline)
+
+    fig, (ax_cost, ax_curve) = plt.subplots(1, 2, figsize=(12, 5))
+    fig.suptitle(
+        "What steering bought — the same campaign and goal, steered and not",
+        fontweight="bold",
+        fontsize=11,
+    )
+
+    # Left: GPU-hours per result, and how much went to runs that produced nothing.
+    labels = ["AuCaM steering\n(bandit + cancel rules)", "Unsteered\n(even split, no rules)"]
+    produced = [a["spent"] - a["wasted"], b["spent"] - b["wasted"]]
+    wasted = [a["wasted"], b["wasted"]]
+    x = np.arange(2)
+    ax_cost.bar(
+        x, produced, 0.5, color=[STEERED_C, BASELINE_C], label="spent on runs that produced"
+    )
+    ax_cost.bar(
+        x,
+        wasted,
+        0.5,
+        bottom=produced,
+        color=SAVED_C,
+        hatch="//",
+        edgecolor="#7f8c8d",
+        label="spent on runs that produced nothing",
+    )
+    for i, s in enumerate((a, b)):
+        ax_cost.text(
+            i,
+            s["spent"],
+            f"  {s['spent']:.3f} {DIM}\n  {s['results']} results",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
+    ax_cost.set_xticks(x, labels)
+    ax_cost.set_ylabel(DIM)
+    ax_cost.set_title("Budget spent to reach the goal", loc="left", fontsize=10.5)
+    # Below the bars: the ratio badge sits above them, and "upper left" put the two
+    # boxes on top of each other.
+    ax_cost.legend(fontsize=8, loc="lower center", bbox_to_anchor=(0.5, -0.26), ncol=2)
+    ax_cost.set_ylim(0, max(a["spent"], b["spent"]) * 1.45 or 1)
+
+    if a["per_result"] < b["per_result"] and math.isfinite(b["per_result"]):
+        ax_cost.text(
+            0.5,
+            0.93,
+            f"{b['per_result'] / a['per_result']:.1f}× less {DIM} per result",
+            transform=ax_cost.transAxes,
+            ha="center",
+            fontsize=9,
+            color=STEERED_C,
+            bbox={"boxstyle": "round", "fc": "white", "ec": STEERED_C},
+        )
+
+    # Right: results against spend. A steeper curve is a campaign buying more
+    # science with the same allocation, which is the whole claim.
+    for events, label, colour in (
+        (steered, "AuCaM steering (bandit + cancel rules)", STEERED_C),
+        (baseline, "Unsteered (even split, no rules)", BASELINE_C),
+    ):
+        run, got = 0.0, 0
+        xs, ys = [0.0], [0]
+        for e in sorted(completions(events), key=lambda e: e["t"]):
+            run += spent(e)
+            got += 1 if produced_result(e) else 0
+            xs.append(run)
+            ys.append(got)
+        ax_curve.step(xs, ys, where="post", color=colour, lw=2, label=label)
+
+    ax_curve.set_xlabel(f"{DIM} consumed")
+    ax_curve.set_ylabel("Runs that reached the front")
+    ax_curve.yaxis.set_major_locator(MaxNLocator(integer=True))
+    ax_curve.set_title("Results per unit of allocation", loc="left", fontsize=10.5)
+    ax_curve.legend(fontsize=9, loc="upper left")
+    ax_curve.grid(alpha=0.3, ls=":")
 
     fig.tight_layout()
-    fig.savefig(out / "01_execution_timeline.png", dpi=150)
+    fig.savefig(out / "01_steering_vs_baseline.png", dpi=150)
     plt.close(fig)
-    print("  01_execution_timeline.png")
 
 
-# ── Plot 2: Completion race ───────────────────────────────────────────────────
+# ── 2. The bandit learning ────────────────────────────────────────────────────
 
-def plot_completion_race(completions: list[dict], out: Path) -> None:
+
+def plot_learning(events: list[dict], out: Path) -> None:
+    """What the scheduler learned, and what it did about it.
+
+    BOTH PANELS ARE ON ELAPSED SECONDS, and that is the whole point of the
+    figure.  The top is the decision record (which arm each launch went to); the
+    bottom is the evidence behind it (each arm's running mean, the number UCB1
+    ranks by).  Indexing them by launch number and completion number instead —
+    two different sequences that drift apart, because a refractory run takes
+    eight cycles and a tractable one takes one — put the cause and its effect at
+    unrelated positions and made the figure unreadable.
+
+    On one clock the claim is checkable: an arm's mean falls, and after a delay
+    its squares stop appearing.  The delay is real and worth seeing — a choice
+    can only use evidence from runs that had already finished, which is why a
+    bandit keeps sampling a bad arm for a while before giving up.
+
+    The exploration weight (dashed) is what sets the length of that patience: it
+    scales with the square root of the budget left, so a campaign explores while
+    it can afford to and exploits once it cannot.
     """
-    Step functions over wall time.
-    Solid line = completions with real results (progress > 0).
-    Dashed line = all completions including stagnated ones (progress = 0).
-    """
-    by_arm: dict[str, list[dict]] = {a: [] for a in ARMS}
-    for ev in completions:
-        arm = ev.get("arm")
-        if arm in by_arm:
-            by_arm[arm].append(ev)
+    picks = [e for e in events if e.get("event") == "select" and wf_type(e) in TYPE_COLOR]
+    if not picks:
+        print("  02: no launch decisions recorded — skipped")
+        return
 
-    t_goal = max(e["t"] for e in completions)
-    t_max  = t_goal + 1.0
-    goal_n = sum(1 for e in completions if e.get("rc", 0) == 0 and e.get("progress", 0) > 0)
+    fig, (ax_strip, ax_explore) = plt.subplots(
+        2, 1, figsize=(12, 6), gridspec_kw={"height_ratios": [1.1, 1]}, sharex=True
+    )
+    fig.suptitle(
+        "The scheduler learning which arm is worth the allocation",
+        fontweight="bold",
+        fontsize=11,
+    )
 
-    fig, ax = plt.subplots(figsize=(11, 5))
+    counts: dict[str, int] = {}
+    for e in picks:
+        wtype = wf_type(e)
+        counts[wtype] = counts.get(wtype, 0) + 1
+        ax_strip.scatter(
+            e.get("t", 0.0), TYPES.index(wtype), marker="s", s=70, color=TYPE_COLOR[wtype], zorder=3
+        )
 
-    for arm in ARMS:
-        evs = sorted(by_arm[arm], key=lambda e: e["t"])
-        col = ARM_COLOR[arm]
+    ax_strip.set_yticks(range(len(TYPES)))
+    ax_strip.set_yticklabels(
+        [f"{TYPE_SHORT[a]}\n({counts.get(a, 0)} launched)" for a in TYPES], fontsize=9
+    )
+    ax_strip.set_ylim(-0.6, len(TYPES) - 0.4)
+    ax_strip.set_title("When each launch went out, and to which arm", loc="left", fontsize=10.5)
+    ax_strip.grid(axis="x", alpha=0.25, ls=":")
 
-        # All-completions (rc=0, any progress)
-        ok_evs  = [e for e in evs if e.get("rc", 0) == 0]
-        # Result-bearing completions
-        good_evs = [e for e in ok_evs if e.get("progress", 0) > 0]
-
-        if good_evs:
-            ts = [0.0] + [e["t"] for e in good_evs] + [t_max]
-            ys = [0]   + list(range(1, len(good_evs) + 1)) + [len(good_evs)]
-            ax.step(ts, ys, where="post", color=col, linewidth=2.5, label=f"{ARM_SHORT[arm]}  ({len(good_evs)} results)", zorder=4)
-            ax.fill_between(ts, ys, step="post", color=col, alpha=0.08)
-        else:
-            ax.step([0.0, t_max], [0, 0], where="post", color=col, linewidth=2.5,
-                    label=f"{ARM_SHORT[arm]}  (0 results — stagnated)", linestyle="--", zorder=4)
-
-        # Mark natural stagnations with open circles
-        for ev in ok_evs:
-            if ev.get("progress", 0) == 0:
-                ax.plot(ev["t"], 0.2, "o", color=col, markersize=7,
-                        markerfacecolor="none", markeredgewidth=1.5, zorder=5)
-
-        # Mark cancellations with ×
-        for ev in evs:
-            if ev.get("rc", 0) != 0:
-                n_good_at_t = sum(1 for e in good_evs if e["t"] <= ev["t"])
-                ax.plot(ev["t"], n_good_at_t, "x", color=col, markersize=9,
-                        markeredgewidth=2.2, zorder=6)
-
-    # Annotations for stagnation markers
-    ax.annotate("○ = stagnated (0 results)",
-                xy=(0, 0), xytext=(0.4, 1.2),
-                fontsize=8, color="#7f8c8d",
-                xycoords="data", textcoords="data")
-
-    # Goal line
-    ax.axhline(goal_n, color="#8e44ad", linestyle=":", linewidth=1.5, alpha=0.7)
-    ax.text(0.3, goal_n + 0.4, f"Goal = {goal_n} results", color="#8e44ad", fontsize=9)
-
-    ax.axvline(t_goal, color="#8e44ad", linestyle="--", linewidth=1.5, zorder=4)
-    ax.text(t_goal + 0.2, goal_n * 0.45,
-            f"Goal satisfied\nt = {t_goal:.0f}s",
-            color="#8e44ad", fontsize=9, va="center")
-
-    ax.set_xlabel("Wall-clock time (s)")
-    ax.set_ylabel("Cumulative workflow completions with results")
-    ax.set_title("Completion race — bandit concentrates budget on easy (the only productive arm)",
-                 fontweight="bold", fontsize=11)
-    ax.set_xlim(-0.3, t_max)
-    ax.set_ylim(-0.8, goal_n + 3)
-    ax.legend(loc="upper left", fontsize=9)
-
-    fig.tight_layout()
-    fig.savefig(out / "02_completion_race.png", dpi=150)
-    plt.close(fig)
-    print("  02_completion_race.png")
-
-
-# ── Plot 3: ROI — completions per gpu_hour ────────────────────────────────────
-
-def plot_roi(completions: list[dict], out: Path) -> None:
-    """
-    Left:  stacked bar — gpu_hours split by productive vs wasted per arm
-    Right: completions delivered per gpu_hour (ROI)
-    """
-    gpu_good:  dict[str, float] = {a: 0.0 for a in ARMS}
-    gpu_waste: dict[str, float] = {a: 0.0 for a in ARMS}
-    n_good:    dict[str, int]   = {a: 0   for a in ARMS}
-
-    for ev in completions:
-        arm = ev.get("arm")
-        if arm not in ARMS:
+    # Each arm's running mean, against the time its evidence actually arrived.
+    done = sorted(completions(events), key=lambda e: e.get("t", 0.0))
+    seen: dict[str, list[float]] = {a: [] for a in TYPES}
+    curves: dict[str, tuple[list[float], list[float]]] = {a: ([], []) for a in TYPES}
+    for e in done:
+        wtype = wf_type(e)
+        score = e.get("progress")
+        if wtype not in seen or score is None:
             continue
-        spent = ev.get("spent") or {}
-        g = spent.get("gpu_hours", 0.0)
-        if ev.get("rc", 0) == 0 and ev.get("progress", 0) > 0:
-            gpu_good[arm]  += g
-            n_good[arm]    += 1
-        else:
-            gpu_waste[arm] += g
+        seen[wtype].append(float(score))
+        curves[wtype][0].append(float(e.get("t", 0.0)))
+        curves[wtype][1].append(sum(seen[wtype]) / len(seen[wtype]))
 
-    fig, (ax_budget, ax_roi) = plt.subplots(1, 2, figsize=(11, 5))
-    fig.suptitle("Resource efficiency — medium & hard consume GPU without producing results",
-                 fontweight="bold", fontsize=11)
+    for wtype in TYPES:
+        step_x, step_y = curves[wtype]
+        if not step_x:
+            continue
+        ax_explore.step(
+            step_x,
+            step_y,
+            where="post",
+            color=TYPE_COLOR[wtype],
+            lw=2,
+            label=f"{TYPE_SHORT[wtype]}  (mean {step_y[-1]:.2f}, {len(step_x)} completed)",
+        )
+    ax_explore.set_ylabel("running mean score")
+    ax_explore.set_ylim(-0.05, 1.3)
+    ax_explore.set_xlabel("elapsed seconds")
+    ax_explore.legend(fontsize=8, loc="upper center", ncol=3, framealpha=0.9)
 
-    arms_data = [a for a in ARMS if (gpu_good[a] + gpu_waste[a]) > 0]
-    labels    = [ARM_SHORT[a] for a in arms_data]
-    colors    = [ARM_COLOR[a] for a in arms_data]
+    c_eff = [(e.get("t", 0.0), e.get("c_eff")) for e in picks if e.get("c_eff") is not None]
+    if c_eff:
+        ax_c = ax_explore.twinx()
+        ax_c.plot([t for t, _ in c_eff], [c for _, c in c_eff], color="#7f8c8d", ls="--", lw=1.4)
+        ax_c.set_ylabel("exploration weight", color="#7f8c8d", fontsize=9)
+        ax_c.tick_params(axis="y", labelcolor="#7f8c8d", labelsize=8)
+        # Its own range: it drifts by a few hundredths, and a 0-anchored axis would
+        # draw that as a flat line and say nothing.
+        lo, hi = min(c for _, c in c_eff), max(c for _, c in c_eff)
+        pad = max(0.02, (hi - lo) * 0.6)
+        ax_c.set_ylim(lo - pad, hi + pad)
 
-    # Left: stacked budget bar (productive + wasted)
-    good_vals  = [gpu_good[a]  for a in arms_data]
-    waste_vals = [gpu_waste[a] for a in arms_data]
-
-    bars_g = ax_budget.bar(labels, good_vals, color=colors, alpha=0.85, width=0.5,
-                           label="Productive (results returned)")
-    bars_w = ax_budget.bar(labels, waste_vals, bottom=good_vals, color=colors, alpha=0.35,
-                           width=0.5, hatch="////", edgecolor="grey",
-                           label="Wasted (stagnated or cancelled)")
-
-    ax_budget.set_ylabel("gpu_hours")
-    ax_budget.set_title("GPU budget per arm")
-    ax_budget.legend(fontsize=8)
-
-    total_wasted = sum(gpu_waste.values())
-    total_gpu    = sum(gpu_good.values()) + sum(gpu_waste.values())
-    ax_budget.text(0.98, 0.97,
-                   f"Total wasted: {total_wasted:.3f} gpu_h\n({100*total_wasted/total_gpu:.0f}% of budget)",
-                   transform=ax_budget.transAxes, ha="right", va="top",
-                   fontsize=8, color="#c0392b",
-                   bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="#c0392b", alpha=0.8))
-
-    for bar, g, w in zip(bars_g, good_vals, waste_vals):
-        total = g + w
-        if total > 0:
-            ax_budget.text(bar.get_x() + bar.get_width() / 2, total + 0.002,
-                           f"{total:.3f}", ha="center", va="bottom", fontsize=8)
-
-    # Right: ROI
-    roi_vals = [n_good[a] / (gpu_good[a] + gpu_waste[a])
-                if (gpu_good[a] + gpu_waste[a]) > 0 else 0
-                for a in arms_data]
-
-    bars_roi = ax_roi.bar(labels, roi_vals, color=colors, alpha=0.85, width=0.5)
-    ax_roi.set_ylabel("Completions with results per gpu_hour")
-    ax_roi.set_title("ROI — results per gpu_hour spent")
-
-    for bar, val, arm in zip(bars_roi, roi_vals, arms_data):
-        txt = f"{val:.0f}" if val >= 1 else ("" if val == 0 else f"{val:.1f}")
-        label = txt if val > 0 else "0\n(no results)"
-        col_txt = "#c0392b" if val == 0 else "#1a252f"
-        ax_roi.text(bar.get_x() + bar.get_width() / 2,
-                    max(val, max(roi_vals) * 0.03) + max(roi_vals) * 0.02,
-                    label, ha="center", va="bottom", fontsize=9, color=col_txt, fontweight="bold")
-
-    # Efficiency ratio annotation
-    if roi_vals[0] > 0 and any(v == 0 for v in roi_vals[1:]):
-        ax_roi.text(0.98, 0.97,
-                    f"Easy is {roi_vals[0]:.0f}× more efficient\nthan medium & hard",
-                    transform=ax_roi.transAxes, ha="right", va="top",
-                    fontsize=8, color="#27ae60",
-                    bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
-                              edgecolor="#27ae60", alpha=0.8))
+    ax_explore.set_title(
+        "…and what it had learned by then (dashed grey: exploration weight)",
+        loc="left",
+        fontsize=10.5,
+    )
+    ax_explore.grid(alpha=0.3, ls=":")
 
     fig.tight_layout()
-    fig.savefig(out / "03_roi.png", dpi=150)
+    fig.savefig(out / "02_bandit_learning.png", dpi=150)
     plt.close(fig)
-    print("  03_roi.png")
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── 3. Cancellation ───────────────────────────────────────────────────────────
+
+
+def plot_cancellation(events: list[dict], out: Path) -> None:
+    """What the controller's cancellations saved, per cancelled run.
+
+    Each bar is one cancelled run: what AuCaM was charged for it, against what a
+    run of that type costs when it is left alone. The gap is allocation that went
+    back to the campaign instead of into a run already known to be going nowhere.
+    """
+    # Only cancellations the campaign CHOSE. A run still in flight when the goal
+    # is reached is cancelled too, and counting it would credit AuCaM with
+    # avoiding work it merely ran out of reasons to do — usually as a near-zero
+    # bar beside the real ones, since it had barely started.
+    cancelled = [e for e in completions(events) if was_cancelled(e) and not e.get("after_goal")]
+    shutdown = sum(1 for e in completions(events) if was_cancelled(e) and e.get("after_goal"))
+    if not cancelled:
+        print("  03: nothing was cancelled mid-campaign — skipped")
+        return
+
+    charged, avoided, labels, colours = [], [], [], []
+    for i, e in enumerate(cancelled, start=1):
+        wtype = wf_type(e)
+        full = full_cost_estimate(events, wtype)
+        used = spent(e)
+        charged.append(used)
+        avoided.append(max(0.0, (full - used)) if full else 0.0)
+        # Numbered, because several cancellations usually land on the same type and
+        # three bars all reading "Refractory" look like one bar drawn three times.
+        # A number and not a timestamp: the bars are independent runs, and a time
+        # on each would invite reading them as one accumulating series.
+        labels.append(f"run {i}\n{TYPE_SHORT.get(wtype, wtype)}")
+        colours.append(TYPE_COLOR.get(wtype, "#7f8c8d"))
+
+    fig, ax = plt.subplots(figsize=(max(7.5, 1.6 * len(cancelled) + 4.5), 5))
+    x = np.arange(len(cancelled))
+    ax.bar(x, charged, 0.55, color=colours, label=f"{DIM} used (charged by AuCaM)")
+    ax.bar(
+        x,
+        avoided,
+        0.55,
+        bottom=charged,
+        color=SAVED_C,
+        hatch="//",
+        edgecolor="#7f8c8d",
+        label=f"{DIM} avoided by cancelling",
+    )
+
+    total_saved = sum(avoided)
+    ax.set_xticks(x, labels, fontsize=9)
+    xlabel = "each bar is one cancelled run, independent of the others"
+    if shutdown:
+        xlabel += f"  ({shutdown} more cancelled when the campaign ended: not shown)"
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(DIM)
+    ax.set_title(
+        f"Cancelling in flight returned {total_saved:.3f} {DIM} to the campaign",
+        fontweight="bold",
+        fontsize=11,
+    )
+    # What AuCaM charged is a sliver next to what it avoided, so it is written out:
+    # an invisible bar reads as "this run cost nothing", which is not the claim.
+    for xi, (used, saved) in enumerate(zip(charged, avoided, strict=False)):
+        ax.text(
+            xi,
+            used + saved,
+            f"charged {used:.4f}\navoided {saved:.4f}",
+            ha="center",
+            va="bottom",
+            fontsize=8.5,
+        )
+    ax.set_ylim(0, max(c + v for c, v in zip(charged, avoided, strict=False)) * 1.28 or 1)
+    ax.legend(fontsize=8)
+    ax.grid(axis="y", alpha=0.3, ls=":")
+
+    fig.tight_layout()
+    fig.savefig(out / "03_cancellation_savings.png", dpi=150)
+    plt.close(fig)
+
+
+# ── CLI ───────────────────────────────────────────────────────────────────────
+
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Plot multi-arm AuCaM campaign results")
-    p.add_argument("--telemetry", required=True, help="JSONL file from MultiArmController")
-    p.add_argument("--out", default="plots", help="output directory for PNG figures")
-    p.add_argument("--lanes", type=int, default=2, help="max concurrent lanes per arm (for Gantt)")
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    p.add_argument("--telemetry", required=True, help="JSONL from the steered run")
+    p.add_argument("--baseline", help="JSONL from an unsteered run (--policy even), for figure 1")
+    p.add_argument("--out", default="figures", help="output directory for PNG figures")
     args = p.parse_args()
 
+    started = time.time()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    events = load(args.telemetry)
 
-    cycles, completions = load(args.telemetry)
-    print(f"Loaded {len(cycles)} cycle events, {len(completions)} completion events")
-    print(f"Writing to {out}/")
+    if args.baseline:
+        plot_steering(events, load(args.baseline), out)
+    else:
+        print("  01: skipped — pass --baseline (a --policy even run) to compare against")
+    plot_learning(events, out)
+    plot_cancellation(events, out)
 
-    plot_execution_timeline(completions, out, max_lanes=args.lanes)
-    plot_completion_race(completions, out)
-    plot_roi(completions, out)
-
-    print("Done.")
+    # Only what is actually on disk from this invocation: the plot_* helpers skip
+    # (and say why) when the telemetry cannot answer their question, and naming a
+    # figure that was skipped sends a reader looking for a file that is not there.
+    written = sorted(f.name for f in out.glob("*.png") if f.stat().st_mtime >= started)
+    for name in written:
+        print(f"  {name}")
+    print(f"Done — {out}/" if written else "Nothing to draw from this telemetry.")
 
 
 if __name__ == "__main__":

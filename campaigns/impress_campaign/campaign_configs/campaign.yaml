@@ -1,8 +1,8 @@
-# IMPRESS campaign — local / dev defaults.
+# IMPRESS AuCaM campaign — local / dev defaults.
 #
 # Supports two modes:
-#   single-arm: one `impress` workflow type (original); pass --spec to run_campaign.py
-#   multi-arm:  three difficulty arms (binding_easy / binding_medium / binding_hard)
+#   one type:    the `impress` workflow type alone; pass --spec to run_campaign.py
+#   multi-arm:  three difficulty arms (binding_tractable / binding_borderline / binding_refractory)
 #               driven by the bandit; pass --multi-arm to run_campaign.py
 #
 # Score: `progress` from CampaignDigest — fraction of the requested Pareto
@@ -10,22 +10,31 @@
 # (ligand_iptm, complex_plddt, …) are logged on completion.
 
 controller:
-  goal_n: 30             # 30 easy completions; medium/hard (8 cycles each, ~1.2s/run) attempt
-                         # 3-5 runs each before bandit suppresses them → clear steering signal
+  goal_n: 30             # runs that must reach the front before the campaign stops
   budget_warn_fraction: 0.80  # log a WARNING when this fraction of budget is used
 
 budget:
-  max_concurrent: 6             # 2 easy + 2 medium + 2 hard in parallel
-  max_concurrency_per_workflow: 2  # 2 concurrent instances per arm; easy fills 2 lanes
+  max_concurrent: 6             # 2 of each type in parallel
+  max_concurrency_per_workflow: 2  # concurrent instances per type; tractable fills both
   capacity:                     # resources the CM makes available to all workflows
     cpus: 48                    # 6 × 8 = 48 max theoretical demand
     gpus: 6
   spending:                     # campaign-wide total across all workflow instances
     cpu_hours: 10.0
     gpu_hours: 10.0
+  # Instead of stating spending, state the allocation: AuCaM works the limit
+  # out as capacity x wall_hours, so the budget matches the job it runs in
+  # (--wall-hours on the CLI).  A dimension named in `spending` is kept.
+  # wall_hours: 4.0
+  on_limit: cancel              # at the limit: cancel running workflows, or "finish"
+  # Load-aware launching (needs telemetry): how many workflows may run follows
+  # how busy the nodes are, never above max_concurrent.
+  target_utilization: 0.85
+  max_waiting_tasks: ~          # ~ : twice max_concurrent
+  overcommit: 1.0               # >1 hands out more than the capacity while there is room
 
 workflows:
-  # ── Single-arm mode (original) ────────────────────────────────────────────
+  # ── One workflow type, via --spec ─────────────────────────────────────────
   impress:
     # AuCaM cancels a workflow that exceeds these limits.  IMPRESS-A also
     # enforces the same budget from the inside (gate 5 and the commitment
@@ -44,10 +53,10 @@ workflows:
     respect_limit: true
     score_floor: 0.0           # cancel this workflow mid-run if progress drops below this (0 = off)
 
-  # ── Multi-arm demo: easy / medium / hard differentiated by difficulty ─────
-  # Each arm runs up to 8 IMPRESS cycles and emits progress after each,
+  # ── Multi-arm demo: tractable / borderline / refractory, by difficulty ────
+  # Each type runs up to 8 IMPRESS cycles and emits progress after each,
   # giving the bandit enough signal to learn which arm is worth launching.
-  binding_easy:
+  binding_tractable:
     spending_limit:
       gpu_hours: 0.5    # cpu_hours omitted: mock tools use ~2µs CPU; AuCaM would learn a
                         # sub-floor spending_limit and drop all launches (backlog G20)
@@ -60,23 +69,23 @@ workflows:
     stale_timeout_s: 120.0
     score_floor: 0.0
 
-  binding_medium:
+  binding_borderline:
     spending_limit:
-      gpu_hours: 0.5    # see binding_easy note
+      gpu_hours: 0.5    # see binding_tractable note
     resources:
       cpus: 4
       gpus: 1
     stale_timeout_s: 120.0
     score_floor: 0.0
 
-  binding_hard:
+  binding_refractory:
     spending_limit:
-      gpu_hours: 0.5    # see binding_easy note
+      gpu_hours: 0.5    # see binding_tractable note
     resources:
       cpus: 4
       gpus: 1
     stale_timeout_s: 120.0
-    score_floor: 0.0           # set >0 to cut losing hard runs early
+    score_floor: 0.0           # set >0 to cut losing runs early
 
 policy_interval_s: 1.0
 shutdown_timeout_s: 60.0

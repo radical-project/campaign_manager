@@ -35,7 +35,7 @@ class GlobalConfig:
 
 @dataclass
 class ControllerCfg:
-    goal_n: int = 4  # completions before campaign terminates
+    goal_n: int = 4  # runs that must reach the front before the campaign stops
     budget_warn_fraction: float = 0.80  # log a warning when this fraction is used
 
 
@@ -45,6 +45,16 @@ class BudgetCfg:
     max_concurrency_per_workflow: int = 1
     capacity: dict[str, Any] = field(default_factory=lambda: {"cpus": 8, "gpus": 2})
     spending: dict[str, float] = field(default_factory=dict)
+    #: The allocation's wall time.  Set it and AuCaM works the spending limit
+    #: out as capacity x wall_hours, so the budget matches the job.
+    wall_hours: float | None = None
+    #: What happens at the limit: "cancel" the running workflows, or "finish".
+    on_limit: str = "cancel"
+    #: Load-aware launching (needs telemetry): how many workflows may run
+    #: follows how busy the nodes are, up to max_concurrent.
+    target_utilization: float | None = 0.85
+    max_waiting_tasks: int | None = None
+    overcommit: float = 1.0
 
 
 @dataclass
@@ -57,25 +67,32 @@ class WorkflowCfg:
     resources: dict[str, Any] = field(default_factory=lambda: {"cpus": 4, "gpus": 1})
     respect_limit: bool = True
     score_floor: float = 0.0  # cancel mid-run if progress drops below this (0 = off)
+    #: Seconds a workflow gets to stop itself after CANCEL before AuCaM cancels
+    #: the block (None: the campaign's default).
+    cancel_grace_s: float | None = None
+    #: AuCaM cancels a workflow still running after this long (None: no bound).
+    max_wall_time_s: float | None = None
+    #: Instances of this type that may run at once (None: the budget's cap).
+    max_running: int | None = None
 
 
 @dataclass
 class ImpressWorkflowsCfg:
     impress: WorkflowCfg = field(default_factory=WorkflowCfg)
-    # Multi-arm demo: three difficulty levels steered by the bandit
-    binding_easy: WorkflowCfg = field(
+    # The three workflow types, steered by the scheduling policy
+    binding_tractable: WorkflowCfg = field(
         default_factory=lambda: WorkflowCfg(
             spending_limit={"cpu_hours": 0.5, "gpu_hours": 0.5},
             resources={"cpus": 4, "gpus": 1},
         )
     )
-    binding_medium: WorkflowCfg = field(
+    binding_borderline: WorkflowCfg = field(
         default_factory=lambda: WorkflowCfg(
             spending_limit={"cpu_hours": 0.5, "gpu_hours": 0.5},
             resources={"cpus": 4, "gpus": 1},
         )
     )
-    binding_hard: WorkflowCfg = field(
+    binding_refractory: WorkflowCfg = field(
         default_factory=lambda: WorkflowCfg(
             spending_limit={"cpu_hours": 0.5, "gpu_hours": 0.5},
             resources={"cpus": 4, "gpus": 1},
@@ -91,6 +108,10 @@ class CampaignConfig:
     policy_interval_s: float = 5.0
     shutdown_timeout_s: float = 60.0
     checkpoint_dir: str | None = None
+    #: Run decide() in a thread and fall back to the built-in rules when it has
+    #: not returned in time (None: wait for it).
+    #: Policy cycles that may fail in a row before the campaign ends as
+    #: controller_failed (None: never).
 
 
 # ── Loaders ───────────────────────────────────────────────────────────────────

@@ -6,20 +6,20 @@
 #   GPU smoke test (delta-small-molecule-smoke.yaml, ENGINE=dragon):
 #     export WORK_DIR=<your_work_dir>
 #     export SBATCH_ACCOUNT=<project>-delta-gpu
-#     export IMPRESS_SPEC=<path>/campaigns/delta-small-molecule-smoke.yaml
+#     export IMPRESS_SPEC=delta-small-molecule-smoke.yaml   # read from $IMPRESS_DIR/agent/campaigns
 #     export ENGINE=dragon
 #     mkdir -p $WORK_DIR/campaign_manager/campaigns/impress_campaign/logs
 #     sbatch campaigns/impress_campaign/delta_sbatch.sh
 #
-#   CPU mock test (mock-small-molecule-binding.yaml, ENGINE=concurrent):
+#   CPU mock test (one of the three mock specs, ENGINE=concurrent):
 #     export SBATCH_ACCOUNT=<project>-delta-cpu
-#     export IMPRESS_SPEC=<path>/campaigns/mock-small-molecule-binding.yaml
+#     export IMPRESS_SPEC=mock-binding-tractable.yaml   # a bare name is enough
 #     # ENGINE defaults to concurrent — no Dragon needed
 #     sbatch campaigns/impress_campaign/delta_sbatch.sh
 #
 # ENGINE=dragon  → dragon -s run_campaign.py  (requires GPU partition + dragon backend spec)
 # ENGINE=concurrent → python run_campaign.py  (CPU partition, mock spec)
-# Run parameters live in campaign_configs/global.yaml + campaign_hpc.yaml.
+# Run parameters live in campaign_configs/global.yaml + campaign.yaml.
 #
 #SBATCH --partition=gpuA100x4
 #SBATCH --nodes=1
@@ -67,6 +67,9 @@ CM_DIR="${CM_DIR:-${WORK_DIR}/campaign_manager}"
 CAMPAIGN_DIR="${CM_DIR}/campaigns/impress_campaign"
 # shellcheck source=delta_env_setup.sh
 source "${CAMPAIGN_DIR}/delta_env_setup.sh"
+# run_campaign.py finds the specs in $IMPRESS_DIR/agent/campaigns; the setup
+# script only sets it as a shell variable, so the run would not see it.
+export IMPRESS_DIR
 if [ ! -d "${VE}" ]; then
     echo "ERROR: VE not found at ${VE}."
     echo "       Run: bash ${CAMPAIGN_DIR}/delta_env_setup.sh"
@@ -75,11 +78,7 @@ fi
 TELEMETRY_DIR="${TELEMETRY_DIR:-${CAMPAIGN_DIR}/aucam-tel-${SLURM_JOB_ID:-local}}"
 
 GLOBAL_CONFIG="${GLOBAL_CONFIG:-campaign_configs/global.yaml}"
-if [ -n "${SLURM_JOB_ID:-}" ]; then
-    CAMPAIGN_CONFIG="${CAMPAIGN_CONFIG:-campaign_configs/campaign_hpc.yaml}"
-else
-    CAMPAIGN_CONFIG="${CAMPAIGN_CONFIG:-campaign_configs/campaign.yaml}"
-fi
+CAMPAIGN_CONFIG="${CAMPAIGN_CONFIG:-campaign_configs/campaign.yaml}"
 
 mkdir -p "${TELEMETRY_DIR}"
 
@@ -140,6 +139,6 @@ else
 fi
 
 echo ""
-echo "=== IMPRESS campaign done (ENGINE=${ENGINE}): $(date) ==="
+echo "=== AuCaM campaign done (ENGINE=${ENGINE}): $(date) ==="
 echo "Telemetry : ${TELEMETRY_DIR}"
 ls -lh "${TELEMETRY_DIR}"/asyncflow.session*.telemetry.jsonl 2>/dev/null || echo "(no telemetry file found)"
