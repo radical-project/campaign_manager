@@ -8,5 +8,5 @@ scheduling:
   policy: bandit              # bandit | fifo
 
 telemetry:
-  enabled: false
+  enabled: true
   dir: ~

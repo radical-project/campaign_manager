@@ -1,34 +1,31 @@
 # IMPRESS campaign — local / dev defaults.
 #
-# Each campaign runs one IMPRESS-A arm at a time (single workflow type).
-# The workflow block wraps a full IMPRESS-A design campaign: plan → score
-# → Pareto front.  Budget is enforced per-workflow; the controller cancels
-# runs that exceed the spending limit and stops the campaign after goal_n
-# completions.
+# Supports two modes:
+#   single-arm: one `impress` workflow type (original); pass --spec to run_campaign.py
+#   multi-arm:  three difficulty arms (binding_easy / binding_medium / binding_hard)
+#               driven by the bandit; pass --multi-arm to run_campaign.py
 #
 # Score: `progress` from CampaignDigest — fraction of the requested Pareto
 # front that is satisfied (0–1; higher is better).  Per-objective bests
 # (ligand_iptm, complex_plddt, …) are logged on completion.
-#
-# Estimated runtime depends heavily on the IMPRESS spec (number of designs,
-# number of Boltz scoring rounds).  A small local test with --no-guard and a
-# mock spec can complete in under a minute.
 
 controller:
-  goal_n: 20             # ambitious goal — budget will be exhausted before this is reached
+  goal_n: 30             # 30 easy completions; medium/hard (8 cycles each, ~1.2s/run) attempt
+                         # 3-5 runs each before bandit suppresses them → clear steering signal
   budget_warn_fraction: 0.80  # log a WARNING when this fraction of budget is used
 
 budget:
-  max_concurrent: 2             # max parallel IMPRESS workflows
-  max_concurrency_per_workflow: 1
+  max_concurrent: 6             # 2 easy + 2 medium + 2 hard in parallel
+  max_concurrency_per_workflow: 2  # 2 concurrent instances per arm; easy fills 2 lanes
   capacity:                     # resources the CM makes available to all workflows
-    cpus: 8
-    gpus: 2
+    cpus: 48                    # 6 × 8 = 48 max theoretical demand
+    gpus: 6
   spending:                     # campaign-wide total across all workflow instances
     cpu_hours: 10.0
     gpu_hours: 10.0
 
 workflows:
+  # ── Single-arm mode (original) ────────────────────────────────────────────
   impress:
     # AuCaM cancels a workflow that exceeds these limits.  IMPRESS-A also
     # enforces the same budget from the inside (gate 5 and the commitment
@@ -37,20 +34,50 @@ workflows:
     spending_limit:
       cpu_hours: 2.0
       gpu_hours: 0.5
-    # Minimum viable spending_limit per dimension: set to the cost of one IMPRESS
-    # design cycle so AuCaM drops launches that would immediately be rejected by
-    # gate 5.  When workflow_config() is built from the IMPRESS offer this is
-    # populated automatically; set it here only to override.
     # budget_floor:
     #   cpu_hours: 0.006
     #   gpu_hours: 0.006
     resources:
       cpus: 4
       gpus: 1
-    stale_timeout_s: 3600.0    # cancel workflow if no report received in this window
+    stale_timeout_s: 3600.0
     respect_limit: true
     score_floor: 0.0           # cancel this workflow mid-run if progress drops below this (0 = off)
 
-policy_interval_s: 5.0
+  # ── Multi-arm demo: easy / medium / hard differentiated by difficulty ─────
+  # Each arm runs up to 8 IMPRESS cycles and emits progress after each,
+  # giving the bandit enough signal to learn which arm is worth launching.
+  binding_easy:
+    spending_limit:
+      gpu_hours: 0.5    # cpu_hours omitted: mock tools use ~2µs CPU; AuCaM would learn a
+                        # sub-floor spending_limit and drop all launches (backlog G20)
+    budget_floor:
+      gpu_hours: 0.07   # interlock: pattern_cost=0.006 must stay ≤ 10% of spending_limit;
+                        # floor prevents AuCaM narrowing to 0.0075 (too low) after 3+ runs
+    resources:
+      cpus: 4
+      gpus: 1
+    stale_timeout_s: 120.0
+    score_floor: 0.0
+
+  binding_medium:
+    spending_limit:
+      gpu_hours: 0.5    # see binding_easy note
+    resources:
+      cpus: 4
+      gpus: 1
+    stale_timeout_s: 120.0
+    score_floor: 0.0
+
+  binding_hard:
+    spending_limit:
+      gpu_hours: 0.5    # see binding_easy note
+    resources:
+      cpus: 4
+      gpus: 1
+    stale_timeout_s: 120.0
+    score_floor: 0.0           # set >0 to cut losing hard runs early
+
+policy_interval_s: 1.0
 shutdown_timeout_s: 60.0
 checkpoint_dir: ~
