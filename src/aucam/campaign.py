@@ -847,6 +847,13 @@ class _CampaignInstance:
                 call_kwargs["flow"] = self._flow
             if _wants_context(block_fn):
                 ctx = dict(context or {})
+                # The same identity a command-line workflow gets as CM_WORKFLOW_ID /
+                # CM_CAMPAIGN_ID.  A Python workflow had no way to name itself, which is
+                # what a workflow needs to key its own per-instance state on: a scratch
+                # directory, a log prefix, or the seed that makes two instances of one
+                # workflow type independent samples rather than the same draw twice.
+                ctx["workflow_id"] = wf_id
+                ctx["campaign_id"] = self.name
                 if spending_limit:
                     ctx["spending_limit"] = dict(spending_limit)
                 if resources:

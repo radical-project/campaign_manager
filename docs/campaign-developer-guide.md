@@ -140,7 +140,12 @@ them (in any order):
   so they run on the allocation, are cancelled with the workflow and are
   charged to it;
 - `context` — the `LaunchRequest.context` dict of this launch, plus
-  `spending_limit` and `resources`: what AuCaM gave this workflow (§9).
+  `spending_limit` and `resources`: what AuCaM gave this workflow (§9), and
+  `workflow_id` / `campaign_id`: the same identity a command-line workflow gets
+  as `CM_WORKFLOW_ID` / `CM_CAMPAIGN_ID`. `workflow_id` is unique per instance,
+  so it is what to key per-instance state on — a scratch directory, a log
+  prefix, or a random seed, so that two instances of one workflow type are
+  independent samples rather than the same draw twice.
 
 ```python
 async def my_worker(reporter: WorkflowReporter, flow=None, context=None) -> None:
