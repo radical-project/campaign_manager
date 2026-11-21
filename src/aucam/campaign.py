@@ -8,6 +8,7 @@ import inspect
 import json
 import logging
 import math
+import numbers
 import shlex
 import threading
 import time
@@ -368,6 +369,10 @@ class _CampaignInstance:
         self._queue = WorkflowQueue(age_threshold_s=spec.age_threshold_s)
         self._active: dict[str, _WorkflowInstance] = {}
         self._goals: list[Goal] = list(spec.controller.goals())
+        # [min, max] of each finite numeric metric (and the report score, as
+        # "score") over successful workflows: the value of a goal whose metric
+        # the observation does not hold.
+        self._metric_range: dict[str, list[float]] = {}
 
         # DAG state
         # _dep_satisfied: target types that have been "unlocked" (≥1 source succeeded)
@@ -1461,6 +1466,8 @@ class _CampaignInstance:
             over_resources=_inst.over_resources,
             cancel=_inst.cancel_mode if rc == -1 else None,
         )
+        if rc == 0:
+            self._record_metrics(final_metrics, final_score)
 
         if self.spec.data_backend is not None:
             asyncio.ensure_future(self.spec.data_backend.delete_report(_inst.wf_id))
@@ -1580,6 +1587,7 @@ class _CampaignInstance:
             allocations=[dataclasses.asdict(r) for r in self._allocations],
             pending_credit=dict(self._pending_credit),
             goals=[dataclasses.asdict(g) for g in self._goals],
+            metric_range={k: list(v) for k, v in self._metric_range.items()},
             policy_state=_jsonable(self._policy.state(), "scheduling policy"),
             controller_state=_jsonable(
                 getattr(self.spec.controller, "state", lambda: None)(), "controller"
@@ -1661,6 +1669,7 @@ class _CampaignInstance:
         # scheduling policy and the controller learned (R1).
         if ckpt.goals is not None:
             self._goals = [Goal(**g) for g in ckpt.goals]
+        self._metric_range = {k: list(v) for k, v in (ckpt.metric_range or {}).items()}
         for what, obj, state in (
             ("scheduling policy", self._policy, ckpt.policy_state),
             ("controller", self.spec.controller, ckpt.controller_state),
@@ -2711,6 +2720,7 @@ class _CampaignInstance:
                 reached = bool(self.spec.controller.is_goal_reached())
             except Exception:  # e.g. no CampaignController.__init__()
                 reached = False
+            reached = reached or bool(self._goals and self._check_goals(obs))
             if reached:
                 logger.info(f"[CM] {self.name}: controller's goal reached")
                 await self._shutdown(reason="goals_satisfied")
@@ -2860,11 +2870,36 @@ class _CampaignInstance:
         """Model usage reported by the policy and controller (S1)."""
         return dict(self._model_usage)
 
+    @staticmethod
+    def _finite(value: Any) -> bool:
+        return (
+            isinstance(value, numbers.Real) and not isinstance(value, bool) and math.isfinite(value)
+        )
+
+    def _record_metrics(self, metrics: dict, score: Any) -> None:
+        """Widen the [min, max] range of each metric by a successful workflow's values."""
+        values = dict(metrics)
+        values.setdefault("score", score)
+        for key, value in values.items():
+            if not self._finite(value):
+                continue
+            value = float(value)
+            rng = self._metric_range.get(key)
+            if rng is None:
+                self._metric_range[key] = [value, value]
+            else:
+                rng[0], rng[1] = min(rng[0], value), max(rng[1], value)
+
     def _check_goals(self, obs: dict) -> bool:
+        """All goals are met.  A goal's value is the observation's value of its
+        metric, else the best value successful workflows reported."""
         for goal in self._goals:
             value = obs.get(goal.metric)
-            if value is None:
-                return False
+            if not self._finite(value):
+                rng = self._metric_range.get(goal.metric)
+                if rng is None:
+                    return False
+                value = rng[0] if goal.direction == "minimize" else rng[1]
             if not goal.satisfied(value):
                 return False
         return True

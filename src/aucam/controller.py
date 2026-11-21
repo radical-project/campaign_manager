@@ -93,7 +93,13 @@ class LaunchRule:
 
 @dataclass
 class Goal:
-    """A single campaign goal: satisfied when `metric` crosses `threshold`."""
+    """A single campaign goal: satisfied when `metric` crosses `threshold`.
+
+    The value of `metric` is the observation's value, if it is a finite
+    number; else the best value (in `direction`) that successful workflows
+    reported in their final metrics, or as their report score for
+    ``metric="score"``.  Live reports of running workflows do not count.
+    """
 
     name: str
     metric: str

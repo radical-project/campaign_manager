@@ -118,6 +118,8 @@ class CampaignCheckpoint:
     # controller made while it ran), and the scheduling policy's and the
     # controller's own state (state() / restore(); JSON-serializable).
     goals: list[dict] | None = None
+    # [min, max] per metric over successful workflows, for goals (None: none).
+    metric_range: dict[str, list[float]] | None = None
     policy_state: Any = None
     controller_state: Any = None
 
@@ -176,6 +178,7 @@ def _from_json(d: dict[str, Any]) -> CampaignCheckpoint:
         allocations=d.get("allocations", []),
         pending_credit=d.get("pending_credit", {}),
         goals=d.get("goals"),
+        metric_range=d.get("metric_range"),
         policy_state=d.get("policy_state"),
         controller_state=d.get("controller_state"),
     )
