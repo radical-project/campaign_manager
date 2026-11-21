@@ -8,10 +8,15 @@
 # Sourced by delta_sbatch.sh to set path variables and activate (no creation).
 # Any path can be overridden by exporting it first.
 #
-# Three repos are required under WORK_DIR (clone if missing):
+# Four repos are required under WORK_DIR (clone if missing):
 #   campaign_manager — AuCaM (this repo)
 #   IMPRESS          — the design and label campaigns (agent/)
 #   ROME             — the fine-tuning half
+#   autoagent_steered_diffusion — `asteer`, the contracts the three agree on
+#
+# asteer declares no dependencies, so installing it costs nothing but the path.
+# It is installed from a path rather than pinned to a commit for now; the pin
+# waits on that repo being reachable from CI.
 #
 # ROME is installed with --no-deps by default: the prototype trains with
 # ROME's DummyTrainer, which needs only numpy/asyncflow/Dragon (already here),
@@ -25,7 +30,8 @@ VE="${VE:-${WORK_DIR}/ve/asd_campaign}"
 CM_DIR="${CM_DIR:-${WORK_DIR}/campaign_manager}"
 IMPRESS_DIR="${IMPRESS_DIR:-${WORK_DIR}/IMPRESS}"
 ROME_DIR="${ROME_DIR:-${WORK_DIR}/ROME}"
-export VE CM_DIR IMPRESS_DIR ROME_DIR
+ASTEER_DIR="${ASTEER_DIR:-${WORK_DIR}/autoagent_steered_diffusion}"
+export VE CM_DIR IMPRESS_DIR ROME_DIR ASTEER_DIR
 
 # mpi4py needs libmpi.so at runtime; Cray MPICH sets MPICH_DIR but not LD_LIBRARY_PATH.
 if [ -n "${MPICH_DIR:-}" ]; then
@@ -41,6 +47,7 @@ echo "VE          : ${VE}"
 echo "CM_DIR      : ${CM_DIR}"
 echo "IMPRESS_DIR : ${IMPRESS_DIR}"
 echo "ROME_DIR    : ${ROME_DIR}"
+echo "ASTEER_DIR  : ${ASTEER_DIR}"
 
 # Sourced: activate and return.  Executed: fall through and build the VE.
 [[ "${BASH_SOURCE[0]}" != "${0}" ]] && source "${VE}/bin/activate" && return 0
@@ -50,7 +57,7 @@ if [ -d "${VE}" ]; then
     exit 0
 fi
 
-for dir in "${CM_DIR}" "${IMPRESS_DIR}" "${ROME_DIR}"; do
+for dir in "${CM_DIR}" "${IMPRESS_DIR}" "${ROME_DIR}" "${ASTEER_DIR}"; do
     if [ ! -d "${dir}" ]; then
         echo "ERROR: not found: ${dir} — clone it under ${WORK_DIR} first."
         exit 1
@@ -67,6 +74,7 @@ source "${VE}/bin/activate"
 pip install --upgrade pip --quiet
 pip install --quiet -e "${CM_DIR}[dragon,telemetry]"
 pip install --quiet -e "${IMPRESS_DIR}/agent[aucam,dragon,telemetry]"
+pip install --quiet -e "${ASTEER_DIR}"
 if [ "${ROME_FULL:-0}" = "1" ]; then
     echo "Installing ROME with its full dependency set (torch, transformers, trl) ..."
     pip install --quiet -e "${ROME_DIR}"
