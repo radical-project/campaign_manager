@@ -96,8 +96,7 @@ class Goal:
     """A single campaign goal: satisfied when `metric` crosses `threshold`.
 
     The value of `metric` is the observation's value, if the observation
-    holds the metric (a value that is not a finite number leaves the goal
-    unmet); else the best value (in `direction`) that successful workflows of
+    holds a number for it (NaN or inf leave the goal unmet); else the best value (in `direction`) that successful workflows of
     any type reported in their final metrics, or as their report score for
     ``metric="score"`` when they report no ``score`` metric.  Live reports of
     running workflows do not count.

@@ -82,6 +82,10 @@ async def reports_m_then_fails(reporter) -> None:
     raise RuntimeError("workflow failed")
 
 
+async def reports_flag(reporter) -> None:
+    await reporter.emit(score=0.0, metrics={"m": True, "seed": 2**1100})
+
+
 async def reports_score(reporter) -> None:
     await reporter.emit(score=0.9)
 
@@ -113,6 +117,8 @@ M_GOAL = Goal("g", metric="m", threshold=4.0, direction="maximize")
         (reports_m, M_GOAL, 0.0, "campaign_idle"),  # the observation's value wins
         (reports_m, M_GOAL, float("nan"), "campaign_idle"),  # ... also when it is no number
         (reports_score, Goal("b", "m", 1.0, "maximize"), True, "goals_satisfied"),  # a flag
+        (reports_flag, Goal("b", "m", 1.0, "maximize"), None, "goals_satisfied"),  # reported
+        (reports_m, M_GOAL, {"not": "a number"}, "goals_satisfied"),  # e.g. obs["running"]
     ],
 )
 def test_goal_met_by_workflow_metrics(block, goal, obs_m, exit_reason) -> None:

@@ -391,7 +391,7 @@ class BestScore(CampaignController):
 
 | Exit reason | When |
 |---|---|
-| `goals_satisfied` | The goal is reached: all `Goal`s are satisfied (each names a metric, a threshold and `"minimize"` / `"maximize"`; the metric's value is the observation's, if it holds the metric, else the best value successful workflows of any type reported in their final metrics, or as their report score for `metric="score"` when they report no `score` metric; live reports do not count; name a metric only one workflow type reports to limit a goal to that type), or `decide()` returned `terminate=True` and the controller's `is_goal_reached()` is True (the built-in `goal_type` / `goal_n`, or your own) |
+| `goals_satisfied` | The goal is reached: all `Goal`s are satisfied (each names a metric, a threshold and `"minimize"` / `"maximize"`; the metric's value is the observation's, if it holds a number for it, else the best value successful workflows of any type reported in their final metrics, or as their report score for `metric="score"` when they report no `score` metric; live reports do not count; name a metric only one workflow type reports to limit a goal to that type), or `decide()` returned `terminate=True` and the controller's `is_goal_reached()` is True (the built-in `goal_type` / `goal_n`, or your own) |
 | `controller_terminate` | `decide()` returned `terminate=True` with the goal not reached |
 | `spending_limit` | The campaign's spending limit is reached and nothing is running, or actual spending went past it and the running workflows were cancelled (`on_limit="cancel"`, §9) |
 | `campaign_idle` | Idle for `idle_exit_s`: queue empty, nothing running or paused, no requests held by dependencies |

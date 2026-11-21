@@ -2874,9 +2874,11 @@ class _CampaignInstance:
 
     @staticmethod
     def _finite(value: Any) -> bool:
-        return (
-            isinstance(value, numbers.Real) and not isinstance(value, bool) and math.isfinite(value)
-        )
+        """A real number (bools count as 0 / 1) that is finite as a float."""
+        try:
+            return isinstance(value, numbers.Real) and math.isfinite(value)
+        except OverflowError:  # an int too large for a float
+            return False
 
     def _record_metrics(self, metrics: dict, score: Any) -> None:
         """Widen the [min, max] range of each metric by a successful workflow's values."""
@@ -2894,13 +2896,14 @@ class _CampaignInstance:
                 rng[0], rng[1] = min(rng[0], value), max(rng[1], value)
 
     def _check_goals(self, obs: dict) -> bool:
-        """All goals are met.  A goal's value is the observation's value of its
+        """All goals are met.  A goal's value is the observation's number for its
         metric, else the best value successful workflows reported."""
         for goal in self._goals:
             value = obs.get(goal.metric)
-            if value is not None and not (isinstance(value, numbers.Real) and math.isfinite(value)):
-                return False  # the observation holds something that is no value
-            if value is None:
+            if isinstance(value, numbers.Real):
+                if not self._finite(value):
+                    return False  # NaN / inf in the observation: not met
+            else:  # absent, or a built-in key such as "running" (a dict)
                 rng = self._metric_range.get(goal.metric)
                 if rng is None:
                     return False
