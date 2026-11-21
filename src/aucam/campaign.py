@@ -2881,7 +2881,8 @@ class _CampaignInstance:
     def _record_metrics(self, metrics: dict, score: Any) -> None:
         """Widen the [min, max] range of each metric by a successful workflow's values."""
         values = dict(metrics)
-        values.setdefault("score", score)
+        if not self._finite(values.get("score")):
+            values["score"] = score
         for key, value in values.items():
             if not self._finite(value):
                 continue
@@ -2897,7 +2898,7 @@ class _CampaignInstance:
         metric, else the best value successful workflows reported."""
         for goal in self._goals:
             value = obs.get(goal.metric)
-            if value is not None and not self._finite(value):
+            if value is not None and not (isinstance(value, numbers.Real) and math.isfinite(value)):
                 return False  # the observation holds something that is no value
             if value is None:
                 rng = self._metric_range.get(goal.metric)

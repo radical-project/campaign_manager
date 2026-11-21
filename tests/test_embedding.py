@@ -112,6 +112,7 @@ M_GOAL = Goal("g", metric="m", threshold=4.0, direction="maximize")
         (reports_m_then_fails, M_GOAL, None, "campaign_idle"),  # failed: no value
         (reports_m, M_GOAL, 0.0, "campaign_idle"),  # the observation's value wins
         (reports_m, M_GOAL, float("nan"), "campaign_idle"),  # ... also when it is no number
+        (reports_score, Goal("b", "m", 1.0, "maximize"), True, "goals_satisfied"),  # a flag
     ],
 )
 def test_goal_met_by_workflow_metrics(block, goal, obs_m, exit_reason) -> None:
