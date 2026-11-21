@@ -2720,9 +2720,11 @@ class _CampaignInstance:
                 reached = bool(self.spec.controller.is_goal_reached())
             except Exception:  # e.g. no CampaignController.__init__()
                 reached = False
-            reached = reached or bool(self._goals and self._check_goals(obs))
             if reached:
                 logger.info(f"[CM] {self.name}: controller's goal reached")
+                await self._shutdown(reason="goals_satisfied")
+            elif self._goals and self._check_goals(obs):
+                logger.info(f"[CM] {self.name}: all goals satisfied")
                 await self._shutdown(reason="goals_satisfied")
             else:
                 logger.info(f"[CM] {self.name}: controller requested terminate")
@@ -2895,7 +2897,9 @@ class _CampaignInstance:
         metric, else the best value successful workflows reported."""
         for goal in self._goals:
             value = obs.get(goal.metric)
-            if not self._finite(value):
+            if value is not None and not self._finite(value):
+                return False  # the observation holds something that is no value
+            if value is None:
                 rng = self._metric_range.get(goal.metric)
                 if rng is None:
                     return False
