@@ -266,7 +266,7 @@ class MultiArmController(CampaignController):
     # ── Goal ──────────────────────────────────────────────────────────────────
 
     def results(self) -> int:
-        """Runs that reached the front, across every type.
+        """Results across every type: runs that found a design satisfying every objective.
 
         What the campaign is actually for. Completions are not: a run that ends
         having satisfied nothing has consumed allocation and produced no design,

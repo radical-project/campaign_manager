@@ -96,7 +96,7 @@ def was_cancelled(event: dict) -> bool:
 
 
 def produced_result(event: dict) -> bool:
-    """A run that reached the front. `progress` is 0.0 for one that did not."""
+    """A result: a run that found a design satisfying every objective (`progress` > 0)."""
     return float(event.get("progress") or 0.0) > 0.0
 
 
@@ -159,13 +159,13 @@ def plot_steering(steered: list[dict], baseline: list[dict], out: Path) -> None:
         fontsize=11,
     )
 
-    # Left: GPU-hours per result, and how much went to runs that produced nothing.
+    # Left: GPU-hours per result, and how much went to runs without a result.
     labels = ["AuCaM steering\n(bandit + cancel rules)", "Unsteered\n(even split, no rules)"]
     produced = [a["spent"] - a["wasted"], b["spent"] - b["wasted"]]
     wasted = [a["wasted"], b["wasted"]]
     x = np.arange(2)
     ax_cost.bar(
-        x, produced, 0.5, color=[STEERED_C, BASELINE_C], label="spent on runs that produced"
+        x, produced, 0.5, color=[STEERED_C, BASELINE_C], label="spent on runs with a result"
     )
     ax_cost.bar(
         x,
@@ -175,7 +175,7 @@ def plot_steering(steered: list[dict], baseline: list[dict], out: Path) -> None:
         color=SAVED_C,
         hatch="//",
         edgecolor="#7f8c8d",
-        label="spent on runs that produced nothing",
+        label="spent on runs without a result",
     )
     for i, s in enumerate((a, b)):
         ax_cost.text(
@@ -222,7 +222,7 @@ def plot_steering(steered: list[dict], baseline: list[dict], out: Path) -> None:
         ax_curve.step(xs, ys, where="post", color=colour, lw=2, label=label)
 
     ax_curve.set_xlabel(f"{DIM} consumed")
-    ax_curve.set_ylabel("Runs that reached the front")
+    ax_curve.set_ylabel("Results")
     ax_curve.yaxis.set_major_locator(MaxNLocator(integer=True))
     ax_curve.set_title("Results per unit of allocation", loc="left", fontsize=10.5)
     ax_curve.legend(fontsize=9, loc="upper left")

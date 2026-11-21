@@ -10,7 +10,7 @@
 # (ligand_iptm, complex_plddt, …) are logged on completion.
 
 controller:
-  goal_n: 30             # runs that must reach the front before the campaign stops
+  goal_n: 30             # results needed before the campaign stops
   budget_warn_fraction: 0.80  # log a WARNING when this fraction of budget is used
 
 budget:

@@ -27,70 +27,47 @@ python run_campaign.py --multi-arm --goal-n 10 --cost-cancel 0.008
 ## What it demonstrates
 
 **Three workflow types**, differing in how reliably a run converges on a design
-that satisfies every objective. One AuCaM campaign runs many instances of them
-at once, and each instance plans, submits its own tools, scores a Pareto front
-and loops over its own cycles before reporting a single number back. AuCaM
-learns from those numbers which type deserves the allocation.
+that satisfies every objective. AuCaM runs many instances of them at once,
+each reporting a single score back, and learns which type to launch more of.
 
-The terms here are AuCaM's. A **workflow** (or **run**) is what AuCaM
-launches, budgets and cancels; a **campaign** is the whole collection of them.
-IMPRESS's own field names and log lines call what a single workflow executes a
-campaign as well — `campaign_id` in the spec, `campaign … ended` in the log —
-but in this README that is a workflow. `BanditSchedulingPolicy` calls a workflow
-type an *arm*, so the scheduling passages use that word where the bandit's
-choice is the subject.
+A **workflow** (or **run**) is what AuCaM launches, budgets and cancels; a
+**campaign** is the whole collection of them. IMPRESS's logs call a run a
+"campaign" too, and the bandit calls a workflow type an *arm*.
 
-The three rates are chosen so that **no ranking is available in advance: the
-scheduler has to spend allocation to learn which type is worth it.** That is
-what makes its steering worth watching:
+A run that finds a design satisfying every objective produces a **result**
+(IMPRESS reports `progress` 1.0, otherwise 0.0); the campaign counts results,
+not finished runs. Each type has its own **success rate**, chosen so that
+**no ranking is available in advance**:
 
-| Workflow type | difficulty | Runs reaching the front | Its role |
-|---|---|---|---|
-| `binding_tractable` | 0.25 | every run | the type the bandit should converge on |
-| `binding_borderline` | 0.42 | roughly 2 in 5 | the one whose mean sits strictly between 0 and 1 |
-| `binding_refractory` | 0.70 | none, and it runs longest | expensive and fruitless: the type to starve, and the in-flight run that gets cancelled |
+| Workflow type | Runs that produce a result | Its role |
+|---|---|---|
+| `binding_tractable` | every run | the type the bandit should converge on |
+| `binding_borderline` | roughly 2 in 5 | the uncertain one: only sampling can judge it |
+| `binding_refractory` | none, and it runs longest | expensive and fruitless: the type to starve |
 
-A *run* either produced a satisfying design or it did not — `progress` is
-`front_satisfying / target_front`, so with `target_front: 1` it is 0.0 or 1.0 by
-construction. What is fractional is a **type's mean**, and that is what the
-bandit estimates. It works because each instance draws its own lineage: AuCaM
-gives a Python workflow its own `context["workflow_id"]`, the adapter uses it as
-IMPRESS's `seed_salt`, so two instances of one type are independent samples with
-a mean worth collecting.
+The bandit does not know these rates in advance. It learns them from results as
+runs finish, launches more of the types that are paying off, and still tries a
+type it has little evidence about now and then, in case its early runs were
+unlucky. That only works because each run of a type is a fresh attempt: it explores
+different designs, so two runs of the same type can end differently.
 
-Measure these rates with `--multi-arm`, never with `--spec`, because the two
-give a run very different budgets. Under `--multi-arm` each run gets the
-0.5 gpu_hours its type declares in `campaign.yaml`. Under `--spec` the limit
-comes from IMPRESS's own offer instead — 0.0075 gpu_hours, about one cycle at
-the 0.006 a cycle costs. A type that needs two or more cycles to converge then
-runs out of budget before it has had its chances, and its rate looks far worse
-than it is. The rates measured this way are recorded in the headers of the
-specs themselves, in `$IMPRESS_DIR/agent/campaigns/`.
+The measured rates, and how to re-measure them, are in the spec headers.
 
 | What this campaign uses it for | Where it comes from | How to run it |
 |---|---|---|
-| Nesting: one AuCaM workflow is a whole IMPRESS-A design run, cycles and all | `impress_a…aucam.workflow_config()` per type | `--multi-arm` (otherwise `--spec` runs one type) |
-| Steering on a **science** score rather than on completions | `BanditSchedulingPolicy(reward_fn=…)` | the default; `--policy throughput` scores completions instead, for the contrast |
+| Inner loop: each AuCaM workflow runs IMPRESS-A's own design loop until it finds a result | `impress_a…aucam.workflow_config()` per type | `--multi-arm` (otherwise `--spec` runs one type) |
+| Steering on a **science** score rather than on completions | `BanditSchedulingPolicy(reward_fn=…)` | the default; `--policy throughput` scores completions instead |
 | An unsteered baseline to compare against | `EvenSplitPolicy` in `scheduler.py` | `--policy even` — what figure 1 measures the steered run against |
 | A goal counted in **results**, not in finished runs | `MultiArmController.is_goal_reached()` | `--goal-n N` |
-| Cancelling a run that spends without improving | `CostCancelRule` | `--cost-cancel 0.008` |
-| Sizing each run against a grant, and charging what it spends | `spending_limit` / `resources` per type, `[SPEND]` lines | any run |
-| Launching fewer runs when the nodes are busy | `target_utilization` in `campaign.yaml` | on by default; watch `allowed=N/6` in the cycle line |
+| Cancelling a run that keeps spending with no progress | `CostCancelRule` | `--cost-cancel 0.008` |
+| Giving each run a spending limit and resources, and charging what it spends | `spending_limit` / `resources` per type, `[SPEND]` lines | any run |
 | The telemetry the figures are drawn from | `MultiArmController` + `RecordingPolicy` | `--telemetry-out PATH` |
 
-`run_campaign.py --help` lists the rest: the plumbing flags, and the AuCaM
-features this campaign does not lean on (`--score-floor`, `--wall-hours`,
-`--on-limit`).
+`run_campaign.py --help` lists the other flags.
 
 `CostCancelRule` cancels a run once it has spent `--cost-cancel` gpu_hours
-**since its score last improved**, so a run that scores nothing is left alone
-while it is cheap and stopped once it is not. The other cancel rule,
-`CancelRule`, tests the latest score against a fixed bar; it is the wrong tool
-here, because `progress` is `front_satisfying / target_front` and with
-`target_front: 1` it reads 0.0 until a run satisfies every objective and 1.0
-after, so any floor above 0 cancels every run on its first report.
-
-What it prints when it fires:
+**since its score last improved** — a cheap run that has scored nothing yet is
+left alone. When it fires:
 
 ```
 [CTRL] CostCancelRule(binding_refractory):
@@ -115,82 +92,41 @@ python plot_results.py --telemetry runs/bandit.jsonl \
     --baseline runs/even.jsonl --out figures/
 ```
 
-The three below came from exactly that command, so a run of your own should
-look like them — not match them, since each instance draws its own lineage.
+The figures below came from that command; your own run will look similar, not
+identical, since every run explores different designs.
 
 ### 1. Did steering cost less than not steering?
 
 ![Budget and results, steered against unsteered](figures/01_steering_vs_baseline.png)
 
 The same campaign, the same goal, the same three types — only the steering differs.
-Both reach 20 results; the steered run spends 0.324 gpu_hours against 0.630, and
-the hatched part of each bar is what went to runs that produced nothing. The
-right panel is the same claim over time: a steeper curve is more science per
-unit of allocation.
+Both reach 20 results; the steered run spends 0.270 gpu_hours against 0.786, and
+the hatched part of each bar is what went to runs without a result. The
+right panel is the same claim over time: a steeper curve is more results per
+gpu_hour.
 
 ### 2. Did it learn, and act on what it learned?
 
 ![Launches per arm over time, and each arm's running mean](figures/02_bandit_learning.png)
 
-Both panels are on elapsed seconds, so they can be read against each other. The
-refractory arm is launched at 0.75s and twice at 1.83s; its first result lands
-at 1.83s and its mean pins to 0.00 — and then it is not launched again for five
-and a half seconds. That gap is the figure's point, and so is the lag before it:
-a choice can only use runs that had already finished. At 7.5s the bandit samples
-it twice more — UCB1 revisiting a thinly-measured arm, and both of those runs
-came back 0.00 as well.
+The bandit tries all three types early. As soon as the first refractory run
+finishes without a result, the bandit stops launching that type and spends the
+rest of the campaign on the other two.
 
 ### 3. What did cancelling in flight save?
 
 ![Per cancelled run: charged against what the run would have cost](figures/03_cancellation_savings.png)
 
-One bar per cancelled run, independent of the others. The solid part is what
-AuCaM was charged, the hatched part what the run would have cost had it been
-left alone — measured from this campaign's own completed runs of that type, not
-from the declared limit. The bars differ because `CostCancelRule` fires only
-once a run has spent without improving, and some runs look promising for longer.
+One bar per cancelled run: solid is what AuCaM was charged, hatched is what the
+run would have cost uncancelled (the average of this campaign's finished runs of
+that type). The controller cancels a run once it has spent `--cost-cancel`
+gpu_hours without its score improving, so runs are stopped at different points.
 
-Only cancellations the campaign *chose* are counted. A run still in flight when
-the goal is reached is cancelled too, and the figure says how many of those
-there were rather than drawing them: AuCaM did not save that allocation by
-judging the run, it simply ran out of reasons to continue.
-
-`--max-concurrent 2` is what makes figure 1 mean anything. The controller tops
-every type up to 2 in flight each cycle, so at the default of 6 there is a free
-slot for all three at once: nothing has to be chosen, the policy only
-reorders launches that all happen anyway, and the steered and unsteered runs
-come out within a few percent of each other. Below 3 x 2 the queue is contended,
-the policy decides who actually runs, and the bandit starves the refractory arm
-(5 launches against the even split's 10, while giving the tractable arm 17
-against 11). `--cost-cancel 0.008` is below one refractory run's spend, so
-figure 3 has several cancellations to show.
-
-Figure 1 compares **two steering mechanisms against neither**, and its labels
-say so. AuCaM steers in two places: the scheduler chooses (the bandit stops
-picking the arm that does not pay) and the controller stops (`CancelRule` /
-`CostCancelRule` kill a run already going nowhere). On this campaign they are
-substitutes: both are aimed at the same refractory runs, so the gap belongs to
-the pair. Measured per result, over 20 results:
-
-| | no cancel rule | `--cost-cancel 0.008` |
-|---|---|---|
-| `--policy bandit` | 0.0180 | 0.0177 |
-| `--policy even` | 0.0330 | 0.0213 |
-
-The bandit alone buys 1.8x, the cancel rule alone 1.5x, and together 1.9x — not
-3x, because each has already removed most of what the other would have.
-
-Figure 1 needs **two** runs, because "AuCaM helped" is a claim about a baseline.
-Without `--baseline` it is skipped with a line saying why; the other two are
-still written. The baseline is the same campaign with the same goal and the same
-types — only the scheduling policy differs — so the gap between the bars is the
-scheduler's doing and not a different experiment.
-
-Figure 3 measures a saving against **observed** behaviour: what a run of that
-type cost when nothing stopped it, taken from this run's own completed
-instances, rather than against the declared spending limit, which is a ceiling
-nobody reaches. A type with no completed run of its own has nothing to compare
-against, so no bar is drawn for it.
+`--max-concurrent 2` is what lets the policy matter: with fewer slots than
+3 types × 2, the scheduler must choose, and the bandit starves the refractory
+type (3 launches against the even split's 14). The steered run combines the
+bandit and `--cost-cancel`; each alone gives most of the saving (1.8× and 1.5×
+per result), together 1.9×.
 
 ---
 
@@ -205,8 +141,6 @@ against, so no bar is drawn for it.
 | `plot_results.py` | Figures from a run's telemetry (`--telemetry-out`) |
 | `campaign_configs/campaign.yaml` | Campaign defaults (goal, budget, spending limits) |
 | `campaign_configs/global.yaml` | Engine / telemetry defaults |
-| `delta_env_setup.sh` | Create the VE on Delta (run once) |
-| `delta_sbatch.sh` | Slurm job script |
 
 ---
 
@@ -247,16 +181,11 @@ AuCaM owns the outer lifecycle; IMPRESS-A owns the science.
     resources={'cpus': 8.0, 'gpus': 1.0}
 ```
 
-Every line that names a run uses its workflow id, `<campaign>.<type>.<8 hex>` —
-unique per instance, since the suffix is a fresh UUID4 each launch. It is what
-the campaign's own telemetry keys on, and what a Python workflow reads from
-`context["workflow_id"]` (this campaign's instances hand it to IMPRESS as a
-`seed_salt`, which is what makes two runs of one type independent samples).
+Each run has a unique workflow id, `<campaign>.<type>.<8 hex>`; IMPRESS uses it
+as a seed, so two runs of one type explore different designs.
 
-AuCaM fires the first workflow immediately at startup (`requester=cm:init`) without
-waiting for the first policy cycle. The bandit shows `μ=nan` — no prior reward data
-yet. `spending_limit` and `resources` come from `WorkflowConfig`, which
-`impress_a.integrations.aucam.workflow_config()` builds from the IMPRESS offer.
+The first run launches at startup (`requester=cm:init`); `μ=nan` means no
+results yet. `spending_limit` and `resources` come from `workflow_config()`.
 
 ### 2. IMPRESS runs the design chain
 
@@ -272,11 +201,8 @@ impress_a.runtime.executor  reaped r0001: 6/6 tasks ok,
     cost={'gpu_hours': 0.006, 'cpu_hours': 0.006}
 ```
 
-`_fit_resources()` in `impress_a.aucam` sizes IMPRESS concurrency to the GPU grant.
-IMPRESS submits `r0001` (cycle 1 of its own inner loop): six staged tools —
-RFdiffusion → ProteinMPNN → Rosetta pack/minimize → FastRelax → shape filter →
-Boltz predict. Each `task.000NNN is in DONE state` line is one asyncflow task.
-After both cycles (r0001, r0002) satisfy all Pareto objectives, IMPRESS stops:
+Each IMPRESS cycle (`r0001`, …) runs the six-tool design chain. Once a design
+satisfies every objective, IMPRESS stops:
 
 ```
 impress_a.runtime.executor  stop requested: every spec objective satisfied
@@ -290,19 +216,11 @@ impress_a.aucam  campaign mock-binding-tractable ended:
 [WORKFLOW-impress-mock-binding-tractable.impress.b3eec390] COMPLETED wall=0.7s rc=0
 [SPEND] wf_done  wf=impress-mock-binding-tractable.impress.b3eec390
     method=exact  source=wf_reported
-    cpu_h=0.0000  gpu_h=0.0000  wall_s=0.7  rc=0
+    cpu_h=0.0009  gpu_h=0.0060  wall_s=0.7  rc=0
 ```
 
-`rc` is `WorkflowResult.returncode`, how the run ended: **0** finished on its
-own terms, **-1** AuCaM cancelled it, anything else is a failure (1 for a Python
-workflow like this one; a command-line workflow reports its program's exit code).
-Only the three types' `rc=0` runs carry a score, and `cancelled` in the summary
-counts the `-1`s — in the run behind the figures, 23 completed against 4
-cancelled.
-
-`method=exact  source=wf_reported` — AuCaM used the measured figures IMPRESS
-reported via `reporter.emit()`. For the mock spec the measured spend is near zero
-because no real GPU work ran (the displayed `0.0000` is `4e-6 cpu_h` rounded).
+`rc`: **0** finished, **-1** cancelled by AuCaM, anything else failed.
+`method=exact` means AuCaM charged the spend IMPRESS reported.
 
 ### 4. Controller records the live score
 
@@ -313,9 +231,8 @@ because no real GPU work ran (the displayed `0.0000` is `4e-6 cpu_h` rounded).
     total=1/30  spent={'gpu_hours': 0.006, 'cpu_hours': 0.00089}
 ```
 
-`ImpressController.on_complete()` fires here. `progress=1.000` — the full Pareto
-front is satisfied. `total=1/30` counts results toward `goal_n`, which
-`campaign.yaml` sets to 30.
+`progress=1.000`: the run found a satisfying design, so it is a result.
+`total=1/30` counts results toward `goal_n`.
 
 ### 5. Budget monitoring and policy cycle
 
@@ -332,13 +249,8 @@ front is satisfied. `total=1/30` counts results toward `goal_n`, which
     spending_limit={'gpu_hours': 4.0}
 ```
 
-`[BUDGET]` is logged by `ImpressController.observe()` each cycle — it shows
-per-dimension consumption against the campaign-wide `spending` limits from
-`campaign.yaml`. A WARNING fires once when either dimension crosses 80%.
-
-`decide=controller` — the controller's own `decide()` ran (rather than AuCaM
-falling back to its rules), `is_goal_reached()` returned `False`, so it asked for
-one more launch. The second run receives the same `spending_limit` as the first.
+`[BUDGET]` shows campaign-wide spend each cycle (a WARNING past 80%).
+`decide=controller`: the goal is not reached, so the controller launches another run.
 
 ### 6. Cost learning is off
 
@@ -361,44 +273,39 @@ be sized at 0 and dropped for falling under `budget_floor`.
 ========================================================================
 ```
 
-`goals_satisfied` is the controller's own end condition: `is_goal_reached()`
-counts runs that reached the front, not runs that finished.
+`goals_satisfied`: the results goal was reached.
 
 ---
 
 ## How a spending limit reaches IMPRESS
 
-The number in `campaign.yaml` ends up as IMPRESS's own budget, through three
-hand-offs. The last one crosses from the outside of a run to the inside:
+The budget in `campaign.yaml` is passed down in three steps, from the whole
+campaign to each run, and from the run into IMPRESS itself:
 
 | Step | Where | What it does |
 |---|---|---|
-| The whole allocation | `budget.spending` in `campaign.yaml` | What every run together may spend; AuCaM stops when it is gone |
+| The whole allocation | `budget.spending` in `campaign.yaml` | What the entire campaign may spend; AuCaM stops when it is gone |
 | Each run's share | `spending_limit` per type, passed to `workflow_config()` | 0.5 gpu_hours per run here, and AuCaM cancels a run that exceeds it |
-| What IMPRESS enforces from inside the run | `_narrow_budget()` in the adapter | The run's 0.5 gpu_hours becomes the budget IMPRESS works to, so its gate 5 refuses a graph it cannot afford before any task runs |
+| What IMPRESS enforces from inside the run | `_narrow_budget()` in the adapter | The run's 0.5 gpu_hours becomes IMPRESS's own budget, so it refuses work it cannot afford before running it |
 
-That last step is what makes the limit worth setting: enforced only from
-outside, a limit can cancel a run that has already overspent; enforced inside,
-IMPRESS refuses the work up front and stops itself with a reason.
+Enforced from outside, a limit can only cancel a run that already overspent;
+enforced inside, IMPRESS refuses the work up front.
 
 ---
 
 ## Score flow
 
 ```
-IMPRESS tool (Boltz) → metrics dict
-  → CampaignDigest.best["ligand_iptm"] / ["complex_plddt"]
-  → CampaignDigest.progress  (fraction of Pareto front satisfied)
-  → _ReporterSink.report()   (impress_a.integrations.aucam)
+IMPRESS run → progress (1.0 once it has a result, else 0.0) + per-objective bests
   → reporter.emit(score=progress, metrics={cpu_hours, gpu_hours, best, ...})
   → WorkflowResult.final_score / .final_metrics
   → ImpressController.on_complete()  → [CTRL] log line
   → BanditSchedulingPolicy reward    → μ updates → UCB arm selection
 ```
 
-The score AuCaM's bandit sees is `progress` — a scalar in [0, 1]. The rich
-per-objective bests (`ligand_iptm`, `complex_plddt`, etc.) travel in `metrics` and
-are logged by the controller; the scalar is what the scheduler selects on.
+The bandit's reward is `progress` (1.0 or 0.0). The best value of each
+objective (`ligand_iptm`, `complex_plddt`, …) is reported too, but only for the
+log; it does not affect scheduling.
 
 ---
 
@@ -410,7 +317,7 @@ The values the campaign runs with, and what each one decides:
 
 ```yaml
 controller:
-  goal_n: 30                       # runs that must REACH THE FRONT before stopping
+  goal_n: 30                       # results needed before the campaign stops
   budget_warn_fraction: 0.80       # log a WARNING past this fraction of the budget
 
 budget:
@@ -420,39 +327,23 @@ budget:
   spending:                        # campaign-wide total; it stops when exhausted
     cpu_hours: 10.0
     gpu_hours: 10.0
-  # wall_hours: 4.0                # instead of spending: capacity x wall_hours,
-                                   # which is how a job's allocation actually works
   on_limit: cancel                 # at the limit: cancel running work, or "finish"
   target_utilization: 0.85         # launch fewer when the nodes are already busy
 
 workflows:
   binding_tractable:                   # one block per type; impress: for --spec mode
     spending_limit: {gpu_hours: 0.5}   # per RUN, and IMPRESS takes it as its budget
-    resources: {cpus: 8, gpus: 1}      # the grant each run is sized against
+    resources: {cpus: 8, gpus: 1}      # CPUs / GPUs each run gets
     stale_timeout_s: 120.0             # cancel a run that stops reporting
 ```
-
-`max_concurrent` is the one to understand before reading the figures: the
-controller keeps every type topped up to `max_concurrency_per_workflow`, so at
-3 types x 2 there is always a free slot, nothing has to be chosen, and the
-scheduling policy has no effect on which runs. Contention is what gives a policy
-something to decide.
 
 ---
 
 ## IMPRESS spec — what `--spec` points to
 
-The spec is the IMPRESS-A YAML describing the protein design problem (its own
-first field is `campaign_id`). **The specs live in IMPRESS, not here**: they are
-IMPRESS's file format and IMPRESS owns what the knobs in them mean, so this
-campaign reads them from the IMPRESS checkout, in `$IMPRESS_DIR/agent/campaigns/`,
-rather than keeping copies that could drift.
-
-`IMPRESS_DIR` is the root of that checkout. Left unset, the campaign uses the
-checkout `impress_a` is installed from — an editable install, which is how
-`delta_env_setup.sh` installs it — so a local run needs nothing set. `--spec`
-takes a path or the bare name of a spec in that directory, and `--specs-dir`
-points the three-type mode somewhere else.
+The spec is the IMPRESS-A YAML describing the design problem. Specs live in the
+IMPRESS repo, in `$IMPRESS_DIR/agent/campaigns/` (unset, the checkout `impress_a`
+is installed from). `--spec` takes a bare name from there or a path.
 
 | Spec | Use |
 |---|---|
@@ -473,7 +364,8 @@ workflow type:
 | `IMPRESS_DIR` | `$WORK_DIR/IMPRESS` | The IMPRESS checkout the specs are read from |
 | `ENGINE` | `dragon` | `dragon` for the real tools on GPUs; `concurrent` for the mock specs |
 | `SBATCH_ACCOUNT` | Slurm's default | The allocation the job is charged to |
-| `CAMPAIGN_CONFIG` / `GLOBAL_CONFIG` | `campaign_configs/campaign.yaml` / `global.yaml` | The configs the run reads |
+| `CAMPAIGN_CONFIG` | `campaign_configs/campaign.yaml` | The campaign's goal and budget, and each workflow type's spending limit and resources |
+| `GLOBAL_CONFIG` | `campaign_configs/global.yaml` | Engine, scheduling policy and telemetry |
 
 ```bash
 export WORK_DIR=<your_work_dir>
@@ -500,6 +392,3 @@ budget:
 stages: [mock_rfd3_design, mock_mpnn_design, mock_packmin,
          mock_fastrelax, mock_filter_shape, mock_boltz_predict]
 ```
-
-AuCaM narrows `budget` to its own `spending_limit` before each run via
-`_narrow_budget()`.

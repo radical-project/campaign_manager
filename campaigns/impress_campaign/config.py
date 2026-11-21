@@ -35,7 +35,7 @@ class GlobalConfig:
 
 @dataclass
 class ControllerCfg:
-    goal_n: int = 4  # runs that must reach the front before the campaign stops
+    goal_n: int = 4  # results needed before the campaign stops
     budget_warn_fraction: float = 0.80  # log a warning when this fraction is used
 
 
