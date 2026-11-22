@@ -8,7 +8,8 @@ satisfied, 0-1), cancels runs that are weak or expensive, and decides which type
 to launch next.
 
     python run_campaign.py --spec mock-binding-tractable.yaml   # one type
-    python run_campaign.py --multi-arm                                # three, steered
+    python run_campaign.py --multi-arm                          # experiment 1: results
+    python run_campaign.py --multi-arm --quality-bar 0.7        # experiment 2: good designs
 
 Reading order: build_spec -> build_multi_arm_spec -> run -> main
 """
@@ -29,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 # it is installed, and radical.utils then makes logging's locks safe across fork().
 # Handlers created before that keep unprotected locks, which is what it warns about.
 import rhapsody.backends  # noqa: F401, E402
+from quality import QualityController, good_design_reward, objective_bars
 
 from src.aucam import (
     BanditSchedulingPolicy,
@@ -42,6 +44,11 @@ from controller import ImpressController, MultiArmController
 from scheduler import RecordingPolicy, make_policy
 
 logger = logging.getLogger(__name__)
+
+#: Loggers whose records `--aucam-log` collects: AuCaM itself and this campaign's
+#: own modules (controllers, scheduler, the summary), without IMPRESS or AsyncFlow.
+_AUCAM_LOGGERS = ("src.aucam", "controller", "quality", "scheduler", "__main__")
+_LOG_FORMAT = "%(asctime)s  %(levelname)-7s  %(name)-30s  %(message)s"
 
 # ── One workflow type ──────────────────────────────────────────────────────────
 
@@ -104,6 +111,8 @@ _WF_SPECS = {
     "binding_borderline": "mock-binding-borderline.yaml",
     "binding_refractory": "mock-binding-refractory.yaml",
 }
+# Experiment 2: the same three types, allowed to keep improving past a first design.
+_QUALITY_SPECS = {t: f.replace("mock-binding-", "mock-quality-") for t, f in _WF_SPECS.items()}
 
 
 def build_multi_arm_spec(
@@ -118,6 +127,10 @@ def build_multi_arm_spec(
     policy_name: str = "bandit",
     score_floor: float = 0.0,
     cost_cancel: float = 0.0,
+    quality_bar: float = 0.0,
+    stops: bool = True,
+    no_design: float = 0.018,
+    patience: float = 0.018,
 ) -> CampaignSpec:
     """Three IMPRESS workflow types (tractable / borderline / refractory).
 
@@ -125,13 +138,18 @@ def build_multi_arm_spec(
     scheduling policy learns rewards from the progress scores they report and
     shifts allocation toward the types that pay — which is why it calls them
     arms.
+
+    With `quality_bar` set this is experiment 2: the types' quality specs, a
+    QualityController deciding how long each run lives, and a cost-aware bandit
+    rewarded for good designs.
     """
     from impress_a.integrations.aucam import reward_fn as impress_reward_fn
     from impress_a.integrations.aucam import workflow_config as impress_workflow_config
 
     specs_path = Path(specs_dir)
+    wf_specs = _QUALITY_SPECS if quality_bar else _WF_SPECS
     wf_configs = []
-    for wf_type, spec_file in _WF_SPECS.items():
+    for wf_type, spec_file in wf_specs.items():
         type_cfg = getattr(ccfg.workflows, wf_type, None)
         overrides: dict = {}
         if type_cfg is not None:
@@ -141,6 +159,7 @@ def build_multi_arm_spec(
                 overrides["spending_limit"] = {"gpu_hours": float(gpu_sl)}
             if type_cfg.budget_floor:
                 overrides["budget_floor"] = dict(type_cfg.budget_floor)
+            overrides["stale_timeout_s"] = type_cfg.stale_timeout_s
         # Cost learning off: each type's cycle count is fixed, so a learned cost would
         # only narrow the limit until launches were dropped for being under the floor.
         overrides["learn"] = False
@@ -155,15 +174,32 @@ def build_multi_arm_spec(
             )
         )
 
-    ctrl = MultiArmController(
-        workflow_types=list(_WF_SPECS),
-        goal_n=ccfg.controller.goal_n,
-        budget_warn_fraction=ccfg.controller.budget_warn_fraction,
-        telemetry_path=telemetry_path,
-        in_flight_per_type=ccfg.budget.max_concurrency_per_workflow,
-        score_floor=score_floor,
-        cost_cancel={"gpu_hours": cost_cancel} if cost_cancel else None,
-    )
+    if quality_bar:
+        bars = objective_bars(specs_path / next(iter(wf_specs.values())))
+        ctrl = QualityController(
+            workflow_types=list(wf_specs),
+            bars=bars,
+            quality_bar=quality_bar,
+            goal_n=ccfg.controller.goal_n,
+            no_design=no_design,
+            patience=patience,
+            stops=stops,
+            telemetry_path=telemetry_path,
+            in_flight_per_type=ccfg.budget.max_concurrency_per_workflow,
+            budget_warn_fraction=ccfg.controller.budget_warn_fraction,
+        )
+        reward_fn, cost_aware = good_design_reward(bars, quality_bar), True
+    else:
+        ctrl = MultiArmController(
+            workflow_types=list(wf_specs),
+            goal_n=ccfg.controller.goal_n,
+            budget_warn_fraction=ccfg.controller.budget_warn_fraction,
+            telemetry_path=telemetry_path,
+            in_flight_per_type=ccfg.budget.max_concurrency_per_workflow,
+            score_floor=score_floor,
+            cost_cancel={"gpu_hours": cost_cancel} if cost_cancel else None,
+        )
+        reward_fn, cost_aware = impress_reward_fn, False
 
     spending: dict[str, float] = {
         dim: v for dim in ("cpu_hours", "gpu_hours") if (v := ccfg.budget.spending.get(dim))
@@ -195,7 +231,7 @@ def build_multi_arm_spec(
         # The baseline policies are wrapped too, or an A/B would compare a recorded
         # run against an empty one.
         scheduling_policy=RecordingPolicy(
-            make_policy(policy_name, reward_fn=impress_reward_fn),
+            make_policy(policy_name, reward_fn=reward_fn, cost_aware=cost_aware),
             ctrl.record,
         ),
     )
@@ -286,6 +322,10 @@ async def run(
             policy_name=args.policy,
             score_floor=args.score_floor,
             cost_cancel=args.cost_cancel,
+            quality_bar=args.quality_bar,
+            stops=not args.no_stops,
+            no_design=args.no_design,
+            patience=args.patience,
         )
     else:
         ref_spec = _resolve_spec(args.spec)
@@ -344,12 +384,15 @@ def _log_outcome(name: str, outcome, elapsed: float, *, multi_arm: bool = False)
         score_text = (
             f"  best={best:.3f} avg={avg:.3f}" if best is not None and avg is not None else ""
         )
+        finished = outcome.finished.get(wf_type, 0)
+        early = f" (finished early {finished})" if finished else ""
         lines.append(
-            f"  {wf_type:<20} completed={done} cancelled={cancelled} failed={failed}{score_text}"
+            f"  {wf_type:<20} completed={done}{early} cancelled={cancelled} failed={failed}"
+            f"{score_text}"
         )
     lines.append("=" * 72)
     for line in lines:
-        logging.info(line)
+        logger.info(line)
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
@@ -390,6 +433,12 @@ def _build_parser(gcfg: GlobalConfig, ccfg: CampaignConfig) -> argparse.Argument
     p.add_argument(
         "--telemetry-dir", default=gcfg.telemetry.dir, help="enables AuCaM telemetry JSONL"
     )
+    p.add_argument(
+        "--aucam-log",
+        default="logs/aucam.log",
+        help="also write AuCaM's and this campaign's log lines, without IMPRESS's "
+        "or AsyncFlow's, to this file ('' to turn off)",
+    )
     p.add_argument("--model", default="D", help="IMPRESS policy model letter (D, B, …)")
     p.add_argument(
         "--no-guard",
@@ -400,8 +449,17 @@ def _build_parser(gcfg: GlobalConfig, ccfg: CampaignConfig) -> argparse.Argument
     p.add_argument(
         "--report-interval-s",
         type=float,
-        default=1.0,
-        help="how often each IMPRESS workflow reports to AuCaM (seconds)",
+        default=None,
+        help="how often each IMPRESS workflow reports to AuCaM, seconds "
+        "(default 1.0; 0.05 with --quality-bar, so every cycle is seen)",
+    )
+    p.add_argument(
+        "--policy-interval-s",
+        type=float,
+        default=None,
+        help="seconds between controller decisions "
+        "(default from campaign.yaml; 0.1 with --quality-bar, so a run is stopped "
+        "within a cycle)",
     )
 
     # Controller
@@ -431,6 +489,33 @@ def _build_parser(gcfg: GlobalConfig, ccfg: CampaignConfig) -> argparse.Argument
         type=float,
         default=0.0,
         help="cancel a run that spends this many gpu_hours without improving",
+    )
+
+    # Experiment 2
+    p.add_argument(
+        "--quality-bar",
+        type=float,
+        default=0.0,
+        help="experiment 2 (--multi-arm): count designs whose quality reaches this bar "
+        "(0-1; 0 = experiment 1)",
+    )
+    p.add_argument(
+        "--no-stops",
+        action="store_true",
+        default=False,
+        help="experiment 2 baseline: the controller never stops a run",
+    )
+    p.add_argument(
+        "--no-design",
+        type=float,
+        default=0.018,
+        help="experiment 2: stop a run with no design after this many gpu_hours",
+    )
+    p.add_argument(
+        "--patience",
+        type=float,
+        default=0.018,
+        help="experiment 2: stop a run that has not improved for this many gpu_hours",
     )
 
     # Budget overrides
@@ -486,6 +571,14 @@ def main() -> None:
     if args.telemetry_dir:
         gcfg.telemetry.enabled = True
 
+    quality = args.multi_arm and args.quality_bar > 0
+    if args.report_interval_s is None:
+        args.report_interval_s = 0.05 if quality else 1.0
+    if args.policy_interval_s is not None:
+        ccfg.policy_interval_s = args.policy_interval_s
+    elif quality:
+        ccfg.policy_interval_s = 0.1
+
     ccfg.controller.goal_n = args.goal_n
     ccfg.workflows.impress.score_floor = args.score_floor
     ccfg.budget.max_concurrent = args.max_concurrent
@@ -503,11 +596,13 @@ def main() -> None:
         ccfg.budget.spending["gpu_hours"] = args.spending_gpu_hours
 
     log_level = logging.DEBUG if gcfg.verbose else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s  %(levelname)-7s  %(name)-30s  %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    logging.basicConfig(level=log_level, format=_LOG_FORMAT, datefmt="%H:%M:%S")
+    if args.aucam_log:
+        Path(args.aucam_log).parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(args.aucam_log, mode="w")
+        handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt="%H:%M:%S"))
+        handler.addFilter(lambda record: record.name.startswith(_AUCAM_LOGGERS))
+        logging.getLogger().addHandler(handler)
     logging.getLogger("src.aucam").setLevel(log_level)
     logging.getLogger("impress_a").setLevel(log_level)
 

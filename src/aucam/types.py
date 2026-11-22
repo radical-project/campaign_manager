@@ -19,6 +19,10 @@ class WorkflowStatus(StrEnum):
 
 class CampaignDecision(StrEnum):
     CANCEL = "CANCEL"
+    # End a running workflow because it is done (e.g. its result is good
+    # enough): stopped like CANCEL, but counted as completed (returncode 0,
+    # WorkflowResult.finished).
+    FINISH = "FINISH"
     PAUSE = "PAUSE"
     RESUME = "RESUME"
     NOOP = "NOOP"
@@ -65,6 +69,11 @@ class WorkflowResult:
     # exited on its own within its grace period; "forced" — AuCaM cancelled it
     # (no grace period, or it did not exit in time).  None if not cancelled.
     cancel: str | None = None
+    # The controller ended it with FINISH: stopped early because it was done.
+    # Counted as completed (returncode 0).
+    finished: bool = False
+    # Why the controller ended it (PolicyResult.reasons), for FINISH or CANCEL.
+    reason: str | None = None
 
 
 @dataclass
@@ -221,7 +230,7 @@ class CampaignOutcome:
     """
 
     campaign_name: str
-    completed: dict[str, int]  # workflow_type → successful completions
+    completed: dict[str, int]  # workflow_type → successful completions (incl. finished)
     cancelled: dict[str, int]  # workflow_type → cancellations (returncode == -1)
     failed: dict[str, int]  # workflow_type → hard failures (other returncode)
     elapsed_s: float
@@ -229,6 +238,8 @@ class CampaignOutcome:
     # Why the campaign ended: goals_satisfied, controller_terminate,
     # spending_limit, campaign_idle or signal.
     exit_reason: str = "unknown"
+    # workflow_type → workflows the controller ended with FINISH (part of completed).
+    finished: dict[str, int] = field(default_factory=dict)
     spent: dict[str, float] = field(default_factory=dict)  # actual resource consumption
     summary: dict = field(default_factory=dict)  # controller-provided scientific aggregates
     # Workflows cancelled for spending past their own spending limit, or for

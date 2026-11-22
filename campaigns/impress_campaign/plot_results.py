@@ -12,12 +12,14 @@ itself, and answers it from one run's telemetry rather than from an assertion:
 Figure 1 needs TWO runs, because "AuCaM helped" is a claim about a baseline:
 the same campaign, same goal, steered and unsteered.
 
-    python run_campaign.py --multi-arm --goal-n 20 --max-concurrent 2 \\
+    python run_campaign.py --multi-arm --goal-n 60 --max-concurrent 2 \\
                            --cost-cancel 0.008 --telemetry-out runs/bandit.jsonl
-    python run_campaign.py --multi-arm --goal-n 20 --max-concurrent 2 \\
+    python run_campaign.py --multi-arm --goal-n 60 --max-concurrent 2 \\
                            --policy even --telemetry-out runs/even.jsonl
     python plot_results.py --telemetry runs/bandit.jsonl \\
                            --baseline runs/even.jsonl --out figures/
+
+`run_results_experiment.sh` runs both, and this script.
 
 Without `--baseline` the other two figures are still written, and figure 1 is
 skipped with a line saying why — a one-run comparison against a number this
@@ -40,10 +42,10 @@ from matplotlib.ticker import MaxNLocator
 
 # ── Palette / style ───────────────────────────────────────────────────────────
 
-TYPE_COLOR = {
-    "binding_tractable": "#27ae60",
-    "binding_borderline": "#e67e22",
-    "binding_refractory": "#c0392b",
+TYPE_COLOR = {  # Okabe-Ito: distinguishable with colour-blindness too
+    "binding_tractable": "#009E73",
+    "binding_borderline": "#56B4E9",
+    "binding_refractory": "#D55E00",
 }
 TYPE_SHORT = {
     "binding_tractable": "Tractable",
@@ -120,15 +122,16 @@ def summarise(events: list[dict]) -> dict:
 def full_cost_estimate(events: list[dict], wtype: str) -> float | None:
     """What a run of `wtype` costs when nothing stops it.
 
-    Measured from this run's own completed instances of that type, so figure 3
-    compares against observed behaviour rather than against the declared
-    spending limit, which is a ceiling nobody reaches. None when the type has no
-    completed run of its own to compare against.
+    The median of the finished (not cancelled) runs of that type in `events`, so
+    figure 3 compares against observed behaviour rather than against the declared
+    spending limit, a ceiling nobody reaches. Pass the baseline's events too: a
+    steered campaign finishes few runs of the type it cancels, and the median keeps
+    one odd run from standing in for all of them. None when there is none.
     """
-    finished = [
+    finished = sorted(
         spent(e) for e in completions(events) if wf_type(e) == wtype and not was_cancelled(e)
-    ]
-    return max(finished) if finished else None
+    )
+    return finished[len(finished) // 2] if finished else None
 
 
 # ── 1. Steering vs no steering ────────────────────────────────────────────────
@@ -343,7 +346,7 @@ def plot_learning(events: list[dict], out: Path) -> None:
 # ── 3. Cancellation ───────────────────────────────────────────────────────────
 
 
-def plot_cancellation(events: list[dict], out: Path) -> None:
+def plot_cancellation(events: list[dict], out: Path, baseline: list[dict] | None = None) -> None:
     """What the controller's cancellations saved, per cancelled run.
 
     Each bar is one cancelled run: what AuCaM was charged for it, against what a
@@ -363,7 +366,7 @@ def plot_cancellation(events: list[dict], out: Path) -> None:
     charged, avoided, labels, colours = [], [], [], []
     for i, e in enumerate(cancelled, start=1):
         wtype = wf_type(e)
-        full = full_cost_estimate(events, wtype)
+        full = full_cost_estimate(events + (baseline or []), wtype)
         used = spent(e)
         charged.append(used)
         avoided.append(max(0.0, (full - used)) if full else 0.0)
@@ -442,7 +445,7 @@ def main() -> None:
     else:
         print("  01: skipped — pass --baseline (a --policy even run) to compare against")
     plot_learning(events, out)
-    plot_cancellation(events, out)
+    plot_cancellation(events, out, load(args.baseline) if args.baseline else None)
 
     # Only what is actually on disk from this invocation: the plot_* helpers skip
     # (and say why) when the telemetry cannot answer their question, and naming a

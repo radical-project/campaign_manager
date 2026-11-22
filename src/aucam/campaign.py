@@ -301,6 +301,8 @@ class _WorkflowInstance:
         "cancel_mode",
         "cancel_handle",
         "adopted_at",
+        "finish",
+        "reason",
     )
 
     def __init__(
@@ -336,6 +338,9 @@ class _WorkflowInstance:
         # the grace period runs, "forced" once AuCaM cancelled the block.
         self.cancel_mode: str | None = None
         self.cancel_handle: asyncio.TimerHandle | None = None
+        # Ended by the controller with FINISH (counted as completed), and why.
+        self.finish = False
+        self.reason: str | None = None
         # R1: set when a restarted AuCaM adopted this still-running command-line
         # workflow (it has no task handle; it ends on its "done" report).
         self.adopted_at: float | None = None
@@ -1171,6 +1176,7 @@ class _CampaignInstance:
                 "completed": 0,
                 "cancelled": 0,
                 "failed": 0,
+                "finished": 0,
                 "spent": {},
                 "score_sum": 0.0,
                 "score_n": 0,
@@ -1178,6 +1184,7 @@ class _CampaignInstance:
         )
         rc = result.returncode
         t["completed" if rc == 0 else "cancelled" if rc == -1 else "failed"] += 1
+        t["finished"] = t.get("finished", 0) + int(result.finished)  # absent in old checkpoints
         for k, v in (spent or {}).items():
             if k != "wall_hours":
                 t["spent"][k] = t["spent"].get(k, 0.0) + float(v)
@@ -1234,6 +1241,7 @@ class _CampaignInstance:
                 "completed": t["completed"],
                 "cancelled": t["cancelled"],
                 "failed": t["failed"],
+                "finished": t.get("finished", 0),
                 "spent": dict(t["spent"]),
                 "avg_cost": {k: v / n for k, v in t["spent"].items()} if n else {},
                 "cost_per_completed": (
@@ -1325,7 +1333,18 @@ class _CampaignInstance:
             _inst.cancel_handle.cancel()
         if fut.cancelled() and _inst.cancel_mode is None:
             _inst.cancel_mode = "forced"  # cancelled outside _cancel (e.g. the engine)
-        if fut.cancelled() or _inst.cancel_mode == "graceful":
+        if _inst.finish:
+            # Ended with FINISH: the controller judged it done, so it counts as
+            # completed however its block ended (it was stopped like a cancel).
+            rc, status = 0, WorkflowStatus.COMPLETED
+            self._completed += 1
+            if not fut.cancelled() and fut.exception() is not None:
+                logger.warning(
+                    "[WORKFLOW-%s] raised while exiting after FINISH: %r",
+                    _inst.wf_id,
+                    fut.exception(),
+                )
+        elif fut.cancelled() or _inst.cancel_mode == "graceful":
             # A workflow that exits on its own after CANCEL still counts as
             # cancelled (P1); WorkflowResult.cancel says how it ended.
             rc, status = -1, WorkflowStatus.CANCELLED
@@ -1359,6 +1378,8 @@ class _CampaignInstance:
         logger.info(
             f"[WORKFLOW-{_inst.wf_id}] {status.value} wall={wall:.1f}s rc={rc}"
             + (f" cancel={_inst.cancel_mode}" if rc == -1 else "")
+            + (" finished" if _inst.finish else "")
+            + (f" reason={_inst.reason!r}" if _inst.reason else "")
         )
 
         _status_to_event = {
@@ -1485,6 +1506,8 @@ class _CampaignInstance:
             resources=dict(_inst.resources),
             over_resources=_inst.over_resources,
             cancel=_inst.cancel_mode if rc == -1 else None,
+            finished=_inst.finish,
+            reason=_inst.reason,
         )
 
         if self.spec.data_backend is not None:
@@ -2434,7 +2457,10 @@ class _CampaignInstance:
         """
         self._auto_cancelled = set()
         for wf_id, inst in list(self._active.items()):
-            if result.decisions.get(wf_id) == CampaignDecision.CANCEL or inst.cancel_mode:
+            if inst.cancel_mode or result.decisions.get(wf_id) in (
+                CampaignDecision.CANCEL,
+                CampaignDecision.FINISH,
+            ):
                 continue
             wfc = self._wf_config(inst.workflow_type)
 
@@ -2698,14 +2724,20 @@ class _CampaignInstance:
             inst = self._active.get(wf_id)
             if inst is None or inst.future.done():
                 continue
-            if decision == CampaignDecision.CANCEL:
+            if decision in (CampaignDecision.CANCEL, CampaignDecision.FINISH):
                 if inst.cancel_mode is not None:
                     continue  # already being cancelled
                 # Auto-cancels (stale, wall time, spending limit) have their own counters.
                 auto = wf_id in self._auto_cancelled
-                logger.info(f"[WORKFLOW-{wf_id}] CANCEL ({'auto' if auto else 'policy'})")
+                inst.reason = result.reasons.get(wf_id) or inst.reason
+                if decision == CampaignDecision.FINISH:
+                    inst.finish = True
+                logger.info(
+                    f"[WORKFLOW-{wf_id}] {decision.value} ({'auto' if auto else 'policy'})"
+                    + (f": {inst.reason}" if inst.reason else "")
+                )
                 await self._cancel(inst)
-                if not auto:
+                if not auto and decision == CampaignDecision.CANCEL:
                     self._policy_cancels += 1
             elif decision in (CampaignDecision.PAUSE, CampaignDecision.RESUME):
                 wfc = self._wf_config(inst.workflow_type)

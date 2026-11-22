@@ -154,6 +154,8 @@ class PolicyResult:
     """The controller's decision for one policy cycle."""
 
     decisions: dict[str, CampaignDecision] = field(default_factory=dict)
+    # Why, per decided workflow: carried into WorkflowResult.reason.
+    reasons: dict[str, str] = field(default_factory=dict)
     launch_requests: list[LaunchRequest] = field(default_factory=list)
     terminate: bool = False
     cancel_queued: dict[str, int] | None = None
@@ -213,6 +215,7 @@ class CampaignController:
         self.completed: dict[str, int] = {}
         self.cancelled: dict[str, int] = {}
         self.failed: dict[str, int] = {}
+        self.finished_early: dict[str, int] = {}  # ended with FINISH; also in completed
 
     # ── Overridable hooks ─────────────────────────────────────────────────────
 
@@ -229,6 +232,9 @@ class CampaignController:
             c = iv.get("completed")
             if isinstance(c, dict):
                 c[result.workflow_type] = c.get(result.workflow_type, 0) + 1
+            f = iv.get("finished_early")
+            if result.finished and isinstance(f, dict):
+                f[result.workflow_type] = f.get(result.workflow_type, 0) + 1
         elif result.returncode == -1:
             c = iv.get("cancelled")
             if isinstance(c, dict):

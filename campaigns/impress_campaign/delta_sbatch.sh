@@ -127,6 +127,7 @@ COMMON_ARGS=(
     --global-config   "${GLOBAL_CONFIG}"
     --campaign-config "${CAMPAIGN_CONFIG}"
     --telemetry-dir   "${TELEMETRY_DIR}"
+    --aucam-log       "logs/aucam_${SLURM_JOB_ID:-local}.log"
     --verbose
 )
 

@@ -152,6 +152,7 @@ class CampaignManager:
             completed=counts("completed"),
             cancelled=counts("cancelled"),
             failed=counts("failed"),
+            finished=counts("finished_early"),
             elapsed_s=elapsed_s,
             goal_reached=inst.exit_reason == "goals_satisfied" or goal_check,
             exit_reason=inst.exit_reason,

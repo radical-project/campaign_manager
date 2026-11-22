@@ -366,7 +366,8 @@ The observation has these keys (plus any your `observe()` adds):
 
 ```python
 PolicyResult(
-    decisions={wf_id: CampaignDecision.CANCEL},  # CANCEL, PAUSE, RESUME, NOOP
+    decisions={wf_id: CampaignDecision.CANCEL},  # CANCEL, FINISH, PAUSE, RESUME, NOOP
+    reasons={wf_id: "no progress for 3 cycles"},  # optional, per decided workflow
     launch_requests=[LaunchRequest.make("sim_worker", context={"seed": 7})],
     cancel_queued={"sim_worker": 2},  # drop up to 2 queued requests of a type
     goals=[Goal("best", metric="best_energy", threshold=-8.0, direction="minimize")],
@@ -375,6 +376,13 @@ PolicyResult(
     terminate=False,  # True ends the campaign
 )
 ```
+
+`FINISH` ends a running workflow because it is done, for example because its
+result is already good enough: AuCaM stops it as it would a cancel, but counts
+it as completed (`returncode` 0, `WorkflowResult.finished`, and
+`CampaignOutcome.finished` per type). `reasons` carries the controller's reason
+for a FINISH or CANCEL into `WorkflowResult.reason` and the log, so whoever reads
+the results later knows why each run ended.
 
 `messages` sends data to running workflows (§4, "Messages from the
 controller"). `to` is a workflow id (one workflow) or a workflow type (every

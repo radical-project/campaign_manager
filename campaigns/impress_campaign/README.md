@@ -5,6 +5,14 @@ design. Each AuCaM *workflow* is a complete IMPRESS-A design run — plan, score
 Pareto front — and AuCaM gives it a budget and resources, learns which kind of
 workflow is worth launching, and decides when to stop.
 
+Two experiments on the same three workflow types:
+
+1. **Results.** A run produces a result or not; the scheduler learns which type
+   produces results, and the controller cancels runs that spend without progress.
+2. **Good designs for the fewest gpu_hours.** Runs keep improving their design;
+   the controller decides how long each run lives, and the scheduler learns
+   which type delivers good designs cheapest.
+
 ## Quick start
 
 ```bash
@@ -20,11 +28,17 @@ python run_campaign.py --spec mock-binding-tractable.yaml
 
 # The same three types, cancelling runs that spend without improving.
 python run_campaign.py --multi-arm --goal-n 10 --cost-cancel 0.008
+
+# Experiment 2: 10 designs of quality 0.7 or better.
+python run_campaign.py --multi-arm --quality-bar 0.7 --goal-n 10
 ```
+
+Every run also writes AuCaM's and the campaign's own log lines, without IMPRESS's
+or AsyncFlow's, to `logs/aucam.log` (`--aucam-log` to change it, `''` to turn it off).
 
 ---
 
-## What it demonstrates
+## Experiment 1: results
 
 **Three workflow types**, differing in how reliably a run converges on a design
 that satisfies every objective. AuCaM runs many instances of them at once,
@@ -77,30 +91,27 @@ left alone. When it fires:
 
 ---
 
-## Figures
+## Experiment 1: figures
 
 `plot_results.py` answers three questions about **what AuCaM contributed**, from
 a run's own telemetry:
 
 ```bash
-# The steered run, and the same campaign and goal without steering.
-python run_campaign.py --multi-arm --goal-n 20 --max-concurrent 2 \
-    --cost-cancel 0.008 --telemetry-out runs/bandit.jsonl
-python run_campaign.py --multi-arm --goal-n 20 --max-concurrent 2 \
-    --policy even --telemetry-out runs/even.jsonl
-python plot_results.py --telemetry runs/bandit.jsonl \
-    --baseline runs/even.jsonl --out figures/
+./run_results_experiment.sh     # about 3 minutes
 ```
 
-The figures below came from that command; your own run will look similar, not
-identical, since every run explores different designs.
+It runs the steered campaign (`--multi-arm --goal-n 60 --max-concurrent 2
+--cost-cancel 0.008`) and its baseline (`--policy even`, no cancel rule), plus
+the bandit alone and the cancel rule alone, then draws the figures below. Your
+own run will look similar, not identical, since every run explores different
+designs.
 
 ### 1. Did steering cost less than not steering?
 
 ![Budget and results, steered against unsteered](figures/01_steering_vs_baseline.png)
 
 The same campaign, the same goal, the same three types — only the steering differs.
-Both reach 20 results; the steered run spends 0.270 gpu_hours against 0.786, and
+Both reach 60 results; the steered run spends 0.558 gpu_hours against 2.322, and
 the hatched part of each bar is what went to runs without a result. The
 right panel is the same claim over time: a steeper curve is more results per
 gpu_hour.
@@ -109,24 +120,104 @@ gpu_hour.
 
 ![Launches per arm over time, and each arm's running mean](figures/02_bandit_learning.png)
 
-The bandit tries all three types early. As soon as the first refractory run
-finishes without a result, the bandit stops launching that type and spends the
-rest of the campaign on the other two.
+The bandit tries all three types early. Once refractory runs finish without a
+result, it launches that type only rarely (6 of 72 launches) and spends most of
+the campaign on tractable.
 
 ### 3. What did cancelling in flight save?
 
 ![Per cancelled run: charged against what the run would have cost](figures/03_cancellation_savings.png)
 
 One bar per cancelled run: solid is what AuCaM was charged, hatched is what the
-run would have cost uncancelled (the average of this campaign's finished runs of
-that type). The controller cancels a run once it has spent `--cost-cancel`
-gpu_hours without its score improving, so runs are stopped at different points.
+run would have cost uncancelled (the median finished run of that type, in this
+campaign and its baseline). The controller cancels a run once it has spent
+`--cost-cancel` gpu_hours without its score improving, so runs are stopped at
+different points.
 
 `--max-concurrent 2` is what lets the policy matter: with fewer slots than
 3 types × 2, the scheduler must choose, and the bandit starves the refractory
-type (3 launches against the even split's 14). The steered run combines the
-bandit and `--cost-cancel`; each alone gives most of the saving (1.8× and 1.5×
-per result), together 1.9×.
+type (6 launches against the even split's 39). The steered run combines the
+bandit and `--cost-cancel`: the bandit alone gives 3.3× fewer gpu_hours per
+result, the cancel rule alone 1.5×, and together 4.2×.
+
+---
+
+## Experiment 2: good designs for the fewest gpu_hours
+
+The same three types, but a run does not stop at its first passing design:
+IMPRESS keeps improving it, cycle after cycle, and the **controller decides how
+long each run lives**. A design is **good** once its quality reaches a bar
+(`--quality-bar`), and the campaign stops at `--goal-n` good designs.
+
+A design's **quality** comes from the objectives that have a `min` in the spec
+(`complex_plddt` ≥ 0.75, `ligand_iptm` ≥ 0.4, `shape_complementarity` ≥ 0.55;
+these metrics top out at 1.0). For each one we take how far the design is above
+the `min`, as a fraction of the room left above it, and the design's quality is
+the weakest of these:
+
+```
+quality = min over objectives of (value − min) / (1 − min)
+```
+
+0 means just at the thresholds, 1 is perfect. For example, `complex_plddt` 0.92,
+`ligand_iptm` 0.88 and `shape_complementarity` 0.82 give 0.68, 0.80 and 0.60, so
+the design's quality is 0.60. Taking the weakest objective means one strong
+metric can't make up for a poor one.
+
+Each policy cycle, the controller ends a run when one of these rules holds. A
+run whose design reaches the bar is ended with AuCaM's `FINISH` decision, so it
+counts as completed; the others are cancelled. Either way the run's design is
+kept, and the controller's reason is recorded with its result.
+
+| Rule | Why |
+|---|---|
+| its design reaches the bar (`FINISH`) | it is good; more cycles add little |
+| it has no design after `--no-design` gpu_hours | there is nothing to refine |
+| it has not improved for `--patience` gpu_hours | it has plateaued |
+| what it still needs to reach the bar is more than its share of the budget left | the campaign can't afford it (budget left ÷ good designs still needed) |
+
+The scheduler is AuCaM's bandit in cost-aware mode, rewarded 1 for a good
+design, so it ranks types by good designs per gpu_hour.
+
+With `--quality-bar`, runs report every 0.05 s and the controller decides every
+0.1 s, so a run is stopped in the cycle it reaches the bar.
+
+```bash
+./run_quality_experiment.sh     # about 15 minutes
+```
+
+It runs the steered campaign (`--multi-arm --quality-bar 0.7 --goal-n 60
+--max-concurrent 2`) and three baselines, the same command with `--policy even`,
+`--no-stops`, or both, then draws the figures below from their telemetry.
+
+### 1. What did the controller decide for each run?
+
+![Each run's best design as it spends, without and with controller stops](figures/quality/q1_run_trajectories.png)
+
+Each line is one run: the quality of its best design as it spends. Without
+stops (left), runs keep going long after they cross the bar, and a refractory
+run spends 0.06 gpu_hours with no design to show. With the controller (right),
+a run stops as soon as its design is good, and a run with no design is stopped
+at 0.018.
+
+### 2. Which type did the scheduler learn to launch?
+
+![Launches per type, and each type's cost per good design](figures/quality/q2_bandit_learning.png)
+
+Tractable delivers a good design for about 0.027 gpu_hours, borderline for
+0.047, and refractory never does. The bandit launches tractable most and
+refractory least: 11 of 76 launches, against 32 of 96 for an even split.
+
+### 3. What did the two save together?
+
+![gpu_hours to reach 60 good designs, with and without each mechanism](figures/quality/q3_cost_of_n_designs.png)
+
+To reach 60 good designs: 5.52 gpu_hours with neither, 4.21 with the bandit
+alone, 2.62 with the controller alone, and 2.17 with both, 2.5× less than
+neither. Reaching quality 0.7 (blue) takes about 2 gpu_hours in every case;
+the rest is waste. The controller removes the cycles runs spend after reaching
+it (orange), and the bandit and controller together cut what goes to runs that
+never reach it (grey) from 1.92 to 0.29.
 
 ---
 
@@ -138,7 +229,11 @@ per result), together 1.9×.
 | `controller.py` | `ImpressController` (one type) and `MultiArmController` — per-type scores, the cancel rules, and the `decide()` that keeps each type topped up |
 | `scheduler.py` | The `--policy` menu, and the wrapper that records which type the scheduler picked |
 | `config.py` | Dataclasses + YAML loaders for `GlobalConfig` / `CampaignConfig` |
-| `plot_results.py` | Figures from a run's telemetry (`--telemetry-out`) |
+| `plot_results.py` | Experiment 1 figures, from a run's telemetry (`--telemetry-out`) |
+| `quality.py` | Experiment 2: design quality, and the controller that decides how long each run lives |
+| `plot_quality.py` | Experiment 2 figures, from four runs' telemetry |
+| `run_results_experiment.sh` | Experiment 1: runs the four campaigns, then `plot_results.py` |
+| `run_quality_experiment.sh` | Experiment 2: runs the four campaigns, then `plot_quality.py` |
 | `campaign_configs/campaign.yaml` | Campaign defaults (goal, budget, spending limits) |
 | `campaign_configs/global.yaml` | Engine / telemetry defaults |
 
@@ -153,11 +248,14 @@ CampaignManager (AuCaM)
 │   ├── scheduling_policy        — which QUEUED launch runs next (scheduler.py)
 │   ├── MultiArmController       — tops each type up, applies the cancel rule,
 │   │                              stops at the goal (controller.py)
+│   │   └── QualityController    — experiment 2: also FINISHes or cancels each
+│   │                              run by its design's quality (quality.py)
 │   └── WorkflowConfig per type  — one IMPRESS-A design run as an async block
 │
 └── per policy cycle:
     ├── controller.observe()     — [BUDGET] burn, [TYPES] per-type state
-    ├── controller.decide()      — top-ups + the cost-cancel rule
+    ├── controller.decide()      — top-ups + the cost-cancel rule (experiment 2:
+    │                              the quality rules)
     ├── policy.select()          — only decides anything when the queue is contended
     └── [SPEND] line             — AuCaM's own budget accounting
 ```
@@ -219,7 +317,8 @@ impress_a.aucam  campaign mock-binding-tractable ended:
     cpu_h=0.0009  gpu_h=0.0060  wall_s=0.7  rc=0
 ```
 
-`rc`: **0** finished, **-1** cancelled by AuCaM, anything else failed.
+`rc`: **0** finished (on its own, or ended by the controller with `FINISH`),
+**-1** cancelled by AuCaM, anything else failed.
 `method=exact` means AuCaM charged the spend IMPRESS reported.
 
 ### 4. Controller records the live score
@@ -273,7 +372,9 @@ be sized at 0 and dropped for falling under `budget_floor`.
 ========================================================================
 ```
 
-`goals_satisfied`: the results goal was reached.
+`goals_satisfied`: the results goal was reached. In experiment 2 each type's
+line also says how many runs the controller ended with `FINISH`, for example
+`completed=21 (finished early 21)`.
 
 ---
 
@@ -303,9 +404,11 @@ IMPRESS run → progress (1.0 once it has a result, else 0.0) + per-objective be
   → BanditSchedulingPolicy reward    → μ updates → UCB arm selection
 ```
 
-The bandit's reward is `progress` (1.0 or 0.0). The best value of each
-objective (`ligand_iptm`, `complex_plddt`, …) is reported too, but only for the
-log; it does not affect scheduling.
+In experiment 1 the bandit's reward is `progress` (1.0 or 0.0), and the best
+value of each objective (`ligand_iptm`, `complex_plddt`, …) is only logged. In
+experiment 2 those bests are what a design's quality is computed from: the
+controller reads them every cycle to decide whether a run continues, and the
+bandit's reward is 1.0 for a run that left a good design, weighed by its cost.
 
 ---
 
@@ -348,6 +451,7 @@ is installed from). `--spec` takes a bare name from there or a path.
 | Spec | Use |
 |---|---|
 | `mock-binding-{tractable,borderline,refractory}.yaml` | The three types — mock tools, seconds, no GPU |
+| `mock-quality-{tractable,borderline,refractory}.yaml` | The same types for experiment 2: runs keep improving past their first design |
 | `delta-small-molecule-smoke.yaml` | Quick Delta smoke test — real tools, small run |
 | `delta-small-molecule.yaml` | Full Delta run — RFdiffusion + ProteinMPNN + Rosetta + Boltz |
 
@@ -370,11 +474,14 @@ workflow type:
 ```bash
 export WORK_DIR=<your_work_dir>
 cd $WORK_DIR/campaign_manager/campaigns/impress_campaign
-mkdir -p logs                           # Slurm writes the job's output here
+mkdir -p logs                           # Slurm's output, and AuCaM's own log
 export SBATCH_ACCOUNT=<project>-delta-gpu
 export IMPRESS_SPEC=delta-small-molecule-smoke.yaml
 sbatch delta_sbatch.sh
 ```
+
+The job's full output (AuCaM, IMPRESS, AsyncFlow) goes to `logs/impress_<job>.out`;
+AuCaM's and the campaign's own lines also go to `logs/aucam_<job>.log`.
 
 Key fields in the spec:
 

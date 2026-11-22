@@ -392,18 +392,20 @@ class MultiArmController(CampaignController):
         here, and applying both would queue every type twice.
         """
         res = self._apply_rules([r for r in self._rules if not isinstance(r, LaunchRule)], obs)
+        self._top_up(res, obs)
+        res.terminate = self.is_goal_reached()
+        return res
+
+    def _top_up(self, res: PolicyResult, obs: dict) -> None:
+        """Ask for enough launches to keep every type at its in-flight count."""
         queued = obs["queue_snapshot"].by_type if obs.get("queue_snapshot") else {}
         running = obs.get("running") or {}
-
         for wf_type in self._types:
             want = self._per_type - int(running.get(wf_type, 0)) - int(queued.get(wf_type, 0))
             for _ in range(max(0, want)):
                 res.launch_requests.append(
                     LaunchRequest.make(wf_type, context={"wf_type": wf_type})
                 )
-
-        res.terminate = self.is_goal_reached()
-        return res
 
     def get_summary(self) -> dict:
         summary = {}

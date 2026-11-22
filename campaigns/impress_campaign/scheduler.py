@@ -122,12 +122,16 @@ class RecordingPolicy(SchedulingPolicy):
         return self._inner.size(request, ctx)
 
 
-def make_policy(name: str, *, reward_fn: Any) -> SchedulingPolicy:
-    """A fresh policy for `name`.  Each campaign needs its own instance."""
+def make_policy(name: str, *, reward_fn: Any, cost_aware: bool = False) -> SchedulingPolicy:
+    """A fresh policy for `name`.  Each campaign needs its own instance.
+
+    `cost_aware` makes the bandit weigh each reward by what the run cost, so it
+    ranks types by reward per gpu_hour rather than by reward alone.
+    """
     if name == "throughput":
         return BanditSchedulingPolicy()  # AuCaM's own reward: completed or not
     if name == "fifo":
         return FIFOSchedulingPolicy()
     if name == "even":
         return EvenSplitPolicy()
-    return BanditSchedulingPolicy(reward_fn=reward_fn)  # "bandit"
+    return BanditSchedulingPolicy(reward_fn=reward_fn, cost_aware=cost_aware)  # "bandit"
