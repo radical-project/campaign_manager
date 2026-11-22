@@ -20,10 +20,20 @@
 # ENGINE=dragon     → dragon -s run_campaign.py   (GPU partition; ROME needs Dragon)
 # ENGINE=concurrent → python run_campaign.py      (CPU partition; TRAIN_IMPL=fake)
 #
+# --cpus-per-task IS THE CONCURRENCY CEILING, not a CPU budget. Dragon's Batch
+# starts `Node.num_cpus // 2` workers per node, lowered to the physical cores
+# the job's affinity actually allows (rhapsody backends/execution/dragon.py,
+# _workers_per_node_for_affinity). One never-returning task holds one worker,
+# and each resident stream is one. Measured on a gpuA100x4 node, job 24157731:
+# 64 CPUs gives 32 workers and 28 free under a long hold; this line said 16,
+# which is 8 physical cores and therefore 8 workers, leaving 5 once the three
+# surrogate streams are up. A round submitted into a full pool is never placed
+# while asyncflow still reports RUNNING -- the probe reproduced that failure on
+# purpose at pool size 4. Raised to a whole node 2026-11-22.
 #SBATCH --partition=gpuA100x4
 #SBATCH --nodes=1
 #SBATCH --tasks-per-node=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=64
 #SBATCH --gpus-per-node=4
 #SBATCH --time=04:00:00
 #SBATCH --job-name=asd_campaign
