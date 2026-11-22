@@ -8,7 +8,6 @@ import inspect
 import json
 import logging
 import math
-import numbers
 import shlex
 import threading
 import time
@@ -369,9 +368,9 @@ class _CampaignInstance:
         self._queue = WorkflowQueue(age_threshold_s=spec.age_threshold_s)
         self._active: dict[str, _WorkflowInstance] = {}
         self._goals: list[Goal] = list(spec.controller.goals())
-        # [min, max] of each finite numeric metric (and the report score, as
-        # "score") over successful workflows: the value of a goal whose metric
-        # the observation does not hold.
+        # [min, max] of each numeric metric (and the report score, as "score")
+        # over successful workflows: the value of a goal whose metric the
+        # observation does not hold.
         self._metric_range: dict[str, list[float]] = {}
 
         # DAG state
@@ -2723,9 +2722,6 @@ class _CampaignInstance:
             if reached:
                 logger.info(f"[CM] {self.name}: controller's goal reached")
                 await self._shutdown(reason="goals_satisfied")
-            elif self._goals and self._check_goals(obs):
-                logger.info(f"[CM] {self.name}: all goals satisfied")
-                await self._shutdown(reason="goals_satisfied")
             else:
                 logger.info(f"[CM] {self.name}: controller requested terminate")
                 await self._shutdown(reason="controller_terminate")
@@ -2872,21 +2868,12 @@ class _CampaignInstance:
         """Model usage reported by the policy and controller (S1)."""
         return dict(self._model_usage)
 
-    @staticmethod
-    def _finite(value: Any) -> bool:
-        """A real number (bools count as 0 / 1) that is finite as a float."""
-        try:
-            return isinstance(value, numbers.Real) and math.isfinite(value)
-        except OverflowError:  # an int too large for a float
-            return False
-
     def _record_metrics(self, metrics: dict, score: Any) -> None:
         """Widen the [min, max] range of each metric by a successful workflow's values."""
         values = dict(metrics)
-        if not self._finite(values.get("score")):
-            values["score"] = score
+        values.setdefault("score", score)
         for key, value in values.items():
-            if not self._finite(value):
+            if not isinstance(value, (int, float)) or not math.isfinite(value):
                 continue
             value = float(value)
             rng = self._metric_range.get(key)
@@ -2896,14 +2883,11 @@ class _CampaignInstance:
                 rng[0], rng[1] = min(rng[0], value), max(rng[1], value)
 
     def _check_goals(self, obs: dict) -> bool:
-        """All goals are met.  A goal's value is the observation's number for its
+        """All goals are met.  A goal's value is the observation's value of its
         metric, else the best value successful workflows reported."""
         for goal in self._goals:
             value = obs.get(goal.metric)
-            if isinstance(value, numbers.Real):
-                if not self._finite(value):
-                    return False  # NaN / inf in the observation: not met
-            else:  # absent, or a built-in key such as "running" (a dict)
+            if value is None:
                 rng = self._metric_range.get(goal.metric)
                 if rng is None:
                     return False
