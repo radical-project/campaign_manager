@@ -112,7 +112,13 @@ fi
 
 echo ""
 echo "Python     : $(python --version)"
-echo "asyncflow  : $(python -c 'import radical.asyncflow; print(radical.asyncflow.__version__)')"
+# Origin rather than version, through the helper delta_env_setup.sh defines:
+# both middleware placement branches declare 0.7.0, the release's own version,
+# so a log line reading `asyncflow : 0.7.0` says nothing about which one ran.
+# This log is what a measurement gets written up from, so it has to say.
+echo "asyncflow  : $(asd_middleware_origin radical.asyncflow)"
+echo "rhapsody   : $(asd_middleware_origin rhapsody-py)"
+echo "dragon     : $(asd_middleware_origin dragonhpc)"
 echo "impress-a  : $(python -c 'import impress_a; print(getattr(impress_a, "__version__", "installed"))')"
 echo ""
 echo "DESIGN_SPEC : ${ASD_DESIGN_SPEC}"
