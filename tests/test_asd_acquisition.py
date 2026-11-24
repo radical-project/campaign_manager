@@ -204,6 +204,28 @@ def test_a_fraction_outside_the_open_unit_interval_is_refused():
             scaffold_holdout(candidates, fraction=bad)
 
 
+def test_the_holdout_is_asteer_s_rule_and_not_a_second_copy_of_it():
+    """Item 50, closed on this side. One rule, two repos, and its failure is silent.
+
+    The same rule was implemented here over `Candidate` objects and in ROME's
+    `preorg_train_wrapper.scaffold_split` over corpus rows. What this asserts is not that the
+    arithmetic is right -- asteer's own tests do that against both copies, over 2,160 splits --
+    but that this function is a thin wrapper, so the two cannot drift apart again.
+
+    `scaffold_holdout` keeps its own refusal: it **raises**, where ROME's returns `([], [])`
+    into a manifest, because this one is about to spend ATM hours on the batch.
+    """
+    pytest.importorskip("asteer", reason="asteer is a sibling checkout, not a dependency of AuCaM")
+    from asteer.grouping import holdout_indices
+
+    candidates = [c(f"n{i}", -9.0, scaffold=f"s{i // 3}") for i in range(10)]
+    train, holdout = scaffold_holdout(candidates, fraction=0.3)
+    train_at, holdout_at = holdout_indices([x.scaffold for x in candidates], 0.3)
+
+    assert [candidates[i].node_id for i in train_at] == train
+    assert [candidates[i].node_id for i in holdout_at] == holdout
+
+
 # ---------------------------------------------------------------------------
 # against a reference implementation
 # ---------------------------------------------------------------------------

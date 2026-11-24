@@ -37,7 +37,6 @@ scripted dispatcher it is tested against stays in `asteer` (`asteer/dispatch.py`
 """
 from __future__ import annotations
 
-import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
@@ -218,30 +217,31 @@ def scaffold_holdout(
     is **refused**, because treating `""` as one cluster would silently put every unclustered
     design on the same side of the boundary, and treating each as its own would make the split
     random by another name.
-    """
-    if not 0.0 < fraction < 1.0:
-        raise ValueError(f"fraction must be in (0, 1), got {fraction}")
-    unclustered = [c.node_id for c in candidates if not c.scaffold]
-    if unclustered:
-        raise ValueError(
-            f"candidates with no scaffold cluster: {sorted(unclustered)}. Treating them as one "
-            "cluster puts every unclustered design on the same side of the boundary; treating "
-            "each as its own makes this a random split wearing a cluster's name."
-        )
-    clusters: dict[str, list[str]] = {}
-    for candidate in candidates:
-        clusters.setdefault(candidate.scaffold, []).append(candidate.node_id)
 
-    target = math.floor(len(candidates) * fraction)
-    holdout: list[str] = []
-    # Largest first, by size then name: deterministic, and it reaches the target with fewer
-    # clusters than filling from the smallest end.
-    for name in sorted(clusters, key=lambda n: (-len(clusters[n]), n)):
-        members = clusters[name]
-        if holdout and len(holdout) + len(members) > target:
-            continue
-        if len(members) > target and holdout:
-            continue
-        holdout.extend(members)
-    train = [c.node_id for c in candidates if c.node_id not in set(holdout)]
-    return train, holdout
+    **The arithmetic is `asteer.grouping.holdout_indices` and no longer lives here** (item 50,
+    episode J20). It was implemented twice -- here over `Candidate` objects and in ROME's
+    `preorg_train_wrapper.scaffold_split` over corpus rows -- and a rule in two repos whose
+    failure is *silent* is the duplication worth removing first. Both copies were run against
+    the shared implementation over every cluster-size composition of up to 12 designs at eight
+    fractions and agreed everywhere, so the move changed no split. What stays here is the
+    refusal: this function **raises**, where ROME's returns `([], [])` into a manifest, because
+    this one is about to spend ATM hours on the batch it is splitting.
+
+    **The one import this module has from `asteer`**, and it is deliberate rather than a
+    weakening of the docstring's rule above: a grouping rule that three repos must agree on is
+    exactly what `asteer` is for, and it is stdlib -- the sentence that matters is that nothing
+    here imports `impress_a` or anything that wants a GPU.
+    """
+    from asteer.grouping import Ungrouped, holdout_indices
+
+    try:
+        train_at, holdout_at = holdout_indices(
+            [candidate.scaffold for candidate in candidates], fraction
+        )
+    except Ungrouped as exc:
+        raise ValueError(
+            f"candidates with no scaffold cluster: "
+            f"{sorted(c.node_id for c in candidates if not c.scaffold)}. {exc}"
+        ) from None
+    return ([candidates[i].node_id for i in train_at],
+            [candidates[i].node_id for i in holdout_at])
