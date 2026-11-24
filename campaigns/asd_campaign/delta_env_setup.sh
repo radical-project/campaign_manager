@@ -48,6 +48,36 @@
 # The VE is built once: this script exits early when it already exists, so
 # changing a ref means removing ${VE} and re-running.
 #
+# THE MD LABEL STACK (group K). `impress_a.md` is the md_label protocol:
+# apo + holo OpenMM, a seeded replicate ensemble, and MM/GBSA over the frames.
+# It imports openmm and mdtraj, both of which come from PyPI and are installed
+# below. What does NOT come from PyPI is AmberTools, and the protocol cannot
+# build a system without it -- see the next paragraph, which is the one thing
+# in this script that is still an open question rather than a measurement.
+#
+# TLEAP IS REQUIRED AND IS NOT INSTALLABLE HERE. K2 builds both legs with
+# tleap and K5 builds three dry topologies with it; `antechamber` and
+# `parmchk2` are K1's and have already run, because ALR is typed ONCE into a
+# committed artifact (IMPRESS/agent/campaigns/data/alr/md/). So what an
+# allocation needs is tleap, from one of three places, in this order of
+# preference:
+#
+#   1. an AmberTools module on the cluster  -> export AMBERHOME and the
+#      protocol finds `${AMBERHOME}/bin/tleap` without any PATH change;
+#   2. a conda-forge `ambertools` environment, with its bin/ on PATH;
+#   3. a user build under ${WORK_DIR}.
+#
+# This script does not guess a module name. It reports where tleap resolved
+# from, or MISSING, and the first real md_label run is what settles which of
+# the three it is. A guessed `module load amber` that failed would print an
+# error and carry on, which is how a setup script lies.
+#
+# pdbfixer is deliberately NOT installed. The K6 plan listed it, and nothing in
+# `impress_a.md` imports it: tleap's `loadpdb` adds hydrogens and refuses a
+# residue with missing heavy atoms rather than repairing it. If a design
+# complex ever needs repair, that is a change in K2's builder and a line here,
+# in that order -- not a package installed against a future.
+#
 # ROME is installed with --no-deps by default: the prototype trains with
 # ROME's DummyTrainer, which needs only numpy/asyncflow/Dragon (already here),
 # while ROME's declared dependencies pull torch, transformers, trl, peft,
@@ -71,6 +101,14 @@ ASYNCFLOW_URL="${ASYNCFLOW_URL:-https://github.com/radical-cybertools/radical.as
 RHAPSODY_URL="${RHAPSODY_URL:-https://github.com/radical-cybertools/rhapsody}"
 export ASYNCFLOW_REF RHAPSODY_REF ASYNCFLOW_URL RHAPSODY_URL
 
+# AmberTools, for the MD label protocol's build step. Exported rather than
+# merely set: `impress_a.md.system._run_tleap` reads AMBERHOME before falling
+# back to PATH, and md_label runs inside a task that inherits this environment
+# rather than sourcing this file. Empty is honest -- the protocol then looks on
+# PATH and refuses by name if it finds nothing.
+AMBERHOME="${AMBERHOME:-}"
+export AMBERHOME
+
 # mpi4py needs libmpi.so at runtime; Cray MPICH sets MPICH_DIR but not LD_LIBRARY_PATH.
 if [ -n "${MPICH_DIR:-}" ]; then
     export LD_LIBRARY_PATH="${MPICH_DIR}/lib:${LD_LIBRARY_PATH:-}"
@@ -87,6 +125,7 @@ echo "IMPRESS_DIR : ${IMPRESS_DIR}"
 echo "ROME_DIR    : ${ROME_DIR}"
 echo "ASTEER_DIR  : ${ASTEER_DIR}"
 echo "ITGT_DIR    : ${ITGT_DIR}"
+echo "AMBERHOME   : ${AMBERHOME:-<unset: tleap must be on PATH>}"
 echo "ASYNCFLOW   : ${ASYNCFLOW_REF:-<released>}"
 echo "RHAPSODY    : ${RHAPSODY_REF:-<released>}"
 
@@ -165,6 +204,13 @@ pip install --quiet -e "${ASTEER_DIR}"
 # ROME's own examples/impress_r/delta_env_setup.sh.
 pip install --quiet -e "${ITGT_DIR}[ml]" || pip install --quiet -e "${ITGT_DIR}"
 
+# The MD label protocol (group K). openmm is the engine and mdtraj reads the
+# trajectories back; both are what `impress_a.md` imports, and neither is
+# declared by IMPRESS because the protocol is a toolkit rather than a library
+# dependency -- which is exactly why this script has to. Versions proved
+# locally on 2026-11-23: openmm 8.6.1, mdtraj 1.11.2.
+pip install --quiet openmm mdtraj
+
 # botorch: Model C's GP is botorch's SingleTaskGP. ROME declares neither it nor
 # itgt, because the surrogates are an example rather than a library dependency
 # -- which is exactly why this script has to.
@@ -230,6 +276,25 @@ except Exception:
     pass
 print("asyncflow policies=%s policy-kwarg=%s | rhapsody _placement_policy=%s"
       % (policies, kwarg, pin))')"
+# The MD stack, asked three ways because three different things can be missing:
+# the engine, the devices it can see, and the binary that builds a system.
+echo "openmm      : $(python -c 'import openmm; print(openmm.__version__)' 2>/dev/null || echo MISSING)"
+# A LOGIN NODE'S ANSWER IS NOT A COMPUTE NODE'S. This lists the platforms the
+# plugins loaded here; CUDA appearing depends on libcuda being present, which
+# on Delta's login nodes it may not be. The protocol runs on `CUDA` in a job
+# and on `CPU` in every test, and the job log is where that gets confirmed.
+echo "  platforms : $(python -c 'import openmm; print(", ".join(openmm.Platform.getPlatform(i).getName() for i in range(openmm.Platform.getNumPlatforms())))' 2>/dev/null || echo MISSING)"
+echo "mdtraj      : $(python -c 'import mdtraj; print(mdtraj.__version__)' 2>/dev/null || echo MISSING)"
+# tleap by where it came from, not merely whether it is there: AMBERHOME and
+# PATH can disagree, and the protocol prefers AMBERHOME.
+echo "tleap       : $(
+    if [ -n "${AMBERHOME}" ] && [ -x "${AMBERHOME}/bin/tleap" ]; then
+        echo "${AMBERHOME}/bin/tleap (from AMBERHOME)"
+    elif command -v tleap >/dev/null 2>&1; then
+        echo "$(command -v tleap) (from PATH)"
+    else
+        echo "MISSING -- md_label cannot build a system; see the header"
+    fi)"
 echo "impress-a   : $(python -c 'import impress_a; print(getattr(impress_a, "__version__", "installed"))')"
 # itgt and botorch are what Models A and C import; a missing one is otherwise
 # only discovered inside a training task on a GPU node.
