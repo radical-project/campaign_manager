@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from src.aucam import BudgetAllocator, LaunchPriority, LaunchRequest, WorkflowQueue
+from src.aucam import BudgetAllocator, Goal, LaunchPriority, LaunchRequest, WorkflowQueue
 
 # ── BudgetAllocator (spending ledger) ───────────────────────────────────────
 
@@ -124,3 +124,19 @@ def test_queue_aging(monkeypatch) -> None:
 
     first = q.pop()
     assert first.workflow_type == "worker", "aged request should be promoted to HIGH"
+
+
+# ── Goal ────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("direction", ["minimize", "maximize"])
+def test_goal_accepts_both_directions(direction) -> None:
+    assert Goal("g", "m", 1.0, direction).direction == direction
+
+
+@pytest.mark.parametrize("direction", ["minimise", "max", "Maximize", "MINIMIZE", "up", ""])
+def test_goal_rejects_any_other_direction(direction) -> None:
+    # satisfied() reads anything that is not "minimize" as "maximize", so an
+    # unchecked typo silently inverts the goal.
+    with pytest.raises(ValueError, match="direction"):
+        Goal("g", "m", 1.0, direction)

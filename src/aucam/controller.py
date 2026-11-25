@@ -105,6 +105,16 @@ class Goal:
     threshold: float
     direction: str  # "minimize" or "maximize"
 
+    def __post_init__(self) -> None:
+        # Not validating meant a typo (or "minimise") silently read as
+        # "maximize", inverting the goal, because satisfied() treats anything
+        # that is not "minimize" as "maximize".
+        if self.direction not in ("minimize", "maximize"):
+            raise ValueError(
+                f"Goal({self.name!r}): direction must be 'minimize' or"
+                f" 'maximize', not {self.direction!r}"
+            )
+
     def satisfied(self, value: float) -> bool:
         if self.direction == "minimize":
             return value <= self.threshold
