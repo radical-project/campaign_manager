@@ -8,7 +8,6 @@ import signal
 
 import pytest
 
-from src.aucam.campaign import _goal_key
 from src.aucam import (
     CampaignBudget,
     CampaignCheckpoint,
@@ -20,6 +19,7 @@ from src.aucam import (
     checkpoint_path,
     write_checkpoint,
 )
+from src.aucam.campaign import _goal_key
 
 
 def _spec(ctl, block, **kw) -> CampaignSpec:

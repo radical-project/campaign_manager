@@ -1732,8 +1732,7 @@ class _CampaignInstance:
         for wf_type, ranges in (ckpt.metric_range_by_type or {}).items():
             if not isinstance(ranges, dict):
                 logger.warning(
-                    "[CM] %s: checkpoint metric_range_by_type[%r] is not a mapping"
-                    " — dropped",
+                    "[CM] %s: checkpoint metric_range_by_type[%r] is not a mapping — dropped",
                     self.name,
                     wf_type,
                 )
@@ -2955,8 +2954,7 @@ class _CampaignInstance:
                 restored[str(key)] = [min(pair), max(pair)]
             else:
                 logger.warning(
-                    "[CM] %s: checkpoint %s[%r] is not a [min, max] pair of numbers"
-                    " — dropped",
+                    "[CM] %s: checkpoint %s[%r] is not a [min, max] pair of numbers — dropped",
                     self.name,
                     what,
                     key,
@@ -2995,13 +2993,9 @@ class _CampaignInstance:
         if goal.workflows is None:
             found = [self._metric_range.get(goal.metric)]
         else:
-            found = [
-                self._metric_range_by_type.get(t, {}).get(goal.metric) for t in goal.workflows
-            ]
+            found = [self._metric_range_by_type.get(t, {}).get(goal.metric) for t in goal.workflows]
         best = [
-            (rng[0] if goal.direction == "minimize" else rng[1])
-            for rng in found
-            if rng is not None
+            (rng[0] if goal.direction == "minimize" else rng[1]) for rng in found if rng is not None
         ]
         if not best:
             return None

@@ -6,9 +6,8 @@ import asyncio
 import logging
 import signal
 import time
-from typing import Any
-
 from contextlib import suppress
+from typing import Any
 
 from .budget import BudgetAllocator
 from .campaign import _CampaignInstance
@@ -196,9 +195,7 @@ class CampaignManager:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return {}
-        return {
-            sig: _registered_handler(loop, sig) for sig in (signal.SIGTERM, signal.SIGINT)
-        }
+        return {sig: _registered_handler(loop, sig) for sig in (signal.SIGTERM, signal.SIGINT)}
 
     def _restore_signal_handlers(self, snapshot: dict[signal.Signals, tuple | None]) -> None:
         """Put back what _snapshot_signal_handlers saw, removing the handler in
