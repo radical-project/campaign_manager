@@ -340,6 +340,22 @@ class _WorkflowInstance:
         self.adopted_at: float | None = None
 
 
+def _as_finite_float(value: Any) -> float | None:
+    """`value` as a finite float, or None if it cannot be one.
+
+    An int can be too large to convert to a float, and `math.isfinite` raises
+    OverflowError on such an int rather than returning False, so the
+    conversion is guarded instead of tested.
+    """
+    if not isinstance(value, (int, float)):
+        return None
+    try:
+        number = float(value)
+    except (OverflowError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 class _CampaignInstance:
     """
     Runs one campaign: policy cycle + scheduler loop + workflow lifecycle.
@@ -1668,7 +1684,20 @@ class _CampaignInstance:
         # scheduling policy and the controller learned (R1).
         if ckpt.goals is not None:
             self._goals = [Goal(**g) for g in ckpt.goals]
-        self._metric_range = {k: list(v) for k, v in (ckpt.metric_range or {}).items()}
+        self._metric_range = {}
+        for key, rng in (ckpt.metric_range or {}).items():
+            pair = (
+                [_as_finite_float(v) for v in rng] if isinstance(rng, (list, tuple)) else []
+            )
+            if len(pair) == 2 and None not in pair:
+                self._metric_range[str(key)] = [min(pair), max(pair)]
+            else:
+                logger.warning(
+                    "[CM] %s: checkpoint metric_range[%r] is not a [min, max] pair"
+                    " of numbers — dropped",
+                    self.name,
+                    key,
+                )
         for what, obj, state in (
             ("scheduling policy", self._policy, ckpt.policy_state),
             ("controller", self.spec.controller, ckpt.controller_state),
@@ -2873,20 +2902,26 @@ class _CampaignInstance:
         values = dict(metrics)
         values.setdefault("score", score)
         for key, value in values.items():
-            if not isinstance(value, (int, float)) or not math.isfinite(value):
+            number = _as_finite_float(value)
+            if number is None:
                 continue
-            value = float(value)
             rng = self._metric_range.get(key)
             if rng is None:
-                self._metric_range[key] = [value, value]
+                self._metric_range[key] = [number, number]
             else:
-                rng[0], rng[1] = min(rng[0], value), max(rng[1], value)
+                rng[0], rng[1] = min(rng[0], number), max(rng[1], number)
 
     def _check_goals(self, obs: dict) -> bool:
         """All goals are met.  A goal's value is the observation's value of its
-        metric, else the best value successful workflows reported."""
+        metric, else the best value successful workflows reported.  An
+        observation value that is not a number counts as absent."""
         for goal in self._goals:
             value = obs.get(goal.metric)
+            if not isinstance(value, (int, float)):
+                # Not a number: a built-in observation key such as "running"
+                # holds a dict, and comparing that to the threshold would
+                # raise inside the policy cycle.  Fall back to the range.
+                value = None
             if value is None:
                 rng = self._metric_range.get(goal.metric)
                 if rng is None:

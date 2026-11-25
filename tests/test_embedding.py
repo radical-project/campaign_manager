@@ -116,3 +116,29 @@ def test_goal_met_by_restored_metric_range(tmp_path) -> None:
     )
     spec = _spec(Goals(M_GOAL), no_metrics, launch_on_start=False, checkpoint_dir=str(tmp_path))
     assert _run(spec).exit_reason == "goals_satisfied"
+
+
+async def reports_big_int_then_m(reporter) -> None:
+    """"big" comes first: a value that cannot be a float must not stop "m"
+    being recorded, nor the rest of the completion handling."""
+    await reporter.emit(score=0.0, metrics={"big": 10**400, "m": 5.0})
+
+
+def test_unusable_metric_value_does_not_stop_the_rest() -> None:
+    assert _run(_spec(Goals(M_GOAL), reports_big_int_then_m)).exit_reason == "goals_satisfied"
+
+
+def test_goal_on_a_built_in_observation_key_is_unmet_not_fatal() -> None:
+    # obs["running"] is a dict: comparing it to the threshold would raise
+    # inside the policy cycle, which no caller catches.
+    goal = Goal("g", metric="running", threshold=1.0, direction="maximize")
+    assert _run(_spec(Goals(goal), reports_m)).exit_reason == "campaign_idle"
+
+
+def test_malformed_checkpoint_metric_range_is_dropped(tmp_path) -> None:
+    write_checkpoint(
+        checkpoint_path(str(tmp_path), "emb"),
+        CampaignCheckpoint(campaign_name="emb", metric_range={"m": "not-a-pair"}),
+    )
+    spec = _spec(Goals(M_GOAL), no_metrics, launch_on_start=False, checkpoint_dir=str(tmp_path))
+    assert _run(spec).exit_reason == "campaign_idle"
