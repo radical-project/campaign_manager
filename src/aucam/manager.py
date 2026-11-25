@@ -50,10 +50,10 @@ class CampaignManager:
         backend = await DragonExecutionBackend()
         cm = CampaignManager(backend=backend)
 
-    By default ``run()`` handles SIGTERM / SIGINT itself, and puts back any
-    handler the host had for them when the run ends.  A host that embeds
+    By default ``run()`` handles SIGTERM / SIGINT itself.  A host that embeds
     AuCaM and owns its own shutdown passes ``install_signal_handlers=False``
-    and calls :meth:`stop` instead.
+    and calls :meth:`stop` instead.  Either way ``run()`` puts back the
+    handlers the host had for those signals when it returns.
     """
 
     def __init__(
@@ -65,8 +65,6 @@ class CampaignManager:
     ) -> None:
         self._backend = backend
         self._install_handlers = install_signal_handlers
-        # Handlers the host had for the signals we take over, put back after.
-        self._prev_handlers: dict[signal.Signals, tuple] = {}
         self._enable_telemetry = enable_telemetry
         self._telemetry_checkpoint_dir = telemetry_checkpoint_dir
         self._running = False
@@ -88,6 +86,9 @@ class CampaignManager:
             raise RuntimeError("CampaignManager runs one campaign at a time")
         self._running = True
         self._signalled = False
+        # Before anything else: AsyncFlow's WorkflowEngine installs handlers of
+        # its own, so the host's are gone by the time AuCaM would see them.
+        host_handlers = self._snapshot_signal_handlers()
 
         from radical.asyncflow import WorkflowEngine
         from rhapsody.backends.execution.concurrent import ConcurrentExecutionBackend
@@ -134,6 +135,7 @@ class CampaignManager:
             self._instance = None
             self._task = None
             self._running = False
+            self._restore_signal_handlers(host_handlers)
 
     def stop(self) -> None:
         """Stop the running campaign gracefully, as SIGTERM does.
@@ -184,33 +186,50 @@ class CampaignManager:
             goals=list(getattr(inst, "goals", [])),
         )
 
-    def _install_signal_handlers(self) -> list[signal.Signals]:
-        """On SIGTERM / SIGINT, stop the campaign gracefully.
-
-        A handler the host already had for one of these signals is noted and
-        put back by _remove_signal_handlers, rather than dropped.
+    def _snapshot_signal_handlers(self) -> dict[signal.Signals, tuple | None]:
+        """What is registered for SIGTERM / SIGINT as run() begins, so that
+        run() can put it back: both AsyncFlow's engine and AuCaM itself
+        replace these, and the host's own handling would otherwise be lost
+        for good by having called run() at all.
         """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return {}
+        return {
+            sig: _registered_handler(loop, sig) for sig in (signal.SIGTERM, signal.SIGINT)
+        }
+
+    def _restore_signal_handlers(self, snapshot: dict[signal.Signals, tuple | None]) -> None:
+        """Put back what _snapshot_signal_handlers saw, removing the handler in
+        place of one the host did not have (by then it is a shut-down engine's).
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        for sig, previous in snapshot.items():
+            with suppress(NotImplementedError, OSError, RuntimeError, ValueError):
+                if previous is None:
+                    loop.remove_signal_handler(sig)
+                else:
+                    callback, args = previous
+                    loop.add_signal_handler(sig, callback, *args)
+
+    def _install_signal_handlers(self) -> list[signal.Signals]:
+        """On SIGTERM / SIGINT, stop the campaign gracefully."""
         loop = asyncio.get_running_loop()
-        self._prev_handlers.clear()
         installed = []
         for sig in (signal.SIGTERM, signal.SIGINT):
-            previous = _registered_handler(loop, sig)
             try:
                 loop.add_signal_handler(sig, self.stop)
+                installed.append(sig)
             except (NotImplementedError, OSError, RuntimeError, ValueError):
-                continue
-            installed.append(sig)
-            if previous is not None:
-                self._prev_handlers[sig] = previous
+                pass
         return installed
 
-    def _remove_signal_handlers(self, installed: list[signal.Signals]) -> None:
+    @staticmethod
+    def _remove_signal_handlers(installed: list[signal.Signals]) -> None:
         loop = asyncio.get_running_loop()
         for sig in installed:
             loop.remove_signal_handler(sig)
-            previous = self._prev_handlers.pop(sig, None)
-            if previous is None:
-                continue
-            callback, args = previous
-            with suppress(NotImplementedError, OSError, RuntimeError, ValueError):
-                loop.add_signal_handler(sig, callback, *args)
