@@ -140,3 +140,36 @@ def test_goal_rejects_any_other_direction(direction) -> None:
     # unchecked typo silently inverts the goal.
     with pytest.raises(ValueError, match="direction"):
         Goal("g", "m", 1.0, direction)
+
+
+@pytest.mark.parametrize("source", ["auto", "observation", "recorded"])
+def test_goal_accepts_the_three_sources(source) -> None:
+    assert Goal("g", "m", 1.0, "maximize", source=source).source == source
+
+
+def test_goal_rejects_any_other_source() -> None:
+    with pytest.raises(ValueError, match="source"):
+        Goal("g", "m", 1.0, "maximize", source="best")
+
+
+@pytest.mark.parametrize("count", [0, -1, 1.5, True])
+def test_goal_rejects_a_count_below_one_or_not_an_int(count) -> None:
+    with pytest.raises(ValueError, match="count"):
+        Goal("g", "m", 1.0, "maximize", count=count)
+
+
+def test_goal_rejects_counting_against_the_observation() -> None:
+    with pytest.raises(ValueError, match="observation"):
+        Goal("g", "m", 1.0, "maximize", source="observation", count=2)
+
+
+def test_goal_normalizes_workflows_to_a_tuple() -> None:
+    # A checkpoint round trip turns the tuple into a list.
+    assert Goal("g", "m", 1.0, "maximize", workflows=["sim", "ana"]).workflows == ("sim", "ana")
+    assert Goal("g", "m", 1.0, "maximize", workflows="sim").workflows == ("sim",)
+    assert Goal("g", "m", 1.0, "maximize").workflows is None
+
+
+def test_goal_rejects_an_empty_workflows() -> None:
+    with pytest.raises(ValueError, match="workflows"):
+        Goal("g", "m", 1.0, "maximize", workflows=[])

@@ -61,8 +61,11 @@ its tasks, and what those tasks cost is charged to the workflow.
     that keeps spending without improving.
   - **Goal** — ends the campaign after N successful workflows of a type
     (`goal_type`, `goal_n`), or when all its goals (target values of metrics)
-    are met: by the observation's value, or else by the best value that
-    successful workflows reported.
+    are met.  Each goal says where its value comes from (`source`): the
+    observation, the best value successful workflows recorded, or the
+    observation with the recorded value as fallback (the default).  It can
+    name the workflow types it counts (`workflows`) and how many successful
+    workflows must each have met it (`count`).
   - **ADR** (`ADRController`) — an ADR policy makes these decisions instead.
   - **Fallback** — if custom or ADR decision logic fails or is too slow
     (`decide_timeout_s`), the built-in rules decide that cycle.
