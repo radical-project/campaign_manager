@@ -4,6 +4,13 @@ Autoagent-Steered Diffusion, end to end under AuCaM: IMPRESS-A designs, IMPRESS-
 labels each design, ROME fine-tunes on the labels, and the **controller promotes
 the new model only once it has been shown to design better**.
 
+> **The queue, the open rows and the plan docs for this campaign are in the sibling
+> `autoagent_steered_diffusion` checkout**, at `plans/BACKLOG.md` — `#start-here` for what to do
+> next, `#on-delta` for what a session on the cluster can do that a laptop cannot. Five repos on
+> four branches take part; this one's is `asd_campaign`. `delta_env_setup.sh`'s header lists all
+> five and the branch each must be on, because a fresh clone lands on the default and three of
+> them keep this work elsewhere.
+
 ```
           ┌──────────────── AuCaM: one engine, one budget, one controller ─────────────┐
           │                                                                            │

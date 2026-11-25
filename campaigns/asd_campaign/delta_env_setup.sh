@@ -8,12 +8,23 @@
 # Sourced by delta_sbatch.sh to set path variables and activate (no creation).
 # Any path can be overridden by exporting it first.
 #
-# FIVE repos are required under WORK_DIR (clone if missing):
-#   campaign_manager — AuCaM (this repo)
-#   IMPRESS          — the design and label campaigns (agent/)
-#   ROME             — the fine-tuning half
-#   autoagent_steered_diffusion — `asteer`, the contracts the three agree on
-#   interface-targeting — `itgt`, which Model A's train wrapper imports
+# FIVE repos are required under WORK_DIR (clone if missing), EACH ON ITS OWN
+# BRANCH. A fresh `git clone` lands on the default branch, and three of these
+# five keep all of the ASD work somewhere else -- so a VE built straight after
+# cloning installs code that has never heard of this project, and fails later,
+# far from the cause. This script checks the directories exist; it does not and
+# cannot know which branch you meant, so check them yourself:
+#
+#   campaign_manager — AuCaM (this repo)                  asd_campaign
+#   IMPRESS          — the design and label campaigns     asd-steering
+#   ROME             — the fine-tuning half               asd-surrogates
+#   autoagent_steered_diffusion — `asteer`, the contracts main
+#   interface-targeting — `itgt`, Model A's train wrapper  main
+#
+#   for r in campaign_manager IMPRESS ROME \
+#            autoagent_steered_diffusion interface-targeting; do
+#     printf "%-30s %s\n" "$r" "$(git -C "${WORK_DIR}/$r" branch --show-current)"
+#   done
 #
 # It was four until 2026-11-22. The fifth is not optional for the ASD
 # surrogates: ROME's `examples/impress/small_molecule_binding` Model A wrapper

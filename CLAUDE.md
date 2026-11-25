@@ -4,6 +4,12 @@ Guidance for Claude Code in this repository.
 
 ## Read first
 
+- **Working on `campaigns/asd_campaign/` (the Autoagent-Steered Diffusion campaign,
+  `delta_sbatch.sh`, `acquisition.py`)? The plan and the queue are not in this repo.** They live
+  in the sibling `autoagent_steered_diffusion` checkout (`asteer`) at **`plans/BACKLOG.md`** —
+  start at its `#start-here` queue, and at **`#on-delta`** if this session is on Delta. That
+  tracker is the only place the five repos' work is ordered; this repo's branch for it is
+  `asd_campaign`. Record results against its rows rather than only here.
 - `docs/architecture-overview.md` — what AuCaM does and the
   **design decisions** behind it. Don't change a decision listed there without
   asking.
