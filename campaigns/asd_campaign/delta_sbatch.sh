@@ -6,7 +6,15 @@
 #   export WORK_DIR=<your_work_dir>
 #   export SBATCH_ACCOUNT=<project>-delta-gpu
 #   export ASD_DESIGN_SPEC=$WORK_DIR/IMPRESS/agent/campaigns/delta-small-molecule.yaml
-#   export ASD_LABEL_SPEC=$WORK_DIR/IMPRESS/agent/campaigns/delta-label.yaml
+#   export ASD_LABEL_SPEC=$WORK_DIR/IMPRESS/agent/campaigns/asd-labels-md.yaml
+#
+# `delta-label.yaml` was named here, in README.md and in run_campaign.py until
+# 2026-11-25 and has never existed on any branch (asteer item 35). The label
+# campaign is `asd-labels-md.yaml` on IMPRESS `asd-steering`, with
+# `asd-labels-md-mock.yaml` as its laptop twin. Using the real one needs
+# `label_input_param: md_label.design_dir` and a `score_key` among its three
+# objectives; campaign.yaml still carries the design chain's
+# `score_designs.input_dir` / `complex_plddt`, which match neither file.
 #   mkdir -p $WORK_DIR/campaign_manager/campaigns/asd_campaign/logs
 #   sbatch campaigns/asd_campaign/delta_sbatch.sh
 #
@@ -92,10 +100,15 @@ CONFIG="${CONFIG:-campaign_configs/campaign.yaml}"
 mkdir -p "${RUN_ROOT}" "${CORPUS}" "${CHECKPOINTS}" "${AUCAM_CKPT}"
 
 # ── System libraries ──────────────────────────────────────────────────────────
-export CUDA_HOME=/opt/nvidia/hpc_sdk/Linux_x86_64/25.3/cuda/12.8
-export MPI_LIB=/opt/cray/pe/mpich/8.1.32/ofi/gnu/11.2/lib-abi-mpich
-export FAB_LIB=/opt/cray/libfabric/1.22.0/lib64
-export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${MPI_LIB}:${FAB_LIB}:${LD_LIBRARY_PATH:-}"
+# Resolved by asteer, not written down here. These three paths were hardcoded
+# until 2026-11-25, when all three turned out to name directories Delta had
+# removed -- HPC SDK 25.3/CUDA 12.8, MPICH 8.1.32, libfabric 1.22.0 -- and a
+# stale FAB_LIB is only ever discovered as a hang, because `dragon-config add`
+# does not validate the path it stores. `asteer` is the repo all five
+# checkouts already share, so the search and its fatal check live there and
+# every launcher sources the one copy.
+# shellcheck source=/dev/null
+source "${ASTEER_DIR}/site/delta_paths.sh"
 
 # ── Thread limits ─────────────────────────────────────────────────────────────
 export OPENBLAS_NUM_THREADS=1
@@ -103,11 +116,16 @@ export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
 unset SLURM_EXPORT_ENV
+# Dragon does not pass --overlap to the steps it issues, so without this its
+# steps collide with the batch step at "job step creation temporarily
+# disabled". The M0/M2 probes have carried it since job 24400895; this script
+# never had it, and has also never run.
+export SLURM_OVERLAP=1
 export PYTHONUNBUFFERED=1
 source "${VE}/bin/activate"
 
 if [ "${ENGINE}" = "dragon" ]; then
-    dragon-config add --ofi-runtime-lib="${FAB_LIB}"
+    asd_dragon_config_ofi
 fi
 
 echo ""
@@ -120,6 +138,23 @@ echo "asyncflow  : $(asd_middleware_origin radical.asyncflow)"
 echo "rhapsody   : $(asd_middleware_origin rhapsody-py)"
 echo "dragon     : $(asd_middleware_origin dragonhpc)"
 echo "impress-a  : $(python -c 'import impress_a; print(getattr(impress_a, "__version__", "installed"))')"
+# THE MD STACK, ASKED ON THE COMPUTE NODE. delta_env_setup.sh asks these same
+# three questions, but its verification block sits below the sourced-early-
+# return, so a job that sources the file prints only the banner -- AMBERHOME,
+# which is where tleap was *told* to be rather than where it resolved, and no
+# platform list at all. A login node's platform list is not a compute node's:
+# CUDA appears only where libcuda does. Asked here, this job log answers
+# asteer rows 77 and 82 by itself, which is what M2 is for.
+echo "openmm     : $(python -c 'import openmm; print(openmm.__version__)' 2>/dev/null || echo MISSING)"
+echo "  platforms: $(python -c 'import openmm; print(", ".join(openmm.Platform.getPlatform(i).getName() for i in range(openmm.Platform.getNumPlatforms())))' 2>/dev/null || echo MISSING)"
+echo "tleap      : $(
+    if [ -n "${AMBERHOME:-}" ] && [ -x "${AMBERHOME}/bin/tleap" ]; then
+        echo "${AMBERHOME}/bin/tleap (from AMBERHOME)"
+    elif command -v tleap >/dev/null 2>&1; then
+        echo "$(command -v tleap) (from PATH)"
+    else
+        echo "MISSING -- md_label cannot build a system"
+    fi)"
 echo ""
 echo "DESIGN_SPEC : ${ASD_DESIGN_SPEC}"
 echo "LABEL_SPEC  : ${ASD_LABEL_SPEC}"
