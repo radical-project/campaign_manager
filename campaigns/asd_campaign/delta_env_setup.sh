@@ -63,8 +63,7 @@
 # apo + holo OpenMM, a seeded replicate ensemble, and MM/GBSA over the frames.
 # It imports openmm and mdtraj, both of which come from PyPI and are installed
 # below. What does NOT come from PyPI is AmberTools, and the protocol cannot
-# build a system without it -- see the next paragraph, which is the one thing
-# in this script that is still an open question rather than a measurement.
+# build a system without it -- see the next paragraph.
 #
 # TLEAP IS REQUIRED AND IS NOT INSTALLABLE HERE. K2 builds both legs with
 # tleap and K5 builds three dry topologies with it; `antechamber` and
@@ -78,10 +77,23 @@
 #   2. a conda-forge `ambertools` environment, with its bin/ on PATH;
 #   3. a user build under ${WORK_DIR}.
 #
-# This script does not guess a module name. It reports where tleap resolved
-# from, or MISSING, and the first real md_label run is what settles which of
-# the three it is. A guessed `module load amber` that failed would print an
-# error and carry on, which is how a setup script lies.
+# ON DELTA IT IS 2 (measured 2026-11-24, asteer row 82). There is no Amber
+# module (`module avail`/`spider`/`keyword amber` all empty) and no user build.
+# The env is built once, outside this VE, per ambermd.org/GetAmber.php:
+#
+#   module load miniforge3-python
+#   conda create --prefix ${WORK_DIR}/ve/AmberTools26 --override-channels \
+#       -c conda-forge --strict-channel-priority \
+#       python=3.12 'dacase::ambertools-dac=26'
+#
+# and this script defaults AMBERHOME to it when `bin/tleap` is there. EXPORT
+# AMBERHOME; DO NOT SOURCE ITS amber.sh. That script also prepends the env's
+# python3.12 site-packages to PYTHONPATH, which this 3.13 VE would then import
+# from. tleap needs AMBERHOME and nothing else (verified with PATH=/usr/bin:/bin).
+#
+# This script still does not guess a module name, and reports where tleap
+# resolved from, or MISSING. A guessed `module load amber` that failed would
+# print an error and carry on, which is how a setup script lies.
 #
 # pdbfixer is deliberately NOT installed. The K6 plan listed it, and nothing in
 # `impress_a.md` imports it: tleap's `loadpdb` adds hydrogens and refuses a
@@ -115,8 +127,13 @@ export ASYNCFLOW_REF RHAPSODY_REF ASYNCFLOW_URL RHAPSODY_URL
 # AmberTools, for the MD label protocol's build step. Exported rather than
 # merely set: `impress_a.md.system._run_tleap` reads AMBERHOME before falling
 # back to PATH, and md_label runs inside a task that inherits this environment
-# rather than sourcing this file. Empty is honest -- the protocol then looks on
-# PATH and refuses by name if it finds nothing.
+# rather than sourcing this file. Defaults to the conda env the header names,
+# but only when its tleap exists: otherwise empty, which is honest -- the
+# protocol then looks on PATH and refuses by name if it finds nothing.
+AMBERTOOLS_ENV="${AMBERTOOLS_ENV:-${WORK_DIR}/ve/AmberTools26}"
+if [ -z "${AMBERHOME:-}" ] && [ -x "${AMBERTOOLS_ENV}/bin/tleap" ]; then
+    AMBERHOME="${AMBERTOOLS_ENV}"
+fi
 AMBERHOME="${AMBERHOME:-}"
 export AMBERHOME
 
@@ -220,7 +237,15 @@ pip install --quiet -e "${ITGT_DIR}[ml]" || pip install --quiet -e "${ITGT_DIR}"
 # declared by IMPRESS because the protocol is a toolkit rather than a library
 # dependency -- which is exactly why this script has to. Versions proved
 # locally on 2026-11-23: openmm 8.6.1, mdtraj 1.11.2.
-pip install --quiet openmm mdtraj
+#
+# THE [cuda13] EXTRA IS LOAD-BEARING. PyPI's bare `openmm` wheel ships the
+# Reference, CPU and OpenCL platforms only; CUDA is a separate wheel
+# (OpenMM-CUDA-13) that only the extra pulls. Measured 2026-11-24, job
+# 24502845 on an A100 node: the bare install listed `Reference, CPU, OpenCL`,
+# and the protocol runs on `CUDA` in a job. cuda13 rather than cuda12 because
+# the torch that itgt[ml] installs above already uses the CUDA 13 runtime
+# wheels, so both share one set of nvidia libraries.
+pip install --quiet "openmm[cuda13]" mdtraj
 
 # botorch: Model C's GP is botorch's SingleTaskGP. ROME declares neither it nor
 # itgt, because the surrogates are an example rather than a library dependency
