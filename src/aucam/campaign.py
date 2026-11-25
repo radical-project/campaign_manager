@@ -1686,9 +1686,7 @@ class _CampaignInstance:
             self._goals = [Goal(**g) for g in ckpt.goals]
         self._metric_range = {}
         for key, rng in (ckpt.metric_range or {}).items():
-            pair = (
-                [_as_finite_float(v) for v in rng] if isinstance(rng, (list, tuple)) else []
-            )
+            pair = [_as_finite_float(v) for v in rng] if isinstance(rng, (list, tuple)) else []
             if len(pair) == 2 and None not in pair:
                 self._metric_range[str(key)] = [min(pair), max(pair)]
             else:

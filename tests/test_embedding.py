@@ -119,8 +119,8 @@ def test_goal_met_by_restored_metric_range(tmp_path) -> None:
 
 
 async def reports_big_int_then_m(reporter) -> None:
-    """"big" comes first: a value that cannot be a float must not stop "m"
-    being recorded, nor the rest of the completion handling."""
+    """A value that cannot be a float comes first: it must not stop "m" being
+    recorded, nor the rest of the completion handling."""
     await reporter.emit(score=0.0, metrics={"big": 10**400, "m": 5.0})
 
 
