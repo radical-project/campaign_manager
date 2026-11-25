@@ -8,12 +8,29 @@ import signal
 import time
 from typing import Any
 
+from contextlib import suppress
+
 from .budget import BudgetAllocator
 from .campaign import _CampaignInstance
 from .spec import CampaignSpec
 from .types import CampaignOutcome
 
 logger = logging.getLogger(__name__)
+
+
+def _registered_handler(loop: asyncio.AbstractEventLoop, sig: signal.Signals):
+    """The callback and args already registered with `loop` for `sig`.
+
+    asyncio has no getter for this, so it reads the loop's own bookkeeping;
+    returns None where that is not available, and the handler is then left
+    as it was before: dropped.
+    """
+    handlers = getattr(loop, "_signal_handlers", None)
+    handle = handlers.get(sig) if isinstance(handlers, dict) else None
+    callback = getattr(handle, "_callback", None)
+    if callback is None:
+        return None
+    return callback, tuple(getattr(handle, "_args", ()) or ())
 
 
 class CampaignManager:
@@ -33,7 +50,8 @@ class CampaignManager:
         backend = await DragonExecutionBackend()
         cm = CampaignManager(backend=backend)
 
-    By default ``run()`` handles SIGTERM / SIGINT itself.  A host that embeds
+    By default ``run()`` handles SIGTERM / SIGINT itself, and puts back any
+    handler the host had for them when the run ends.  A host that embeds
     AuCaM and owns its own shutdown passes ``install_signal_handlers=False``
     and calls :meth:`stop` instead.
     """
@@ -47,6 +65,8 @@ class CampaignManager:
     ) -> None:
         self._backend = backend
         self._install_handlers = install_signal_handlers
+        # Handlers the host had for the signals we take over, put back after.
+        self._prev_handlers: dict[signal.Signals, tuple] = {}
         self._enable_telemetry = enable_telemetry
         self._telemetry_checkpoint_dir = telemetry_checkpoint_dir
         self._running = False
@@ -165,19 +185,32 @@ class CampaignManager:
         )
 
     def _install_signal_handlers(self) -> list[signal.Signals]:
-        """On SIGTERM / SIGINT, stop the campaign gracefully."""
+        """On SIGTERM / SIGINT, stop the campaign gracefully.
+
+        A handler the host already had for one of these signals is noted and
+        put back by _remove_signal_handlers, rather than dropped.
+        """
         loop = asyncio.get_running_loop()
+        self._prev_handlers.clear()
         installed = []
         for sig in (signal.SIGTERM, signal.SIGINT):
+            previous = _registered_handler(loop, sig)
             try:
                 loop.add_signal_handler(sig, self.stop)
-                installed.append(sig)
             except (NotImplementedError, OSError, RuntimeError, ValueError):
-                pass
+                continue
+            installed.append(sig)
+            if previous is not None:
+                self._prev_handlers[sig] = previous
         return installed
 
-    @staticmethod
-    def _remove_signal_handlers(installed: list[signal.Signals]) -> None:
+    def _remove_signal_handlers(self, installed: list[signal.Signals]) -> None:
         loop = asyncio.get_running_loop()
         for sig in installed:
             loop.remove_signal_handler(sig)
+            previous = self._prev_handlers.pop(sig, None)
+            if previous is None:
+                continue
+            callback, args = previous
+            with suppress(NotImplementedError, OSError, RuntimeError, ValueError):
+                loop.add_signal_handler(sig, callback, *args)

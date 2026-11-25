@@ -142,3 +142,27 @@ def test_malformed_checkpoint_metric_range_is_dropped(tmp_path) -> None:
     )
     spec = _spec(Goals(M_GOAL), no_metrics, launch_on_start=False, checkpoint_dir=str(tmp_path))
     assert _run(spec).exit_reason == "campaign_idle"
+
+
+def test_host_signal_handler_is_put_back_by_default() -> None:
+    """With the default install_signal_handlers=True AuCaM takes SIGTERM over
+    for the run, and gives the host's own handler back when the run ends."""
+    cm = CampaignManager()  # the default
+
+    def host() -> None:
+        pass
+
+    async def main():
+        loop = asyncio.get_running_loop()
+        loop.add_signal_handler(signal.SIGTERM, host)
+        loop.call_later(0.5, cm.stop)
+        out = await asyncio.wait_for(cm.run(_spec(CampaignController(), sleeper)), 20.0)
+        # asyncio has no getter; read its bookkeeping to check whose handler it is.
+        handlers = getattr(loop, "_signal_handlers", None)
+        handle = handlers.get(signal.SIGTERM) if isinstance(handlers, dict) else None
+        return out, loop.remove_signal_handler(signal.SIGTERM), getattr(handle, "_callback", None)
+
+    out, still_installed, callback = asyncio.run(main())
+    assert out.exit_reason == "signal"
+    assert still_installed
+    assert callback is host
