@@ -105,3 +105,29 @@ def test_hpc_campaign_overspending_workflows_are_cancelled():
 
 def test_hpc_campaign_cpu_overuse_is_cancelled():
     assert _hpc("campaign_overuse_cpus.yaml")["resources"] >= 1
+
+
+def test_demo_goal_is_met_by_the_sims_metric(monkeypatch):
+    """The demo's Goal path end to end: the sims' own sim_score reaches the
+    campaign's metric range and ends the run.  The threshold is lowered so the
+    outcome does not depend on the random walk reaching 0.99."""
+    mod = _demo_module()
+    # Only the Goal ends this run, not the controller's own is_goal_reached().
+    monkeypatch.setattr(
+        mod.ShowcaseController, "is_goal_reached", CampaignController.is_goal_reached
+    )
+    goal = mod.Goal(name="quality", metric="sim_score", threshold=0.0, direction="maximize")
+    monkeypatch.setattr(mod.ShowcaseController, "goals", lambda self: [goal])
+    spec = mod.build_spec("demo", goal_analyses=4)
+    outcome = asyncio.run(asyncio.wait_for(CampaignManager().run(spec), timeout=120))
+    assert outcome.exit_reason == "goals_satisfied"
+
+
+def test_demo_with_its_own_goal_ends_cleanly():
+    """The demo exactly as shipped, with its real 0.99 goal: whether the random
+    walk gets there is luck, so this only asserts the goal does not break the
+    run — the failure it guards against is an exception in the goal path."""
+    mod = _demo_module()
+    spec = mod.build_spec("demo", goal_analyses=4)
+    outcome = asyncio.run(asyncio.wait_for(CampaignManager().run(spec), timeout=120))
+    assert outcome.exit_reason in {"goals_satisfied", "campaign_idle", "spending_limit"}
