@@ -120,6 +120,10 @@ class CampaignCheckpoint:
     goals: list[dict] | None = None
     # [min, max] per metric over successful workflows, for goals (None: none).
     metric_range: dict[str, list[float]] | None = None
+    # The same per workflow type, for a goal that names the types it counts.
+    metric_range_by_type: dict[str, dict[str, list[float]]] | None = None
+    # How many successful workflows have met each n-of-N goal so far.
+    goal_hits: dict[str, int] | None = None
     policy_state: Any = None
     controller_state: Any = None
 
@@ -179,6 +183,8 @@ def _from_json(d: dict[str, Any]) -> CampaignCheckpoint:
         pending_credit=d.get("pending_credit", {}),
         goals=d.get("goals"),
         metric_range=d.get("metric_range"),
+        metric_range_by_type=d.get("metric_range_by_type"),
+        goal_hits=d.get("goal_hits"),
         policy_state=d.get("policy_state"),
         controller_state=d.get("controller_state"),
     )

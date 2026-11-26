@@ -95,15 +95,61 @@ class LaunchRule:
 class Goal:
     """A single campaign goal: satisfied when `metric` crosses `threshold`.
 
-    The value of `metric` is the observation's value, else the best value (in
-    `direction`) that successful workflows reported in their final metrics,
-    or as their report score for ``metric="score"``.
+    Where the value comes from is `source`:
+
+    * ``"auto"`` (the default) — the observation's value of `metric` if it has
+      a numeric one, else the recorded value, as below.
+    * ``"observation"`` — the observation only; the goal is unmet while the
+      observation has no numeric value for `metric`.
+    * ``"recorded"`` — the recorded value only, ignoring the observation.
+
+    The recorded value is the best (in `direction`) that successful workflows
+    reported for `metric`, each counted by its own best over all of its
+    reports, not only its last one.  ``metric="score"`` means the report
+    score; a workflow metric of that name does not displace it.
+
+    `workflows` names the workflow types that count, or None for all of them.
+    `count` is how many successful workflows must each have met `threshold`;
+    above 1 it counts only workflows that finished while this goal was in
+    force, so a goal added or changed mid-campaign counts from then on, and
+    the observation has no part in it (hence not with ``"observation"``).
     """
 
     name: str
     metric: str
     threshold: float
     direction: str  # "minimize" or "maximize"
+    source: str = "auto"  # "auto" | "observation" | "recorded"
+    count: int = 1
+    workflows: tuple[str, ...] | None = None
+
+    def __post_init__(self) -> None:
+        # Not validating meant a typo (or "minimise") silently read as
+        # "maximize", inverting the goal, because satisfied() treats anything
+        # that is not "minimize" as "maximize".
+        if self.direction not in ("minimize", "maximize"):
+            raise ValueError(
+                f"Goal({self.name!r}): direction must be 'minimize' or"
+                f" 'maximize', not {self.direction!r}"
+            )
+        if self.source not in ("auto", "observation", "recorded"):
+            raise ValueError(
+                f"Goal({self.name!r}): source must be 'auto', 'observation' or"
+                f" 'recorded', not {self.source!r}"
+            )
+        if not isinstance(self.count, int) or isinstance(self.count, bool) or self.count < 1:
+            raise ValueError(f"Goal({self.name!r}): count must be an int >= 1")
+        if self.count > 1 and self.source == "observation":
+            raise ValueError(
+                f"Goal({self.name!r}): count > 1 counts workflows, which the"
+                " observation says nothing about — use 'auto' or 'recorded'"
+            )
+        if self.workflows is not None:
+            # A checkpoint round trip turns the tuple into a list.
+            types = (self.workflows,) if isinstance(self.workflows, str) else self.workflows
+            object.__setattr__(self, "workflows", tuple(str(t) for t in types))
+            if not self.workflows:
+                raise ValueError(f"Goal({self.name!r}): workflows is empty; use None for all")
 
     def satisfied(self, value: float) -> bool:
         if self.direction == "minimize":

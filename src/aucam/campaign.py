@@ -291,6 +291,7 @@ class _WorkflowInstance:
         "started_at",
         "charge_rate",
         "last_report",
+        "metric_best",
         "request",
         "spending_limit",
         "over_budget",
@@ -318,6 +319,8 @@ class _WorkflowInstance:
         self.started_at = started_at
         self.request = request
         self.last_report: Any = None
+        # This workflow's own [min, max] per metric over all of its reports.
+        self.metric_best: dict[str, list[float]] = {}
         # Per-run spending limit; over_budget is set when AuCaM cancels the run
         # for spending past it.
         self.spending_limit: dict[str, float] = dict(spending_limit or {})
@@ -356,6 +359,35 @@ def _as_finite_float(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _fold_report(_inst: _WorkflowInstance, report: Any) -> None:
+    """Widen `_inst`'s own [min, max] per metric by one of its reports.
+
+    The report score is recorded as "score"; a workflow metric of that name
+    does not displace it.
+    """
+    values = dict(getattr(report, "metrics", None) or {})
+    score = getattr(report, "score", None)
+    if _as_finite_float(score) is None:
+        values.setdefault("score", score)
+    else:
+        values["score"] = score
+    for key, value in values.items():
+        number = _as_finite_float(value)
+        if number is None:
+            continue
+        rng = _inst.metric_best.get(key)
+        if rng is None:
+            _inst.metric_best[str(key)] = [number, number]
+        else:
+            rng[0], rng[1] = min(rng[0], number), max(rng[1], number)
+
+
+def _goal_key(goal: Goal) -> str:
+    """A goal's identity for counting: a goal that changes counts afresh."""
+    types = ",".join(goal.workflows) if goal.workflows else ""
+    return f"{goal.name}|{goal.metric}|{goal.threshold}|{goal.direction}|{types}"
+
+
 class _CampaignInstance:
     """
     Runs one campaign: policy cycle + scheduler loop + workflow lifecycle.
@@ -388,6 +420,10 @@ class _CampaignInstance:
         # over successful workflows: the value of a goal whose metric the
         # observation does not hold.
         self._metric_range: dict[str, list[float]] = {}
+        # The same per workflow type, for a goal that names its types.
+        self._metric_range_by_type: dict[str, dict[str, list[float]]] = {}
+        # n-of-N goals: how many successful workflows have met each so far.
+        self._goal_hits: dict[str, int] = {}
 
         # DAG state
         # _dep_satisfied: target types that have been "unlocked" (≥1 source succeeded)
@@ -1482,7 +1518,9 @@ class _CampaignInstance:
             cancel=_inst.cancel_mode if rc == -1 else None,
         )
         if rc == 0:
-            self._record_metrics(final_metrics, final_score)
+            if last_report is not None:
+                _fold_report(_inst, last_report)
+            self._record_metrics(_inst)
 
         if self.spec.data_backend is not None:
             asyncio.ensure_future(self.spec.data_backend.delete_report(_inst.wf_id))
@@ -1603,6 +1641,11 @@ class _CampaignInstance:
             pending_credit=dict(self._pending_credit),
             goals=[dataclasses.asdict(g) for g in self._goals],
             metric_range={k: list(v) for k, v in self._metric_range.items()},
+            metric_range_by_type={
+                t: {k: list(v) for k, v in ranges.items()}
+                for t, ranges in self._metric_range_by_type.items()
+            },
+            goal_hits=dict(self._goal_hits),
             policy_state=_jsonable(self._policy.state(), "scheduling policy"),
             controller_state=_jsonable(
                 getattr(self.spec.controller, "state", lambda: None)(), "controller"
@@ -1684,18 +1727,24 @@ class _CampaignInstance:
         # scheduling policy and the controller learned (R1).
         if ckpt.goals is not None:
             self._goals = [Goal(**g) for g in ckpt.goals]
-        self._metric_range = {}
-        for key, rng in (ckpt.metric_range or {}).items():
-            pair = [_as_finite_float(v) for v in rng] if isinstance(rng, (list, tuple)) else []
-            if len(pair) == 2 and None not in pair:
-                self._metric_range[str(key)] = [min(pair), max(pair)]
-            else:
+        self._metric_range = self._restore_ranges(ckpt.metric_range, "metric_range")
+        self._metric_range_by_type = {}
+        for wf_type, ranges in (ckpt.metric_range_by_type or {}).items():
+            if not isinstance(ranges, dict):
                 logger.warning(
-                    "[CM] %s: checkpoint metric_range[%r] is not a [min, max] pair"
-                    " of numbers — dropped",
+                    "[CM] %s: checkpoint metric_range_by_type[%r] is not a mapping — dropped",
                     self.name,
-                    key,
+                    wf_type,
                 )
+                continue
+            self._metric_range_by_type[str(wf_type)] = self._restore_ranges(
+                ranges, f"metric_range_by_type[{wf_type!r}]"
+            )
+        self._goal_hits = {
+            str(k): int(v)
+            for k, v in (ckpt.goal_hits or {}).items()
+            if isinstance(v, int) and not isinstance(v, bool) and v >= 0
+        }
         for what, obj, state in (
             ("scheduling policy", self._policy, ckpt.policy_state),
             ("controller", self.spec.controller, ckpt.controller_state),
@@ -2018,6 +2067,7 @@ class _CampaignInstance:
                 report = None
             if report is not None:
                 self._active[wf_id].last_report = report
+                _fold_report(self._active[wf_id], report)
                 reports[wf_id] = report
         return reports
 
@@ -2895,37 +2945,80 @@ class _CampaignInstance:
         """Model usage reported by the policy and controller (S1)."""
         return dict(self._model_usage)
 
-    def _record_metrics(self, metrics: dict, score: Any) -> None:
-        """Widen the [min, max] range of each metric by a successful workflow's values."""
-        values = dict(metrics)
-        values.setdefault("score", score)
-        for key, value in values.items():
-            number = _as_finite_float(value)
-            if number is None:
-                continue
-            rng = self._metric_range.get(key)
-            if rng is None:
-                self._metric_range[key] = [number, number]
+    def _restore_ranges(self, ranges: Any, what: str) -> dict[str, list[float]]:
+        """`ranges` as [min, max] pairs of numbers, dropping what is not one."""
+        restored: dict[str, list[float]] = {}
+        for key, rng in (ranges or {}).items():
+            pair = [_as_finite_float(v) for v in rng] if isinstance(rng, (list, tuple)) else []
+            if len(pair) == 2 and None not in pair:
+                restored[str(key)] = [min(pair), max(pair)]
             else:
-                rng[0], rng[1] = min(rng[0], number), max(rng[1], number)
+                logger.warning(
+                    "[CM] %s: checkpoint %s[%r] is not a [min, max] pair of numbers — dropped",
+                    self.name,
+                    what,
+                    key,
+                )
+        return restored
+
+    def _record_metrics(self, _inst: _WorkflowInstance) -> None:
+        """Fold a successful workflow's own best values into the campaign's
+        ranges, for all types and for its own, and count it toward n-of-N goals."""
+        if not _inst.metric_best:
+            return
+        by_type = self._metric_range_by_type.setdefault(_inst.workflow_type, {})
+        for key, (low, high) in _inst.metric_best.items():
+            for ranges in (self._metric_range, by_type):
+                rng = ranges.get(key)
+                if rng is None:
+                    ranges[key] = [low, high]
+                else:
+                    rng[0], rng[1] = min(rng[0], low), max(rng[1], high)
+        for goal in self._goals:
+            if goal.count <= 1:
+                continue  # one workflow is enough: the range already says so
+            if goal.workflows and _inst.workflow_type not in goal.workflows:
+                continue
+            rng = _inst.metric_best.get(goal.metric)
+            if rng is None:
+                continue
+            value = rng[0] if goal.direction == "minimize" else rng[1]
+            if goal.satisfied(value):
+                key = _goal_key(goal)
+                self._goal_hits[key] = self._goal_hits.get(key, 0) + 1
+
+    def _recorded_value(self, goal: Goal) -> float | None:
+        """The best value recorded for `goal`'s metric among the workflow types
+        it counts, or None if none of them recorded it."""
+        if goal.workflows is None:
+            found = [self._metric_range.get(goal.metric)]
+        else:
+            found = [self._metric_range_by_type.get(t, {}).get(goal.metric) for t in goal.workflows]
+        best = [
+            (rng[0] if goal.direction == "minimize" else rng[1]) for rng in found if rng is not None
+        ]
+        if not best:
+            return None
+        return min(best) if goal.direction == "minimize" else max(best)
 
     def _check_goals(self, obs: dict) -> bool:
-        """All goals are met.  A goal's value is the observation's value of its
-        metric, else the best value successful workflows reported.  An
-        observation value that is not a number counts as absent."""
+        """All goals are met, each read as its `source` says (see Goal)."""
         for goal in self._goals:
-            value = obs.get(goal.metric)
-            if not isinstance(value, (int, float)):
+            if goal.count > 1:
+                if self._goal_hits.get(_goal_key(goal), 0) < goal.count:
+                    return False
+                continue
+            value = None
+            if goal.source in ("auto", "observation"):
+                value = obs.get(goal.metric)
                 # Not a number: a built-in observation key such as "running"
                 # holds a dict, and comparing that to the threshold would
-                # raise inside the policy cycle.  Fall back to the range.
-                value = None
-            if value is None:
-                rng = self._metric_range.get(goal.metric)
-                if rng is None:
-                    return False
-                value = rng[0] if goal.direction == "minimize" else rng[1]
-            if not goal.satisfied(value):
+                # raise inside the policy cycle.  Counts as no value.
+                if not isinstance(value, (int, float)):
+                    value = None
+            if value is None and goal.source in ("auto", "recorded"):
+                value = self._recorded_value(goal)
+            if value is None or not goal.satisfied(value):
                 return False
         return True
 

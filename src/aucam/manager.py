@@ -6,6 +6,7 @@ import asyncio
 import logging
 import signal
 import time
+from contextlib import suppress
 from typing import Any
 
 from .budget import BudgetAllocator
@@ -14,6 +15,21 @@ from .spec import CampaignSpec
 from .types import CampaignOutcome
 
 logger = logging.getLogger(__name__)
+
+
+def _registered_handler(loop: asyncio.AbstractEventLoop, sig: signal.Signals):
+    """The callback and args already registered with `loop` for `sig`.
+
+    asyncio has no getter for this, so it reads the loop's own bookkeeping;
+    returns None where that is not available, and the handler is then left
+    as it was before: dropped.
+    """
+    handlers = getattr(loop, "_signal_handlers", None)
+    handle = handlers.get(sig) if isinstance(handlers, dict) else None
+    callback = getattr(handle, "_callback", None)
+    if callback is None:
+        return None
+    return callback, tuple(getattr(handle, "_args", ()) or ())
 
 
 class CampaignManager:
@@ -35,7 +51,8 @@ class CampaignManager:
 
     By default ``run()`` handles SIGTERM / SIGINT itself.  A host that embeds
     AuCaM and owns its own shutdown passes ``install_signal_handlers=False``
-    and calls :meth:`stop` instead.
+    and calls :meth:`stop` instead.  Either way ``run()`` puts back the
+    handlers the host had for those signals when it returns.
     """
 
     def __init__(
@@ -68,6 +85,9 @@ class CampaignManager:
             raise RuntimeError("CampaignManager runs one campaign at a time")
         self._running = True
         self._signalled = False
+        # Before anything else: AsyncFlow's WorkflowEngine installs handlers of
+        # its own, so the host's are gone by the time AuCaM would see them.
+        host_handlers = self._snapshot_signal_handlers()
 
         from radical.asyncflow import WorkflowEngine
         from rhapsody.backends.execution.concurrent import ConcurrentExecutionBackend
@@ -114,6 +134,7 @@ class CampaignManager:
             self._instance = None
             self._task = None
             self._running = False
+            self._restore_signal_handlers(host_handlers)
 
     def stop(self) -> None:
         """Stop the running campaign gracefully, as SIGTERM does.
@@ -163,6 +184,34 @@ class CampaignManager:
             model_usage=getattr(inst, "model_usage", {}),
             goals=list(getattr(inst, "goals", [])),
         )
+
+    def _snapshot_signal_handlers(self) -> dict[signal.Signals, tuple | None]:
+        """What is registered for SIGTERM / SIGINT as run() begins, so that
+        run() can put it back: both AsyncFlow's engine and AuCaM itself
+        replace these, and the host's own handling would otherwise be lost
+        for good by having called run() at all.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return {}
+        return {sig: _registered_handler(loop, sig) for sig in (signal.SIGTERM, signal.SIGINT)}
+
+    def _restore_signal_handlers(self, snapshot: dict[signal.Signals, tuple | None]) -> None:
+        """Put back what _snapshot_signal_handlers saw, removing the handler in
+        place of one the host did not have (by then it is a shut-down engine's).
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        for sig, previous in snapshot.items():
+            with suppress(NotImplementedError, OSError, RuntimeError, ValueError):
+                if previous is None:
+                    loop.remove_signal_handler(sig)
+                else:
+                    callback, args = previous
+                    loop.add_signal_handler(sig, callback, *args)
 
     def _install_signal_handlers(self) -> list[signal.Signals]:
         """On SIGTERM / SIGINT, stop the campaign gracefully."""
