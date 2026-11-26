@@ -132,7 +132,13 @@ def make_sim(
             score = max(0.0, min(1.0, score))
             await reporter.emit(
                 score=score,
-                metrics={"step": step, "arm": arm, "cpu_hours": spent, "cpus_in_use": cpus},
+                metrics={
+                    "step": step,
+                    "arm": arm,
+                    "cpu_hours": spent,
+                    "cpus_in_use": cpus,
+                    "sim_score": score,
+                },
                 iteration=step,
             )
 
@@ -242,7 +248,8 @@ class ShowcaseController(CampaignController):
     # ── goals: targets AuCaM checks every policy cycle ───────────────────────
 
     def goals(self) -> list[Goal]:
-        return [Goal(name="quality", metric="score", threshold=0.8, direction="maximize")]
+        # sim_score: analyses report score 1.0, so the goal names the sims' metric.
+        return [Goal(name="quality", metric="sim_score", threshold=0.99, direction="maximize")]
 
     # ── on_complete: accumulate domain state after each workflow exits ────────
 

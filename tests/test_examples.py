@@ -54,6 +54,7 @@ def test_demo_campaign(monkeypatch, flags, check):
     monkeypatch.setattr(
         mod.ShowcaseController, "is_goal_reached", CampaignController.is_goal_reached
     )
+    monkeypatch.setattr(mod.ShowcaseController, "goals", lambda self: [])
     spec = mod.build_spec("demo", **{"goal_analyses": 4, **flags})
     outcome = asyncio.run(asyncio.wait_for(CampaignManager().run(spec), timeout=120))
     assert outcome.exit_reason == "goals_satisfied"
@@ -65,6 +66,7 @@ def test_demo_learns_how_much_each_sim_gets(monkeypatch, caplog):
     monkeypatch.setattr(
         mod.ShowcaseController, "is_goal_reached", CampaignController.is_goal_reached
     )
+    monkeypatch.setattr(mod.ShowcaseController, "goals", lambda self: [])
     spec = mod.build_spec(
         "demo", goal_analyses=8, policy=mod.make_policy("learn"), analysis_threshold=0.75
     )

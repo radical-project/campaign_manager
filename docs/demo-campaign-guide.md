@@ -171,7 +171,7 @@ before the running workflows could take the campaign past its limit.
 | `observe()` | Adds `obs["cancel_rate"]` for `decide()` |
 | `decide()` | Applies the rules, keeps one `precise_sim` queued, and drops queued `fast_sim`s when the cancel rate is high (below) |
 | `is_goal_reached()` | Also ends the campaign on a score ≥ 0.99 |
-| `goals()` | Declares a `Goal` |
+| `goals()` | Declares a `Goal`: a sim's `sim_score` metric ≥ 0.99 |
 | `on_complete()` | Tracks the best sim score; calls `super()` to keep the counters |
 | `get_summary()` | Best score, analyses done, cancel rate; returned in `CampaignOutcome.summary` |
 

@@ -340,6 +340,22 @@ class _WorkflowInstance:
         self.adopted_at: float | None = None
 
 
+def _as_finite_float(value: Any) -> float | None:
+    """`value` as a finite float, or None if it cannot be one.
+
+    An int can be too large to convert to a float, and `math.isfinite` raises
+    OverflowError on such an int rather than returning False, so the
+    conversion is guarded instead of tested.
+    """
+    if not isinstance(value, (int, float)):
+        return None
+    try:
+        number = float(value)
+    except (OverflowError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 class _CampaignInstance:
     """
     Runs one campaign: policy cycle + scheduler loop + workflow lifecycle.
@@ -368,6 +384,10 @@ class _CampaignInstance:
         self._queue = WorkflowQueue(age_threshold_s=spec.age_threshold_s)
         self._active: dict[str, _WorkflowInstance] = {}
         self._goals: list[Goal] = list(spec.controller.goals())
+        # [min, max] of each numeric metric (and the report score, as "score")
+        # over successful workflows: the value of a goal whose metric the
+        # observation does not hold.
+        self._metric_range: dict[str, list[float]] = {}
 
         # DAG state
         # _dep_satisfied: target types that have been "unlocked" (≥1 source succeeded)
@@ -1461,6 +1481,8 @@ class _CampaignInstance:
             over_resources=_inst.over_resources,
             cancel=_inst.cancel_mode if rc == -1 else None,
         )
+        if rc == 0:
+            self._record_metrics(final_metrics, final_score)
 
         if self.spec.data_backend is not None:
             asyncio.ensure_future(self.spec.data_backend.delete_report(_inst.wf_id))
@@ -1580,6 +1602,7 @@ class _CampaignInstance:
             allocations=[dataclasses.asdict(r) for r in self._allocations],
             pending_credit=dict(self._pending_credit),
             goals=[dataclasses.asdict(g) for g in self._goals],
+            metric_range={k: list(v) for k, v in self._metric_range.items()},
             policy_state=_jsonable(self._policy.state(), "scheduling policy"),
             controller_state=_jsonable(
                 getattr(self.spec.controller, "state", lambda: None)(), "controller"
@@ -1661,6 +1684,18 @@ class _CampaignInstance:
         # scheduling policy and the controller learned (R1).
         if ckpt.goals is not None:
             self._goals = [Goal(**g) for g in ckpt.goals]
+        self._metric_range = {}
+        for key, rng in (ckpt.metric_range or {}).items():
+            pair = [_as_finite_float(v) for v in rng] if isinstance(rng, (list, tuple)) else []
+            if len(pair) == 2 and None not in pair:
+                self._metric_range[str(key)] = [min(pair), max(pair)]
+            else:
+                logger.warning(
+                    "[CM] %s: checkpoint metric_range[%r] is not a [min, max] pair"
+                    " of numbers — dropped",
+                    self.name,
+                    key,
+                )
         for what, obj, state in (
             ("scheduling policy", self._policy, ckpt.policy_state),
             ("controller", self.spec.controller, ckpt.controller_state),
@@ -2860,11 +2895,36 @@ class _CampaignInstance:
         """Model usage reported by the policy and controller (S1)."""
         return dict(self._model_usage)
 
+    def _record_metrics(self, metrics: dict, score: Any) -> None:
+        """Widen the [min, max] range of each metric by a successful workflow's values."""
+        values = dict(metrics)
+        values.setdefault("score", score)
+        for key, value in values.items():
+            number = _as_finite_float(value)
+            if number is None:
+                continue
+            rng = self._metric_range.get(key)
+            if rng is None:
+                self._metric_range[key] = [number, number]
+            else:
+                rng[0], rng[1] = min(rng[0], number), max(rng[1], number)
+
     def _check_goals(self, obs: dict) -> bool:
+        """All goals are met.  A goal's value is the observation's value of its
+        metric, else the best value successful workflows reported.  An
+        observation value that is not a number counts as absent."""
         for goal in self._goals:
             value = obs.get(goal.metric)
+            if not isinstance(value, (int, float)):
+                # Not a number: a built-in observation key such as "running"
+                # holds a dict, and comparing that to the threshold would
+                # raise inside the policy cycle.  Fall back to the range.
+                value = None
             if value is None:
-                return False
+                rng = self._metric_range.get(goal.metric)
+                if rng is None:
+                    return False
+                value = rng[0] if goal.direction == "minimize" else rng[1]
             if not goal.satisfied(value):
                 return False
         return True

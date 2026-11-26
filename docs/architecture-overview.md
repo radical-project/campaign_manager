@@ -61,7 +61,8 @@ its tasks, and what those tasks cost is charged to the workflow.
     that keeps spending without improving.
   - **Goal** — ends the campaign after N successful workflows of a type
     (`goal_type`, `goal_n`), or when all its goals (target values of metrics)
-    are met.
+    are met: by the observation's value, or else by the best value that
+    successful workflows reported.
   - **ADR** (`ADRController`) — an ADR policy makes these decisions instead.
   - **Fallback** — if custom or ADR decision logic fails or is too slow
     (`decide_timeout_s`), the built-in rules decide that cycle.
@@ -175,7 +176,7 @@ limited.
 | `controller_terminate` | The controller ended the campaign before its goal was reached, e.g. because the goal looks unreachable. |
 | `spending_limit` | The spending limit is reached and no workflows are running, or actual spending went past it and AuCaM cancelled the running workflows |
 | `campaign_idle` | Nothing queued or running for a while (`idle_exit_s`). On by default — *why:* a campaign without goals would otherwise wait forever and hold the allocation; set `idle_exit_s=None` for a controller that waits on purpose. |
-| `signal` | AuCaM receives SIGTERM or SIGINT, e.g. before a SLURM job's time limit, or the caller calls `cm.stop()` |
+| `signal` | AuCaM receives SIGTERM or SIGINT, e.g. before a SLURM job's time limit, or the caller calls `cm.stop()`. A host that owns its own shutdown passes `CampaignManager(install_signal_handlers=False)` and calls `stop()`; on an event loop off the main thread AuCaM installs no handlers either way. |
 
 In each case the queue is cleared, running workflows are cancelled (with
 their grace period), a final checkpoint is written (if enabled), and `run()`

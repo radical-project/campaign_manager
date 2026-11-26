@@ -32,6 +32,10 @@ class CampaignManager:
 
         backend = await DragonExecutionBackend()
         cm = CampaignManager(backend=backend)
+
+    By default ``run()`` handles SIGTERM / SIGINT itself.  A host that embeds
+    AuCaM and owns its own shutdown passes ``install_signal_handlers=False``
+    and calls :meth:`stop` instead.
     """
 
     def __init__(
@@ -39,8 +43,10 @@ class CampaignManager:
         backend: Any = None,
         enable_telemetry: bool = False,
         telemetry_checkpoint_dir: str | None = None,
+        install_signal_handlers: bool = True,
     ) -> None:
         self._backend = backend
+        self._install_handlers = install_signal_handlers
         self._enable_telemetry = enable_telemetry
         self._telemetry_checkpoint_dir = telemetry_checkpoint_dir
         self._running = False
@@ -54,7 +60,8 @@ class CampaignManager:
 
         Creates the AsyncFlow WorkflowEngine (and a local RHAPSODY backend if
         none was given), runs the campaign, and shuts the engine down.  On
-        SIGTERM / SIGINT the campaign shuts down gracefully and the outcome has
+        SIGTERM / SIGINT (unless ``install_signal_handlers=False``) or on
+        :meth:`stop`, the campaign shuts down gracefully and the outcome has
         ``exit_reason="signal"``.
         """
         if self._running:
@@ -82,7 +89,7 @@ class CampaignManager:
             start = time.monotonic()
             task = asyncio.create_task(inst.run(), name=f"campaign-{spec.name}")
             self._task = task
-            installed = self._install_signal_handlers()
+            installed = self._install_signal_handlers() if self._install_handlers else []
             try:
                 await task
             except asyncio.CancelledError:
