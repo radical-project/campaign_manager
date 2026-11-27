@@ -172,12 +172,37 @@ async def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--model", default="D", help="IMPRESS-A control model")
     ap.add_argument("--no-guard", action="store_true")
     ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument(
+        "--log-file",
+        default=None,
+        help="also write the log here. Give it a path on a shared filesystem when "
+        "running under a launcher that does not pass the head process's stderr "
+        "through — Dragon does not, and job 24692415 lost its whole log that way.",
+    )
     args = ap.parse_args(argv)
 
+    # A stream handler AND, when asked, a file handler.
+    #
+    # Logging writes to stderr, and under `dragon -s` the head process's stderr does
+    # not reach the job's error file: job 24534359 (concurrent) wrote 478 lines to
+    # `asd_<jobid>.err` and job 24692415 (Dragon), running the same script, wrote 40
+    # lines of mpbridge setup and nothing of the campaign's own. The worker count,
+    # the policy cycles and the spend lines were all emitted and lost.
+    #
+    # A redirect in the launcher cannot fix that, because the stream never reaches
+    # the launcher to be redirected. Only the process doing the logging can, which
+    # is why this is an argument here rather than a `2>` in `delta_sbatch.sh`.
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if args.log_file:
+        Path(args.log_file).parent.mkdir(parents=True, exist_ok=True)
+        handlers.append(logging.FileHandler(args.log_file, mode="a", encoding="utf-8"))
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+        handlers=handlers,
     )
+    if args.log_file:
+        log.info("logging to %s", args.log_file)
     for d in (args.run_root, args.corpus, args.checkpoints):
         Path(d).mkdir(parents=True, exist_ok=True)
 

@@ -116,6 +116,11 @@ RUN_ROOT="${ASD_ROOT}/runs"
 CORPUS="${CORPUS:-${ASD_ROOT}/corpus}"          # keep across jobs to carry records over
 CHECKPOINTS="${CHECKPOINTS:-${ASD_ROOT}/checkpoints}"
 AUCAM_CKPT="${ASD_ROOT}/aucam_ckpt"
+# The campaign's own log, beside its results rather than in the job's error file.
+# Under `dragon -s` the head process's stderr never reaches `asd_<jobid>.err`, so
+# this is where the campaign's log actually survives — see run_campaign.py's
+# --log-file and asteer row 85.
+CAMPAIGN_LOG="${ASD_ROOT}/campaign.log"
 CONFIG="${CONFIG:-campaign_configs/campaign.yaml}"
 mkdir -p "${RUN_ROOT}" "${CORPUS}" "${CHECKPOINTS}" "${AUCAM_CKPT}"
 
@@ -180,6 +185,7 @@ echo "DESIGN_SPEC : ${ASD_DESIGN_SPEC}"
 echo "LABEL_SPEC  : ${ASD_LABEL_SPEC}"
 echo "CONFIG      : ${CONFIG}"
 echo "ASD_ROOT    : ${ASD_ROOT}"
+echo "LOG         : ${CAMPAIGN_LOG}"
 echo "CORPUS      : ${CORPUS}  ($(ls "${CORPUS}"/records.jsonl 2>/dev/null | wc -l) existing record file(s))"
 echo ""
 
@@ -197,6 +203,7 @@ ARGS=(
     --checkpoint-dir "${AUCAM_CKPT}"
     --train-impl     "${TRAIN_IMPL}"
     --name           "asd-${SLURM_JOB_ID:-local}"
+    --log-file       "${CAMPAIGN_LOG}"
     --verbose
 )
 
@@ -220,3 +227,10 @@ print(len(json.loads(p.read_text())) if p.exists() else 0)
 echo "Checkpoints:"
 find "${CHECKPOINTS}" -name 'checkpoint*' -o -name 'train_complete' 2>/dev/null | sort | tail -10
 echo "Runs     : ${RUN_ROOT}"
+echo "Log      : ${CAMPAIGN_LOG} ($(wc -l < "${CAMPAIGN_LOG}" 2>/dev/null || echo 0) lines)"
+# asteer row 63, answered from the job's own output rather than by reading the log
+# afterwards.  The pool is `max(1, Node.num_cpus // 2)` lowered to the cores the job's
+# affinity allows, so --cpus-per-task=64 should give 32.  Item 18 measured that.
+echo "Backend  : $(grep -m1 -oE 'DragonExecutionBackend: [0-9]+ workers.*' "${CAMPAIGN_LOG}" 2>/dev/null \
+    || grep -m1 -oE '(Dragon|Concurrent|ProcessPool|ThreadPool)[A-Za-z]* ?[Ee]xecution ?[Bb]ackend[^,]*' "${CAMPAIGN_LOG}" 2>/dev/null \
+    || echo '(no execution-backend line in the log — asteer row 63)')"
