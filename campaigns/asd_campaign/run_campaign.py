@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,55 @@ from controller import AsdController, AsdPolicy  # noqa: E402
 from workflows import make_design_block, make_label_block, make_train_block  # noqa: E402
 
 log = logging.getLogger("asd")
+
+# `%(process)d` is not decoration.  Under Dragon the campaign's log stopped dead
+# partway through two jobs, and "did the rest of it happen in another process?"
+# could not be answered from the file, which is how a wrong diagnosis gets made.
+LOG_FORMAT = "%(asctime)s %(levelname)-7s %(process)d %(name)s: %(message)s"
+
+
+def _attach_log_file(path: str, level: int) -> None:
+    """Add a `FileHandler` for `path` to the root logger, if one is not there.
+
+    Called twice: once at startup, once after the execution backend is up.  The
+    second call is the one that matters.  Dragon's own logging setup runs while
+    the backend is being built, and anything that calls `basicConfig(force=True)`
+    or re-levels the root logger would silently take this handler with it --- in
+    jobs 24692415 and 24693358 every record after Dragon's handshake went
+    missing, from both this file and the job's stderr.
+
+    Re-asserting is cheap and idempotent, so it is done unconditionally rather
+    than only when the handler has actually gone.
+    """
+    root = logging.getLogger()
+    target = os.path.abspath(path)
+    if not any(
+        isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", None) == target
+        for h in root.handlers
+    ):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(path, mode="a", encoding="utf-8")
+        handler.setFormatter(logging.Formatter(LOG_FORMAT))
+        root.addHandler(handler)
+    # A handler cannot see what the logger filtered out first, so the level is
+    # half of the repair and the handler is the other half.
+    if root.level > level or root.level == logging.NOTSET:
+        root.setLevel(level)
+
+
+def _describe_log_sinks() -> str:
+    """Where the log is actually going, named rather than assumed."""
+    root = logging.getLogger()
+    sinks = []
+    for h in root.handlers:
+        where = getattr(h, "baseFilename", None) or getattr(
+            getattr(h, "stream", None), "name", "?"
+        )
+        sinks.append(f"{type(h).__name__}({where})")
+    return (
+        f"pid={os.getpid()} root.level={logging.getLevelName(root.level)} "
+        f"handlers=[{', '.join(sinks) or 'NONE'}]"
+    )
 
 HERE = Path(__file__).parent
 DEFAULT_CONFIG = HERE / "campaign_configs" / "campaign.yaml"
@@ -192,23 +242,34 @@ async def main(argv: list[str] | None = None) -> int:
     # A redirect in the launcher cannot fix that, because the stream never reaches
     # the launcher to be redirected. Only the process doing the logging can, which
     # is why this is an argument here rather than a `2>` in `delta_sbatch.sh`.
-    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(level=level, format=LOG_FORMAT)
     if args.log_file:
-        Path(args.log_file).parent.mkdir(parents=True, exist_ok=True)
-        handlers.append(logging.FileHandler(args.log_file, mode="a", encoding="utf-8"))
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-        handlers=handlers,
-    )
-    if args.log_file:
-        log.info("logging to %s", args.log_file)
+        _attach_log_file(args.log_file, level)
+        log.info("logging to %s — %s", args.log_file, _describe_log_sinks())
     for d in (args.run_root, args.corpus, args.checkpoints):
         Path(d).mkdir(parents=True, exist_ok=True)
 
     cfg = load_config(args.config)
     spec = build_spec(cfg, args)
     engine_backends = await backends(args.design_spec)
+
+    # The backend is up, so Dragon's own logging setup has run.  Take the log back
+    # if it was taken, and say where it is going either way --- the campaign's whole
+    # value as evidence depends on this line being true.
+    if args.log_file:
+        _attach_log_file(args.log_file, level)
+    log.info("execution backend(s) ready: %s", _describe_log_sinks())
+    for backend in engine_backends or []:
+        # asteer row 63: the Dragon pool size is the number this job exists to
+        # report, and reading it off the object does not depend on rhapsody's own
+        # log line surviving.
+        batch = getattr(backend, "batch", None)
+        log.info(
+            "backend %s: workers=%s",
+            type(backend).__name__,
+            getattr(batch, "num_workers", "n/a") if batch is not None else "n/a",
+        )
 
     cm = CampaignManager(backend=engine_backends)
     outcome = await cm.run(spec)

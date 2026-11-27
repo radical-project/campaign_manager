@@ -231,6 +231,10 @@ echo "Log      : ${CAMPAIGN_LOG} ($(wc -l < "${CAMPAIGN_LOG}" 2>/dev/null || ech
 # asteer row 63, answered from the job's own output rather than by reading the log
 # afterwards.  The pool is `max(1, Node.num_cpus // 2)` lowered to the cores the job's
 # affinity allows, so --cpus-per-task=64 should give 32.  Item 18 measured that.
-echo "Backend  : $(grep -m1 -oE 'DragonExecutionBackend: [0-9]+ workers.*' "${CAMPAIGN_LOG}" 2>/dev/null \
-    || grep -m1 -oE '(Dragon|Concurrent|ProcessPool|ThreadPool)[A-Za-z]* ?[Ee]xecution ?[Bb]ackend[^,]*' "${CAMPAIGN_LOG}" 2>/dev/null \
+# run_campaign.py reports this off the backend object itself, so it does not depend
+# on rhapsody's own log line surviving Dragon's logging setup.
+echo "Backend  : $(grep -m1 -oE 'backend [A-Za-z]+: workers=.*' "${CAMPAIGN_LOG}" 2>/dev/null \
+    || grep -m1 -oE 'DragonExecutionBackend: [0-9]+ workers.*' "${CAMPAIGN_LOG}" 2>/dev/null \
     || echo '(no execution-backend line in the log — asteer row 63)')"
+echo "Log sink : $(grep -m1 -oE 'execution backend\(s\) ready: .*' "${CAMPAIGN_LOG}" 2>/dev/null \
+    || echo '(the log stops before the backend is up — asteer row 85)')"
