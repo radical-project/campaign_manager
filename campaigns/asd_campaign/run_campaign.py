@@ -106,6 +106,11 @@ def build_spec(cfg: dict[str, Any], args: argparse.Namespace) -> CampaignSpec:
         min_records=int((cfg.get("policy") or {}).get("min_records", 8)),
         train_seconds=float(rome_cfg.get("train_seconds", 5.0)),
         gpus=int(rome_cfg.get("gpus", 1)),
+        # None lets the block derive it from `train_seconds`.  Set it in the
+        # config only when a real trainer's round is longer than that allows.
+        round_timeout_s=(
+            float(rome_cfg["round_timeout_s"]) if "round_timeout_s" in rome_cfg else None
+        ),
     )
 
     return CampaignSpec(

@@ -78,6 +78,26 @@ if [ "${ENGINE}" != "dragon" ] && [ "${TRAIN_IMPL}" = "rome" ]; then
     exit 1
 fi
 
+# ENGINE picks the LAUNCHER; the design spec picks the BACKEND.  `run_campaign.py`
+# builds the execution backend from `impress_backends(ASD_DESIGN_SPEC)`, so a spec
+# that says `backend: concurrent` runs on a thread pool no matter what ENGINE says.
+# Job 24534359 did exactly that: launched under Dragon, ran on a ProcessPoolExecutor,
+# and spent four hours and 16 GPU-hours on about two seconds of work.  Four lines
+# here turn that into an error before the allocation is touched.  grep rather than a
+# YAML parser on purpose: this runs before the VE is active.
+SPEC_BACKEND="$(grep -m1 -E '^backend:[[:space:]]' "${ASD_DESIGN_SPEC}" 2>/dev/null \
+                | sed -E 's/^backend:[[:space:]]*//; s/[[:space:]]*(#.*)?$//')"
+echo "SPEC BACKEND : ${SPEC_BACKEND:-<unset>}   (from ${ASD_DESIGN_SPEC##*/})"
+if [ "${ENGINE}" = "dragon" ] && [ "${SPEC_BACKEND}" != "dragon" ]; then
+    echo "ERROR: ENGINE=dragon but the design spec asks for backend '${SPEC_BACKEND:-<unset>}'."
+    echo "       ENGINE only chooses the launcher.  The backend comes from the spec, so"
+    echo "       this job would launch under Dragon and then run on a local pool — which"
+    echo "       is what job 24534359 did for four hours.  Either point ASD_DESIGN_SPEC"
+    echo "       at a spec whose 'backend:' is dragon (e.g. the *-dragon.yaml twin of a"
+    echo "       mock spec), or set ENGINE=concurrent TRAIN_IMPL=fake for a local run."
+    exit 1
+fi
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 CM_DIR="${CM_DIR:-${WORK_DIR}/campaign_manager}"
 CAMPAIGN_DIR="${CM_DIR}/campaigns/asd_campaign"

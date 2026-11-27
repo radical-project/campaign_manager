@@ -21,6 +21,7 @@ the private names appear below.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -254,6 +255,7 @@ def make_train_block(
     min_records: int = 8,
     train_seconds: float = 5.0,
     gpus: int = 1,
+    round_timeout_s: float | None = None,
 ):
     """One fine-tuning round over the records no round has used yet.
 
@@ -268,7 +270,24 @@ def make_train_block(
     so the bar is measured by the controller's trial.  Once a trainer reports a
     validation metric, this is where "keep training until it clears the target"
     belongs.
+
+    **A round is bounded.**  In M2 (job 24534359) a ROME round never completed:
+    the block printed `submitting training round 1` and the campaign sat on it
+    until the 4-hour wall, spending 16 GPU-hours on about two seconds of work.
+    Nothing failed and nothing logged, so the only symptom was `TIMEOUT`.
+    `round_timeout_s` turns that into a reported failure.  It defaults to
+    `max(600, 20 * train_seconds)` — derived rather than picked: twenty times
+    the work the trainer declares, floored at ten minutes so that Dragon
+    placement on a busy node is never what trips it.
+
+    **It is not a complete guard, and it should not be read as one.**  An
+    `asyncio` timeout fires only if the event loop is still turning.  If a round
+    blocks the loop itself, nothing here runs — which is why the submit-time
+    backend check in `delta_sbatch.sh` exists beside it, and why a spec that
+    asks for `dragon` carries `backend_startup_timeout_s` as well.
     """
+    if round_timeout_s is None:
+        round_timeout_s = max(600.0, 20.0 * train_seconds)
 
     async def train(reporter: Any, context: dict | None = None, flow: Any = None) -> None:
         ctx = context or {}
@@ -292,9 +311,32 @@ def make_train_block(
             score=0.0, metrics={**base, "records": len(pending), "status": "running"}
         )
         if impl == "rome":
-            path, version = await _rome_round(
-                pending, checkpoint_dir, flow, min_records, train_seconds, gpus
-            )
+            try:
+                path, version = await asyncio.wait_for(
+                    _rome_round(
+                        pending, checkpoint_dir, flow, min_records, train_seconds, gpus
+                    ),
+                    timeout=round_timeout_s,
+                )
+            except asyncio.TimeoutError:
+                # The records are deliberately NOT consumed: the round produced
+                # nothing, so the next one should see them again.
+                log.error(
+                    "train: round did not finish within %.0fs — abandoning it. "
+                    "%d record(s) left unconsumed for the next round.",
+                    round_timeout_s, len(pending),
+                )
+                await reporter.emit(
+                    score=0.0,
+                    metrics={
+                        **base,
+                        "records": len(pending),
+                        "status": "stopped",
+                        "reason": "round_timeout",
+                        "timeout_s": round_timeout_s,
+                    },
+                )
+                return
         else:
             path, version = _fake_round(pending, checkpoint_dir)
 
@@ -351,7 +393,14 @@ async def _rome_round(
         path = await manager.start_training(force=True)
         return path, manager.model_version
     finally:
-        await manager.stop()
+        # Bounded for the same reason the round is, and separately: a teardown
+        # that hangs on the way out of a timeout would put the campaign back
+        # exactly where the timeout just rescued it from.  30s is a teardown,
+        # not a round.
+        try:
+            await asyncio.wait_for(manager.stop(), timeout=30.0)
+        except asyncio.TimeoutError:
+            log.error("train: ROME manager did not stop within 30s — abandoning it")
 
 
 def _fake_round(pending: list[dict], checkpoint_dir: str):
