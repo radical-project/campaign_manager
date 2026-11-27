@@ -421,5 +421,14 @@ def _fake_round(pending: list[dict], checkpoint_dir: str):
             indent=2,
         )
     )
-    (out / "train_complete").write_text("")  # ROME's own completion marker
+    # NOT what a `DummyTrainer` round leaves behind, despite this function's name.
+    # `train_complete` is ROME's completion contract for an EXECUTABLE trainer --- one
+    # whose `as_command()` returns a shell command, where the wrapper writes the marker
+    # last so the manager can detect completion without a future the backend may never
+    # resolve (`rome/train/base.py:81-89`). `DummyTrainer` runs as a function task and
+    # writes no marker: job 24692415 published v1 with `checkpoint.json` alone. The
+    # marker is written here only so a `fake` round is self-evidently finished on disk,
+    # and **it must not be used as the criterion for a real round** --- M2's criterion 4
+    # was written against it and the fake path was the only thing that could pass it.
+    (out / "train_complete").write_text("")
     return path, version
